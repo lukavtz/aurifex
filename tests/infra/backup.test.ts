@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,15 +30,11 @@ async function scriptContainer(
   args: readonly string[] = [],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   assert.ok(backupDir, "backup directory must exist");
-  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
-  const gid = typeof process.getgid === "function" ? process.getgid() : 0;
   return run("docker", [
     "run",
     "--rm",
     "--add-host",
     "host.docker.internal:host-gateway",
-    "--user",
-    `${uid}:${gid}`,
     "-v",
     `${SCRIPTS}:/scripts:ro`,
     "-v",
@@ -83,6 +79,9 @@ before(async () => {
   if (!ENABLED) return;
   postgres = await startPostgres();
   backupDir = await mkdtemp(join(tmpdir(), "aurifex-backup-"));
+  // The dump runs in a container as the host uid; make the mounted directory
+  // writable regardless of the daemon's uid mapping.
+  await chmod(backupDir, 0o777);
 });
 
 after(async () => {

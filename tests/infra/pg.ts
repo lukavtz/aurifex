@@ -410,7 +410,17 @@ class RespClient {
   async command(...args: string[]): Promise<Reply> {
     await this.ready;
     const { promise, resolve, reject } = Promise.withResolvers<Reply>();
-    this.pending.push({ resolve, reject });
+    const timer = setTimeout(() => reject(new Error(`redis command timed out: ${args.join(" ")}`)), 5_000);
+    this.pending.push({
+      resolve: (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      reject: (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    });
     this.socket.write(encodeCommand(args));
     return promise;
   }
@@ -435,15 +445,20 @@ export async function startRedis(): Promise<Redis> {
     image: REDIS_IMAGE,
     containerPort: 6379,
   });
-  const client = new RespClient(container.port);
-  const ping = async (): Promise<string> => {
-    const reply = await client.command("PING");
-    return typeof reply === "string" ? reply : String(reply);
+  // Use the server's own CLI instead of a custom RESP client: it is the same
+  // binary the image ships, and avoids subtle framing/backpressure bugs in a
+  // test helper.
+  const cli = async (args: readonly string[]): Promise<string> => {
+    const result = await run("docker", ["exec", container.name, "redis-cli", ...args]);
+    if (result.code !== 0) {
+      throw new Error(`redis-cli ${args.join(" ")} failed: ${result.stderr.trim()}`);
+    }
+    return result.stdout.trim();
   };
+  const ping = async (): Promise<string> => cli(["PING"]);
   try {
     await waitFor("redis", async () => (await ping()) === "PONG");
   } catch (error) {
-    client.close();
     await container.stop();
     throw error;
   }
@@ -454,28 +469,24 @@ export async function startRedis(): Promise<Redis> {
       await ping();
     },
     async stop() {
-      client.close();
       await container.stop();
     },
     async incr(key) {
-      const reply = await client.command("INCR", key);
-      return Number(reply);
+      return Number(await cli(["INCR", key]));
     },
     async expire(key, seconds) {
-      const reply = await client.command("EXPIRE", key, String(seconds));
-      return Number(reply);
+      return Number(await cli(["EXPIRE", key, String(seconds)]));
     },
     async get(key) {
-      const reply = await client.command("GET", key);
-      return typeof reply === "string" ? reply : null;
+      const value = await cli(["GET", key]);
+      return value === "" ? null : value;
     },
     async ttl(key) {
-      const reply = await client.command("TTL", key);
-      return Number(reply);
+      return Number(await cli(["TTL", key]));
     },
     async keys(pattern) {
-      const reply = await client.command("KEYS", pattern);
-      return Array.isArray(reply) ? reply.map((item) => String(item)) : [];
+      const value = await cli(["KEYS", pattern]);
+      return value === "" ? [] : value.split("\n");
     },
     async ping() {
       return ping();

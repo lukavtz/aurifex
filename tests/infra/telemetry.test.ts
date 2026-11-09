@@ -104,7 +104,11 @@ before(async () => {
   postgres = await startPostgres();
   redis = await startRedis();
   sandbox = await createSandbox(
-    { "health.ts": renderHealthTs(), "telemetry.ts": renderTelemetryTs() },
+    {
+      "health.ts": renderHealthTs(),
+      "telemetry.ts": renderTelemetryTs(),
+      "telemetry.js": "export * from './telemetry.ts';\n",
+    },
     STUBS,
   );
   health = (await sandbox.import("health.ts")) as unknown as HealthModule;
