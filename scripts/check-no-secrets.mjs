@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Scans repository text files for Telegram bot token literals.
 // No dependencies: plain Node ESM, deterministic, read-only.
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 const ROOT = process.cwd();
@@ -58,17 +58,23 @@ async function* walk(dir) {
   }
 }
 
-async function isText(absolute) {
-  const info = await stat(absolute);
-  if (info.size > MAX_BYTES) return false;
-  const buffer = await readFile(absolute);
-  return !buffer.subarray(0, 8192).includes(0);
+async function readTextFile(absolute) {
+  const handle = await open(absolute, "r");
+  try {
+    const info = await handle.stat();
+    if (info.size > MAX_BYTES) return null;
+    const buffer = await handle.readFile();
+    if (buffer.subarray(0, 8192).includes(0)) return null;
+    return buffer.toString("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 const findings = [];
 for await (const file of walk(ROOT)) {
-  if (!(await isText(file.absolute))) continue;
-  const text = await readFile(file.absolute, "utf8");
+  const text = await readTextFile(file.absolute);
+  if (text === null) continue;
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     TOKEN_RE.lastIndex = 0;
     let match;

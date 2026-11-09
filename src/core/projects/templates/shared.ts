@@ -55,6 +55,11 @@ export function renderPackageJson(spec: BotSpec): string {
         "prom-client": "15.1.3",
         zod: "4.6.7",
       },
+      overrides: {
+        esbuild: "0.25.12",
+        glob: "14.0.4",
+        minimatch: "11.0.1",
+      },
       devDependencies: {
         "@types/bun": "1.4.4",
         "@types/node": "^24.10.0",

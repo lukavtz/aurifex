@@ -398,7 +398,6 @@ async function ensureBuild(source: string): Promise<BuildOutcome> {
         output: fallback.output.length > 0 ? fallback.output : attempt.output,
       };
     }
-    attempt = fallback;
     tool = "npm run build";
   }
   if (!existsSync(installDistPath(source))) {
