@@ -38,6 +38,27 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# ANSI is only for an interactive terminal; dry runs and pipes stay plain.
+COLOR=0
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "$DRY_RUN" != "1" ]; then
+  COLOR=1
+fi
+
+paint() {
+  if [ "$COLOR" = "1" ]; then
+    printf '\033[%sm%s\033[0m\n' "$1" "$2"
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
+printf '\n'
+paint 36 "  ╭─────────────────────────────╮"
+paint "1;36" "  │  AURIFEX INSTALLER          │"
+paint 36 "  │  OMP · DSH · Claude Code    │"
+paint 36 "  ╰─────────────────────────────╯"
+printf '\n'
+
 command -v node >/dev/null 2>&1 ||
   fail "Node.js was not found. Install Node.js >= 24.9 from https://nodejs.org/ and retry."
 command -v npm >/dev/null 2>&1 ||
@@ -99,10 +120,33 @@ fi
 
 if [ ! -f "$SOURCE_DIR/dist/cli.js" ]; then
   say "Building Aurifex..."
-  (cd "$SOURCE_DIR" && npm install --silent --no-audit --no-fund) || fail "npm install failed in $SOURCE_DIR."
+  (cd "$SOURCE_DIR" &&
+    npm_config_update_notifier=false npm_config_loglevel=error \
+      npm install --silent --no-audit --no-fund --no-progress) ||
+    fail "npm install failed in $SOURCE_DIR."
 fi
 [ -f "$SOURCE_DIR/dist/cli.js" ] ||
   fail "the build did not produce dist/cli.js in $SOURCE_DIR."
+
+DETECTED=""
+MISSING=""
+for host in omp dsh claude; do
+  case "$host" in
+    omp) label="OMP" ;;
+    dsh) label="DSH" ;;
+    *) label="Claude Code" ;;
+  esac
+  if command -v "$host" >/dev/null 2>&1; then
+    DETECTED="${DETECTED:+$DETECTED, }$label"
+  else
+    MISSING="${MISSING:+$MISSING, }$label"
+  fi
+done
+say "Detected hosts: ${DETECTED:-none}"
+if [ -n "$MISSING" ]; then
+  say "Not found on PATH: $MISSING"
+fi
+say "Scope: ${AURIFEX_SCOPE:-user}"
 
 set -- install --source "$SOURCE_DIR"
 if [ -n "${AURIFEX_HOSTS:-}" ]; then

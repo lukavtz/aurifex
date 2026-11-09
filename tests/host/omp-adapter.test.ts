@@ -44,6 +44,7 @@ const fakeZod = {
 
 interface ExecutableTool {
   readonly name: string;
+  readonly description?: string;
   readonly approval?: string;
   readonly parameters: FakeSchema;
   execute(
@@ -68,6 +69,8 @@ interface FakeHost {
   readonly tools: ExecutableTool[];
   readonly commands: RegisteredCommand[];
   readonly notifications: Array<{ message: string; type?: "info" | "warning" | "error" }>;
+  readonly userMessages: string[];
+  readonly eventHandlers: Map<string, Array<(event: unknown) => unknown>>;
   label(): string | undefined;
 }
 
@@ -76,6 +79,8 @@ function createFakeHost(): FakeHost {
   const tools: ExecutableTool[] = [];
   const commands: RegisteredCommand[] = [];
   const notifications: FakeHost["notifications"] = [];
+  const userMessages: string[] = [];
+  const eventHandlers: FakeHost["eventHandlers"] = new Map();
   const pi = {
     zod: fakeZod,
     setLabel: (value: string) => {
@@ -87,12 +92,20 @@ function createFakeHost(): FakeHost {
     registerCommand: (name: string, options: RegisteredCommand["options"]) => {
       commands.push({ name, options });
     },
+    on: (event: string, handler: (event: unknown) => unknown) => {
+      eventHandlers.set(event, [...(eventHandlers.get(event) ?? []), handler]);
+    },
+    sendUserMessage: async (content: string) => {
+      userMessages.push(content);
+    },
   } as unknown as ExtensionAPI;
   return {
     pi,
     tools,
     commands,
     notifications,
+    userMessages,
+    eventHandlers,
     label: () => label,
   };
 }
@@ -168,6 +181,21 @@ test("registers nine tools and three commands without touching the filesystem", 
     assert.equal(typeof command.options.description, "string");
     assert.equal(typeof command.options.handler, "function");
   }
+
+  const scaffold = host.tools.find((tool) => tool.name === "telegram_bot_scaffold");
+  assert.ok(scaffold);
+  assert.match(scaffold.description ?? "", /skills\/telegram-bot-discovery/);
+  assert.match(scaffold.description ?? "", /never invent/);
+
+  const guidance = host.eventHandlers.get("before_agent_start");
+  assert.equal(guidance?.length, 1);
+  const prepared = guidance?.[0]?.({ systemPrompt: ["base prompt"] });
+  assert.deepEqual(prepared, {
+    systemPrompt: [
+      "base prompt",
+      "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.",
+    ],
+  });
   assert.deepEqual(await readdir(root), []);
 });
 
@@ -223,7 +251,7 @@ test("scaffolds a bot through the scaffold tool", async (t) => {
   assert.ok((await readdir(join(root, "demo-bot"))).length > 0);
 });
 
-test("commands notify results without throwing", async (t) => {
+test("aurifex-new submits the discovery prompt instead of scaffolding", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-omp-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -235,8 +263,16 @@ test("commands notify results without throwing", async (t) => {
     args: string,
     ctx: ExtensionContext,
   ) => Promise<void>;
-  await handler("", fakeContext(root, host, { input: ["demo-bot"], select: ["grammy"] }));
-  assert.equal(host.notifications.length, 1);
-  assert.equal(host.notifications[0]?.type, "info");
-  assert.ok((await readdir(join(root, "demo-bot"))).length > 0);
+
+  await handler("demo-bot grammy", fakeContext(root, host));
+
+  assert.equal(host.userMessages.length, 1);
+  const prompt = host.userMessages[0] ?? "";
+  assert.match(prompt, /skills\/telegram-bot-discovery/);
+  assert.match(prompt, /never infer/i);
+  assert.match(prompt, /confirm/i);
+  assert.match(prompt, /telegram_bot_scaffold/);
+  assert.match(prompt, /User arguments: demo-bot grammy/);
+  assert.deepEqual(await readdir(root), []);
+  assert.equal(host.notifications.length, 0);
 });

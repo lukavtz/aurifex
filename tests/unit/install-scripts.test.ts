@@ -115,6 +115,18 @@ test(
     assert.ok(script.includes("--dry-run"));
     assert.ok(script.includes("$BIN_DIR/aurifex"));
     assert.ok(script.includes("Installed CLI:"));
+    assert.match(script, /AURIFEX INSTALLER/);
+    assert.match(script, /OMP · DSH · Claude Code/);
+    assert.ok(script.includes("[ -t 1 ]"), "color must be gated on a TTY");
+    assert.ok(script.includes("NO_COLOR"));
+    assert.ok(script.includes('"$DRY_RUN" != "1"'), "dry runs must stay uncolored");
+    assert.ok(script.includes("Detected hosts:"));
+    assert.ok(script.includes('say "Scope: ${AURIFEX_SCOPE:-user}"'));
+    assert.equal(/(^|\n)\s*read\s/.test(script), false, "install.sh must never prompt");
+    assert.ok(script.includes('[ "$REF" != "main" ]'), "only pinned refs reuse the checkout");
+    assert.ok(script.includes("npm_config_update_notifier=false"));
+    assert.ok(script.includes("--no-audit"));
+    assert.ok(script.includes("--no-progress"));
     assert.match(script, /trap cleanup EXIT/);
     assert.match(script, /rm -rf "\$TMP_DIR"/);
     assert.match(script, /NODE_MAJOR" -lt 24/);
@@ -190,6 +202,10 @@ test(
     const env = { AURIFEX_SOURCE_DIR: REPO, AURIFEX_DRY_RUN: "1", TMPDIR: scratch };
     const first = await run("/bin/sh", [INSTALL_SH], { cwd: root, env });
     assert.equal(first.code, 0, first.stderr);
+    assert.match(first.stdout, /AURIFEX INSTALLER/);
+    assert.match(first.stdout, /^Detected hosts: .+$/m);
+    assert.match(first.stdout, /^Scope: user$/m);
+    assert.equal(first.stdout.includes("\u001b["), false, "dry run must not emit ANSI color");
     assert.match(first.stdout, /Would install: OMP, DSH, Claude Code/);
     assert.match(first.stdout, /OMP: planned/);
     assert.match(first.stdout, /DSH: planned/);
@@ -239,6 +255,8 @@ test(
       },
     });
     assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /^Detected hosts: OMP, DSH, Claude Code$/m);
+    assert.match(result.stdout, /^Scope: user$/m);
     const launcher = join(launcherDir, "aurifex");
     assert.ok((await stat(launcher)).isFile());
     const version = await run(launcher, ["--version"], { cwd: root });
@@ -310,6 +328,16 @@ test("install.ps1 implements the required Windows install flow", async () => {
   assert.ok(script.includes('"--dry-run"'));
   assert.ok(script.includes("aurifex.cmd"));
   assert.ok(script.includes("Installed CLI:"));
+  assert.match(script, /AURIFEX INSTALLER/);
+  assert.match(script, /OMP \. DSH \. Claude Code/);
+  assert.ok(script.includes("[Console]::IsOutputRedirected"), "color must be gated on a console");
+  assert.ok(script.includes("npm_config_update_notifier"));
+  assert.ok(script.includes("npm_config_audit"));
+  assert.ok(script.includes("Detected hosts:"));
+  assert.ok(script.includes('Write-Host "Scope: $ScopeText"'));
+  assert.equal(script.includes("Read-Host"), false, "install.ps1 must never prompt");
+  assert.ok(script.includes('$Ref -ne "main"'), "only pinned refs reuse the checkout");
+  assert.equal(script.includes("\u001b"), false, "install.ps1 must use console colors, not ANSI");
   assert.match(script, /try \{/);
   assert.match(script, /finally \{/);
   assert.match(script, /Remove-Item -Path \$ScratchDir -Recurse -Force/);
@@ -348,6 +376,10 @@ test(
       },
     );
     assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /AURIFEX INSTALLER/);
+    assert.match(result.stdout, /^Detected hosts: .+$/m);
+    assert.match(result.stdout, /^Scope: user$/m);
+    assert.equal(result.stdout.includes("\u001b["), false, "dry run must not emit ANSI color");
     assert.match(result.stdout, /Would install: OMP, DSH, Claude Code/);
     assert.equal(result.stdout.includes("Downloading"), false, "must not download a checkout");
   },

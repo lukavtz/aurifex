@@ -50,7 +50,7 @@ export function createMcpServer(operations: CoreOperations): McpServer {
     "telegram_bot_scaffold",
     {
       description:
-        "Scaffold a standalone, production-grade Telegram bot project from a validated BotSpec.",
+        "Scaffold a standalone, production-grade Telegram bot project from a validated BotSpec. First ask the discovery questions from skills/telegram-bot-discovery, confirm the proposed spec with the user, and never invent stack, feature, storage, locale, or payment values.",
       inputSchema: z
         .object({
           destination: z.string().min(1),

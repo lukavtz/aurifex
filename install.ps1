@@ -11,6 +11,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Keep npm audit, funding, and update notices out of the installer output.
+$env:npm_config_update_notifier = "false"
+$env:npm_config_audit = "false"
+$env:npm_config_fund = "false"
+$env:npm_config_progress = "false"
+$env:npm_config_loglevel = "error"
+
 $Repo = "lukavtz/aurifex"
 $Ref = if ($env:AURIFEX_REF) { $env:AURIFEX_REF } else { "main" }
 $HomeDir = $env:AURIFEX_HOME
@@ -32,6 +39,28 @@ function Fail([string]$Message) {
     [Console]::Error.WriteLine("aurifex install: $Message")
     exit 1
 }
+
+# Console colors only for an interactive session; dry runs and pipes stay plain.
+$UseColor = (-not $DryRun) -and (-not [Console]::IsOutputRedirected)
+
+function Write-Banner {
+    $Lines = @(
+        "  +-------------------------------+",
+        "  |  AURIFEX INSTALLER            |",
+        "  |  OMP . DSH . Claude Code      |",
+        "  +-------------------------------+"
+    )
+    foreach ($Line in $Lines) {
+        if ($UseColor) {
+            Write-Host $Line -ForegroundColor Cyan
+        } else {
+            Write-Host $Line
+        }
+    }
+    Write-Host ""
+}
+
+Write-Banner
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Fail "Node.js was not found. Install Node.js >= 24.9 from https://nodejs.org/ and retry."
@@ -123,6 +152,23 @@ try {
     if (-not (Test-Path (Join-Path $SourceDir "dist/cli.js"))) {
         throw "the build did not produce dist/cli.js in $SourceDir"
     }
+
+    $Detected = @()
+    $Missing = @()
+    foreach ($Entry in @(@("omp", "OMP"), @("dsh", "DSH"), @("claude", "Claude Code"))) {
+        if (Get-Command $Entry[0] -ErrorAction SilentlyContinue) {
+            $Detected += $Entry[1]
+        } else {
+            $Missing += $Entry[1]
+        }
+    }
+    $DetectedText = if ($Detected.Count -gt 0) { $Detected -join ", " } else { "none" }
+    Write-Host "Detected hosts: $DetectedText"
+    if ($Missing.Count -gt 0) {
+        Write-Host ("Not found on PATH: " + ($Missing -join ", "))
+    }
+    $ScopeText = if ($env:AURIFEX_SCOPE) { $env:AURIFEX_SCOPE } else { "user" }
+    Write-Host "Scope: $ScopeText"
 
     $CliArgs = @("install", "--source", $SourceDir)
     if ($env:AURIFEX_HOSTS) {

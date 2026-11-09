@@ -202,6 +202,7 @@ from app.config import Settings
 from app.db.session import create_session_factory
 from app.handlers import register_handlers
 from app.middlewares.allowlist import AllowlistMiddleware
+from app.middlewares.callback_ack import CallbackAckMiddleware
 from app.middlewares.dedupe import DedupeMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
 ${middlewareImport}${queueImport}from app.services.retry import is_retry_after_error, sleep_retry_after
@@ -238,6 +239,8 @@ def create_dispatcher(settings: Settings, bot: Bot, redis: Redis | None) -> Disp
     session_factory = create_session_factory(settings.database_url)
     dispatcher.workflow_data["session_factory"] = session_factory
     dispatcher.workflow_data["settings"] = settings
+    # Registered before handlers so a failing callback handler still stops the spinner.
+    dispatcher.callback_query.middleware(CallbackAckMiddleware())
 ${middleware}${queue}    dispatcher.update.middleware(DedupeMiddleware(redis))
     dispatcher.message.middleware(RateLimitMiddleware(redis))
     dispatcher.message.middleware(AllowlistMiddleware(settings.admin_id_set))
@@ -647,6 +650,123 @@ class RateLimitMiddleware(BaseMiddleware):
             logger.info("rate limit hit for chat %s", message.chat.id)
             return None
         return await handler(event, data)
+`;
+
+const CALLBACK_ACK_MIDDLEWARE = `from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from aiogram import BaseMiddleware
+from aiogram.types import CallbackQuery, TelegramObject
+
+logger = logging.getLogger(__name__)
+
+ACK_TIMEOUT_SECONDS = 2.0
+
+
+class CallbackAckMiddleware(BaseMiddleware):
+    """Answer a callback query when its handler fails before replying.
+
+    The timer starts when the update arrives. A failure answers once and
+    re-raises; success cancels the timer. The answered flag and the task live in
+    this invocation, so bots never share state and cannot answer twice.
+    """
+
+    def __init__(self, timeout: float = ACK_TIMEOUT_SECONDS) -> None:
+        self.timeout = timeout
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if not isinstance(event, CallbackQuery):
+            return await handler(event, data)
+        answered = False
+
+        async def answer_once() -> None:
+            nonlocal answered
+            if answered:
+                return
+            answered = True
+            try:
+                await event.answer()
+            except Exception:
+                logger.debug("callback answer failed", exc_info=True)
+
+        async def answer_late() -> None:
+            await asyncio.sleep(self.timeout)
+            await answer_once()
+
+        task = asyncio.create_task(answer_late())
+        try:
+            return await handler(event, data)
+        except Exception:
+            await answer_once()
+            raise
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+`;
+
+const TEST_CALLBACK_ACK = `from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from aiogram.types import CallbackQuery
+
+from app.middlewares.callback_ack import CallbackAckMiddleware
+
+
+def _event() -> MagicMock:
+    event = MagicMock(spec=CallbackQuery)
+    event.answer = AsyncMock()
+    return event
+
+
+@pytest.mark.asyncio
+async def test_fast_failure_answers_once_and_reraises() -> None:
+    middleware = CallbackAckMiddleware(timeout=10)
+    event = _event()
+
+    async def handler(_event: object, _data: dict[str, object]) -> None:
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        await middleware(handler, event, {})
+    event.answer.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_success_does_not_answer() -> None:
+    middleware = CallbackAckMiddleware(timeout=10)
+    event = _event()
+
+    async def handler(_event: object, _data: dict[str, object]) -> str:
+        return "ok"
+
+    assert await middleware(handler, event, {}) == "ok"
+    event.answer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_slow_handler_is_answered_once() -> None:
+    middleware = CallbackAckMiddleware(timeout=0.01)
+    event = _event()
+
+    async def handler(_event: object, _data: dict[str, object]) -> None:
+        await asyncio.sleep(0.05)
+
+    await middleware(handler, event, {})
+    event.answer.assert_awaited_once()
 `;
 
 const DB_INIT = `"""Database package."""
@@ -1592,6 +1712,7 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/handlers/admin.py", content: HANDLERS_ADMIN },
     { path: "app/middlewares/__init__.py", content: MIDDLEWARES_INIT },
     { path: "app/middlewares/allowlist.py", content: MIDDLEWARES_ALLOWLIST },
+    { path: "app/middlewares/callback_ack.py", content: CALLBACK_ACK_MIDDLEWARE },
     { path: "app/middlewares/dedupe.py", content: MIDDLEWARES_DEDUPE },
     { path: "app/middlewares/rate_limit.py", content: MIDDLEWARES_RATE_LIMIT },
     { path: "app/services/__init__.py", content: SERVICES_INIT },
@@ -1603,6 +1724,7 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/db/models.py", content: renderSchemaPy(spec) },
     { path: "tests/test_commands.py", content: TEST_COMMANDS },
     { path: "tests/test_security.py", content: TEST_SECURITY },
+    { path: "tests/test_callback_ack.py", content: TEST_CALLBACK_ACK },
     { path: "tests/test_webhook_secret.py", content: TEST_WEBHOOK_SECRET },
     { path: "tests/test_api104.py", content: TEST_API104 },
     { path: "tests/test_retry.py", content: TEST_RETRY },

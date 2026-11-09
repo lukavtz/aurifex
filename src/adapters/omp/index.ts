@@ -8,12 +8,7 @@ import type {
 
 import type { CoreOperations } from "../../core/operations.ts";
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
-import {
-  BOT_FEATURES,
-  BOT_SPEC_VERSION,
-  type BotSpec,
-  type BotStack,
-} from "../../core/spec/bot-spec.ts";
+import { BOT_FEATURES } from "../../core/spec/bot-spec.ts";
 import { createHostCoreOperations } from "../shared.ts";
 
 interface ToolOutput {
@@ -47,61 +42,17 @@ async function runTool(
   };
 }
 
-function toSpecName(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
-  if (slug.length === 0) return "bot_project";
-  return /^[a-z]/.test(slug) ? slug : `bot_${slug}`.slice(0, 64);
-}
+const DISCOVERY_GUIDANCE =
+  "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.";
 
-function defaultSpec(name: string, stack: BotStack): BotSpec {
-  const slug = toSpecName(name);
-  const displayName = name.trim().slice(0, 128) || slug;
-  return {
-    schemaVersion: BOT_SPEC_VERSION,
-    name: slug,
-    displayName,
-    stack,
-    features: ["commands"],
-    deployment: "docker",
-    storage: { postgres: false, redis: true },
-    i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
-    security: {
-      webhookSecret: true,
-      adminAllowlist: true,
-      rateLimit: true,
-      idempotency: true,
-    },
-    runtime: {
-      queue: "none",
-      telemetry: { otlp: false, prometheus: false, sentry: false },
-    },
-  };
-}
-
-async function commandNew(_args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const destination = await ctx.ui.input("Directory", "my-bot");
-  if (destination === undefined || destination.trim().length === 0) return;
-  const stack = (await ctx.ui.select("Stack", ["grammy", "aiogram"])) as BotStack | undefined;
-  if (stack !== "grammy" && stack !== "aiogram") return;
-  const operations = await operationsFor(ctx.cwd);
-  const result = await operations.scaffoldBot({
-    destination,
-    spec: defaultSpec(destination, stack),
-  });
-  if (result.status === "error") {
-    ctx.ui.notify(`Aurifex: ${result.error.detail}`, "error");
-    return;
-  }
-  ctx.ui.notify(
-    `Aurifex: ${result.value.files.length} files written to ${result.value.root}`,
-    "info",
-  );
-}
+const NEW_COMMAND_PROMPT = [
+  "Start a new Aurifex Telegram bot project.",
+  "",
+  "1. Read skills/telegram-bot-discovery and ask its material questions in one compact message: goal and audience, name and destination, stack (grammY or aiogram; never infer it), features, storage (Postgres/Redis), locales, admin IDs, payment products, broadcast audience, LLM provider, Mini App, deployment target, and whether an existing project must be preserved.",
+  "2. Never ask for a bot token, webhook secret, API key, or password; those belong in .env or *_FILE after generation.",
+  "3. Summarize the bot, list every `assuming:` value, and get confirmation of the proposed BotSpec.",
+  "4. Only after that confirmation call telegram_bot_target_resolve, then telegram_bot_scaffold. Do not create project files by hand.",
+].join("\n");
 
 async function commandVerify(_args: string, ctx: ExtensionCommandContext): Promise<void> {
   const projectRoot = (await ctx.ui.input("Project root", ".")) ?? ".";
@@ -140,6 +91,12 @@ export default function aurifex(pi: ExtensionAPI): void {
 
   pi.setLabel("Aurifex");
 
+  pi.on("before_agent_start", (event) =>
+    event.systemPrompt.includes(DISCOVERY_GUIDANCE)
+      ? undefined
+      : { systemPrompt: [...event.systemPrompt, DISCOVERY_GUIDANCE] },
+  );
+
   pi.registerTool({
     name: "telegram_bot_target_resolve",
     label: "Resolve Telegram Bot Target",
@@ -157,7 +114,8 @@ export default function aurifex(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "telegram_bot_scaffold",
     label: "Scaffold Telegram Bot",
-    description: "Scaffold a production Telegram bot project from a validated bot spec.",
+    description:
+      "Scaffold a production Telegram bot project from a validated BotSpec. First ask the discovery questions from skills/telegram-bot-discovery, confirm the proposed spec with the user, and never invent stack, feature, storage, locale, or payment values.",
     parameters: z
       .object({
         destination: z.string().describe("Destination directory inside the project root"),
@@ -326,8 +284,13 @@ export default function aurifex(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("aurifex-new", {
-    description: "Scaffold a production Telegram bot",
-    handler: commandNew,
+    description: "Start a Telegram bot through the discovery gate",
+    handler: async (args) => {
+      const trimmed = args.trim();
+      await pi.sendUserMessage(
+        trimmed === "" ? NEW_COMMAND_PROMPT : `${NEW_COMMAND_PROMPT}\n\nUser arguments: ${trimmed}`,
+      );
+    },
   });
   pi.registerCommand("aurifex-verify", {
     description: "Verify a Telegram bot project",

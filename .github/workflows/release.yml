@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
+      id-token: write # cosign keyless signing against Fulcio
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,7 +34,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
       - run: pnpm build
-      - name: Pack
+      - name: Pack and checksum
         run: |
           mkdir -p "$RUNNER_TEMP/pkg"
           pnpm pack --pack-destination "$RUNNER_TEMP/pkg"
@@ -47,18 +47,58 @@ jobs:
           format: cyclonedx-json
           output-file: ${{ runner.temp }}/pkg/aurifex.sbom.json
           upload-artifact: false
-      - uses: sigstore/cosign-installer@v4.1.3
-      - name: Sign release artifacts
+      - name: Assert tarball, SHA256SUMS, SBOM exist
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pkg"
+          ls -l
+          test -n "$(find . -maxdepth 1 -name '*.tgz' -print -quit)" || {
+            echo "::error title=packaging failed::pnpm pack produced no tarball"
+            exit 1
+          }
+          test -f SHA256SUMS || {
+            echo "::error title=packaging failed::SHA256SUMS is missing"
+            exit 1
+          }
+          test -f aurifex.sbom.json || {
+            echo "::error title=SBOM missing::anchore/sbom-action wrote no aurifex.sbom.json"
+            exit 1
+          }
+      - name: Install cosign
+        id: cosign
+        uses: sigstore/cosign-installer@v4.1.3
+        continue-on-error: true
+      - name: Sign release artifacts (keyless, Sigstore bundle)
+        id: sign
+        if: steps.cosign.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          for file in "$RUNNER_TEMP"/pkg/*.tgz; do
-            cosign sign-blob --yes "$file" \
-              --output-signature "${file}.sig" \
-              --output-certificate "${file}.pem"
+          cd "$RUNNER_TEMP/pkg"
+          # cosign v3 sign-blob has no --output-signature/--output-certificate;
+          # the Sigstore bundle is the supported artifact form.
+          for file in ./*.tgz; do
+            cosign sign-blob --yes --bundle "${file}.sigstore.json" "$file"
+            cosign verify-blob "$file" \
+              --bundle "${file}.sigstore.json" \
+              --certificate-identity-regexp "^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
           done
+      - name: Report signing outcome
+        if: always()
+        env:
+          COSIGN_OUTCOME: ${{ steps.cosign.outcome }}
+          SIGN_OUTCOME: ${{ steps.sign.outcome }}
+        run: |
+          if [ "$SIGN_OUTCOME" = "success" ]; then
+            echo "cosign: **signed** — \`*.sigstore.json\` bundles attached" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "cosign: **UNSIGNED** (installer: \`${COSIGN_OUTCOME}\`, signing: \`${SIGN_OUTCOME}\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=cosign signing failed::Release artifacts are unsigned (installer=${COSIGN_OUTCOME}, signing=${SIGN_OUTCOME}). The GitHub Release still publishes tarball, SHA256SUMS, and SBOM."
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: release-package
           path: ${{ runner.temp }}/pkg/*
@@ -76,20 +116,44 @@ jobs:
         with:
           name: release-package
           path: dist
-      - name: Create release
+      - name: Ensure the release exists
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$TAG" \
-              --generate-notes \
-              --verify-tag
+            echo "release $TAG exists; assets are replaced"
+            exit 0
           fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag
+      - name: Upload tarball, SHA256SUMS, SBOM with --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          tgz=$(find . -maxdepth 1 -name '*.tgz' -print -quit)
+          sbom=$(find . -maxdepth 1 -name '*.sbom.json' -print -quit)
+          test -n "$tgz" || { echo "::error title=release asset missing::no tarball in release-package"; exit 1; }
+          test -n "$sbom" || { echo "::error title=release asset missing::no SBOM in release-package"; exit 1; }
+          test -f SHA256SUMS || { echo "::error title=release asset missing::SHA256SUMS not in release-package"; exit 1; }
+          required=("$tgz" SHA256SUMS "$sbom")
+          optional=()
+          while IFS= read -r sig; do
+            optional+=("$sig")
+          done < <(find . -maxdepth 1 -name '*.sigstore.json')
+          if [ "${#optional[@]}" -gt 0 ]; then
+            gh release upload "$TAG" "${required[@]}" "${optional[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release upload "$TAG" "${required[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
 
   npm:
     name: npm publish
@@ -120,33 +184,107 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN is not configured; skipping npm publish."
+            echo "NPM_TOKEN is not configured; skipping npm publish." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           npm publish dist/*.tgz --access public --provenance
+
   examples:
-    name: GHCR examples
+    name: GHCR examples (${{ matrix.example }})
     if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Optional deliverable: a registry permission problem must not fail the
+    # release run, but it must never be reported as success either.
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         example: [grammy_commands, aiogram_commands, grammy_payments]
+    env:
+      IMAGE: aurifex-example-${{ matrix.example }}
     steps:
+      - name: Preflight GHCR write scope
+        id: ghcr
+        shell: bash
+        env:
+          GHCR_TOKEN_VALUE: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          scope="repository:${GITHUB_REPOSITORY_OWNER}/${IMAGE}:pull,push"
+          token_json=$(curl -fsS -u "${GITHUB_ACTOR}:${GHCR_TOKEN_VALUE}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=${scope}" || true)
+          if [ -z "$token_json" ]; then
+            echo "writable=unknown" >> "$GITHUB_OUTPUT"
+            echo "::warning title=GHCR preflight inconclusive::ghcr.io/token did not answer; attempting the push anyway"
+            exit 0
+          fi
+          actions=$(printf '%s' "$token_json" | python3 -c 'import base64,json,sys;p=sys.stdin.read().strip().split(".")[1];p+="="*(-len(p)%4);d=json.loads(base64.urlsafe_b64decode(p));w=(sys.argv[1]+"/"+sys.argv[2]).lower();print(",".join(sorted({a for e in (d.get("access") or []) if str(e.get("name","")).lower()==w for a in (e.get("actions") or [])})))' "$GITHUB_REPOSITORY_OWNER" "$IMAGE" 2>/dev/null || true)
+          if printf ',%s,' "$actions" | grep -q ',push,'; then
+            echo "writable=true" >> "$GITHUB_OUTPUT"
+            echo "GHCR preflight: token grants ${actions} on ghcr.io/${GITHUB_REPOSITORY_OWNER}/${IMAGE}"
+            exit 0
+          fi
+          if printf ',%s,' "$actions" | grep -q ',pull,'; then
+            echo "writable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=GHCR write denied::token grant for ${scope} is '${actions}'"
+            exit 0
+          fi
+          # Empty or unparsable grant: the registry may not enumerate scopes for
+          # a package that does not exist yet, so attempt the push and let the
+          # registry be authoritative.
+          echo "writable=unknown" >> "$GITHUB_OUTPUT"
+          echo "::warning title=GHCR preflight inconclusive::no scope granted for ${scope}; attempting the push anyway"
+      - name: Report skipped publish
+        if: steps.ghcr.outputs.writable == 'false'
+        run: |
+          {
+            echo "### \`${IMAGE}\`: not published"
+            echo ""
+            echo "The workflow token cannot push to \`ghcr.io/${GITHUB_REPOSITORY_OWNER}/${IMAGE}\`."
+            echo ""
+            echo "Remedy: GitHub -> package settings -> *Manage Actions access* -> add"
+            echo "\`${GITHUB_REPOSITORY}\` with **Write**, or provide a \`GHCR_TOKEN\` PAT."
+            echo "The GitHub Release is unaffected and already published."
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v7
+        if: steps.ghcr.outputs.writable != 'false'
       - uses: docker/setup-buildx-action@v3
+        if: steps.ghcr.outputs.writable != 'false'
+      - uses: docker/setup-qemu-action@v3
+        if: steps.ghcr.outputs.writable != 'false'
       - uses: docker/login-action@v3
+        if: steps.ghcr.outputs.writable != 'false'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+      - name: Build and push
+        if: steps.ghcr.outputs.writable != 'false'
+        uses: docker/build-push-action@v7
         with:
           context: examples/${{ matrix.example }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/lukavtz/aurifex-example-${{ matrix.example }}:${{ github.ref_name }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE }}:${{ github.ref_name }}
+      - name: Report published image
+        if: steps.ghcr.outputs.writable != 'false' && success()
+        run: |
+          {
+            echo "### \`${IMAGE}\`: published"
+            echo ""
+            echo "\`ghcr.io/${GITHUB_REPOSITORY_OWNER}/${IMAGE}:${{ github.ref_name }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Report publish failure
+        if: failure()
+        run: |
+          {
+            echo "### \`${IMAGE}\`: publish FAILED"
+            echo ""
+            echo "The GitHub Release is unaffected. Check the job log for the registry error."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=GHCR example image not published::${IMAGE} was not pushed; the GitHub Release is unaffected"

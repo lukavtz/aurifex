@@ -144,6 +144,97 @@ const MINIAPP_ROUTE = `    const miniAppRoute = miniAppRoutes.find(
     }
 `;
 
+const CALLBACK_ACK_MIDDLEWARE = `import type { Context, MiddlewareFn } from "grammy";
+
+const ACK_TIMEOUT_MS = 2_000;
+
+/**
+ * Answer a callback query when its handler fails before replying.
+ *
+ * The timer starts when the update arrives. A failure answers once and
+ * re-raises; success clears the timer. The answered flag and the timer live in
+ * this invocation, so bots never share state and cannot answer twice.
+ */
+export function callbackAckMiddleware(timeoutMs: number = ACK_TIMEOUT_MS): MiddlewareFn<Context> {
+  return async (ctx, next) => {
+    if (!ctx.callbackQuery) {
+      await next();
+      return;
+    }
+    let answered = false;
+    const answerOnce = async (): Promise<void> => {
+      if (answered) return;
+      answered = true;
+      try {
+        await ctx.answerCallbackQuery();
+      } catch {
+        // The query may have expired; never mask the handler outcome.
+      }
+    };
+    const timer = setTimeout(() => {
+      void answerOnce();
+    }, timeoutMs);
+    try {
+      await next();
+    } catch (error) {
+      await answerOnce();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+`;
+
+const CALLBACK_ACK_TEST = `import { expect, test } from "bun:test";
+import type { Context } from "grammy";
+import { callbackAckMiddleware } from "../src/security/callback-ack.js";
+
+function fakeContext(answers: string[]): Context {
+  return {
+    callbackQuery: { id: "cb-1" },
+    answerCallbackQuery: async () => {
+      answers.push("answer");
+      return true;
+    },
+  } as unknown as Context;
+}
+
+test("answers once when the handler throws before replying", async () => {
+  const answers: string[] = [];
+  const middleware = callbackAckMiddleware(60_000);
+  await expect(
+    middleware(fakeContext(answers), async () => {
+      throw new Error("boom");
+    }),
+  ).rejects.toThrow("boom");
+  expect(answers.length).toBe(1);
+});
+
+test("does not answer when the handler succeeds", async () => {
+  const answers: string[] = [];
+  const middleware = callbackAckMiddleware(60_000);
+  await middleware(fakeContext(answers), async () => {});
+  expect(answers.length).toBe(0);
+});
+
+test("answers a slow handler exactly once", async () => {
+  const answers: string[] = [];
+  const middleware = callbackAckMiddleware(5);
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, 25);
+  await middleware(fakeContext(answers), () => promise);
+  expect(answers.length).toBe(1);
+});
+
+test("passes non-callback updates through untouched", async () => {
+  const answers: string[] = [];
+  const middleware = callbackAckMiddleware(5);
+  await middleware({} as Context, async () => {});
+  expect(answers.length).toBe(0);
+});
+`;
+
 function grammyFiles(spec: BotSpec): TemplateFile[] {
   const displayName = JSON.stringify(spec.displayName);
   const hasIdempotency = spec.security.idempotency;
@@ -201,7 +292,8 @@ export const logger = pino({
       content: `import { Bot, type Context, type MiddlewareFn } from "grammy";
 import { getConfig, type Config } from "./config.js";
 import { logger } from "./logger.js";
-${hasIdempotency ? 'import { dedupeMiddleware } from "./security/dedupe.js";\n' : ""}${hasRateLimit ? 'import { rateLimitMiddleware } from "./security/rate-limit.js";\n' : ""}import { retryAfterMs } from "./security/retry.js";
+${hasIdempotency ? 'import { dedupeMiddleware } from "./security/dedupe.js";\n' : ""}${hasRateLimit ? 'import { rateLimitMiddleware } from "./security/rate-limit.js";\n' : ""}import { callbackAckMiddleware } from "./security/callback-ack.js";
+import { retryAfterMs } from "./security/retry.js";
 
 export interface BotWithSecurity extends Bot {
   readonly securityMiddleware: readonly MiddlewareFn<Context>[];
@@ -209,6 +301,9 @@ export interface BotWithSecurity extends Bot {
 
 export function createBot(config: Config = getConfig()): BotWithSecurity {
   const bot = new Bot(config.BOT_TOKEN) as BotWithSecurity;
+  // Answers a callback query when its handler fails before replying; registered
+  // before every feature so any handler that throws still stops the spinner.
+  bot.use(callbackAckMiddleware());
   const security: MiddlewareFn<Context>[] = [];
 ${hasIdempotency ? "  security.push(dedupeMiddleware(config.REDIS_URL));\n" : ""}${hasRateLimit ? "  security.push(rateLimitMiddleware(config.REDIS_URL));\n" : ""}  for (const middleware of security) {
     bot.use(middleware);
@@ -1152,6 +1247,14 @@ test("security middleware is installed before update handling", () => {
   expect(typeof bot.middleware()).toBe("function");
 });
 `,
+    },
+    {
+      path: "src/security/callback-ack.ts",
+      content: CALLBACK_ACK_MIDDLEWARE,
+    },
+    {
+      path: "tests/callback-ack.test.ts",
+      content: CALLBACK_ACK_TEST,
     },
     {
       path: "tests/body-cap.test.ts",

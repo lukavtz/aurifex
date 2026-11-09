@@ -29,7 +29,7 @@ export const Config: schema<AurifexConfig> = schema.object({
 
 /** Four-sentence operating guidance appended to the host system prompt. */
 export const AURIFEX_GUIDANCE =
-  "Use telegram_bot_scaffold to create a project before writing files by hand. Run telegram_bot_verify after changing a generated bot. Never print bot tokens, webhook secrets, or API keys; report their redacted form only. Prefer telegram_bot_deploy_plan over ad-hoc Docker or Caddy edits.";
+  "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions from skills/telegram-bot-discovery — goal, name, stack, features, storage, locales, admins, payments, broadcast, LLM, Mini App, deployment, existing project — and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Use telegram_bot_scaffold to create a project before writing files by hand. Run telegram_bot_verify after changing a generated bot, and prefer telegram_bot_deploy_plan over ad-hoc Docker or Caddy edits.";
 
 const JSON_OUTPUT = { type: "json" as const } as const;
 
@@ -78,7 +78,7 @@ async function createTools(operations: CoreOperations) {
   const scaffold = defineTool({
     name: "telegram_bot_scaffold",
     description:
-      "Scaffold a complete production bot project from a BotSpec. Writes files under the workspace root and refuses a non-empty destination unless overwrite is true.",
+      "Scaffold a complete production bot project from a BotSpec. Run the discovery interview from skills/telegram-bot-discovery and get the proposed BotSpec confirmed first; never invent stack, feature, storage, or payment values. Writes files under the workspace root and refuses a non-empty destination unless overwrite is true.",
     parameters: {
       destination: {
         type: "string",
@@ -88,7 +88,7 @@ async function createTools(operations: CoreOperations) {
       spec: {
         type: "json",
         required: true,
-        description: "BotSpec document (bot-spec-1.0.0).",
+        description: "BotSpec document (bot-spec-1.1.0; bot-spec-1.0.0 is upgraded).",
       },
       overwrite: {
         type: "boolean",

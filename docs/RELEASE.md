@@ -33,14 +33,69 @@ change. The workflow requires Pages configured with **Source: GitHub Actions**.
    git push origin v0.2.0
    ```
 4. `.github/workflows/release.yml` verifies, packs, writes `SHA256SUMS`, generates a
-   CycloneDX SBOM, signs the tarball with cosign keyless, publishes the checked-in
+   CycloneDX SBOM, signs the tarball keyless with cosign, publishes the checked-in
    example images to GHCR, creates a GitHub Release, and publishes to npm **only when
    `NPM_TOKEN` is configured**.
-5. Without `NPM_TOKEN`, the workflow still creates a GitHub Release with the tarball,
-   checksums, SBOM, signature, and certificate. Add the secret in repository settings
-   before expecting npm publication.
+5. Without `NPM_TOKEN`, the workflow still creates a GitHub Release. Add the secret in
+   repository settings before expecting npm publication.
 6. `.github/workflows/host-matrix.yml` runs nightly against pinned OMP, DSH, and
    Claude Code versions.
+
+## Release workflow contract
+
+| Job              | Blocking                 | Outputs                                                                                    |
+| ---------------- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| `verify`         | yes                      | tarball, `SHA256SUMS`, `aurifex.sbom.json`, `*.sigstore.json` (best effort) as an artifact |
+| `github-release` | yes                      | GitHub Release assets: tarball, `SHA256SUMS`, SBOM, plus the signature bundle when signed  |
+| `npm`            | no                       | npm publish only when `NPM_TOKEN` is set                                                   |
+| `examples`       | no (`continue-on-error`) | `ghcr.io/lukavtz/aurifex-example-<stack>:<tag>`, or an explicit skip summary               |
+
+`verify` asserts the tarball, `SHA256SUMS`, and the SBOM exist before uploading the
+artifact, so a broken pack or SBOM step fails the run instead of shipping a release
+without them. `github-release` then creates the release when it is absent and always
+runs `gh release upload ... --clobber`, so re-running a release for an existing tag
+replaces the assets instead of failing on `already_exists`. Signature assets are
+optional: they are uploaded when present and never gate the release.
+
+### cosign signing
+
+`sigstore/cosign-installer@v4.1.3` installs cosign 3.x. Since cosign v3, `sign-blob`
+has **no** `--output-signature`/`--output-certificate`; signing is done with
+`--bundle <file>.sigstore.json`, and each bundle is verified in the same step with
+`verify-blob --certificate-identity-regexp`/`--certificate-oidc-issuer`. Signing is
+`continue-on-error`: a failure writes `::error title=cosign signing failed::` and an
+UNSIGNED line to the job summary, and the GitHub Release proceeds without signature
+assets. Verify a downloaded artifact with:
+
+```sh
+cosign verify-blob aurifex-0.2.0.tgz \
+  --bundle aurifex-0.2.0.tgz.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/lukavtz/aurifex/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+### GHCR example images
+
+The `examples` job is optional and non-blocking. Before building, each matrix leg asks
+`ghcr.io/token` for a `repository:<owner>/<image>:pull,push` grant with the workflow
+token. A grant that includes `push` proceeds; a grant limited to `pull` marks the image
+as skipped with a job-summary remediation note; an empty or unparsable grant is treated
+as inconclusive and the push is attempted, leaving the registry authoritative. A push
+failure marks the job failed (red) without failing the run, and the GitHub Release has
+already completed.
+
+**Known external blocker:** `permission_denied: write_package` on
+`ghcr.io/lukavtz/aurifex-example-*` is a repository/package setting, not a workflow bug.
+The workflow job already requests `packages: write`. Fix it in one of two ways:
+
+1. GitHub → package settings → **Manage Actions access** → add `lukavtz/aurifex` with
+   **Write** for each `aurifex-example-*` package (this is the case when a package was
+   first published by another repository, so the token is not linked to it).
+2. Provide a `GHCR_TOKEN` secret holding a PAT with `write:packages` and pass it to
+   `docker/login-action` instead of `secrets.GITHUB_TOKEN`.
+
+Until one of these is done, releases ship successfully with the images skipped and a
+warning annotation. Nothing in the workflow reports a skipped image as published.
 
 ## Secrets
 

@@ -214,6 +214,7 @@ live E2E suite.
 - `src/adapters/omp/index.ts` default-exports a factory.
 - Registers tools with `pi.registerTool`, schemas with `pi.zod`.
 - Registers `/aurifex-new`, `/aurifex-verify`, `/aurifex-deploy`.
+- `/aurifex-new` sends the discovery prompt and never scaffolds until the user confirms the BotSpec.
 - Authorizes paths from `ctx.cwd`.
 - Uses tool `approval`: `read` for resolve/inspect/verify, `write` for scaffold/add/deploy.
 
