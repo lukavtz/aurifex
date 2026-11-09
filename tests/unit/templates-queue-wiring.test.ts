@@ -46,9 +46,7 @@ const QUEUE_FILES = [
 ];
 
 function files(spec: BotSpec): Map<string, string> {
-  return new Map(
-    renderGrammyProject(spec, target).map((file) => [file.path, file.content]),
-  );
+  return new Map(renderGrammyProject(spec, target).map((file) => [file.path, file.content]));
 }
 
 function serviceBlock(compose: string, service: string): string {
@@ -105,7 +103,10 @@ test("compose adds a one-shot migrate service gating bot and worker", () => {
   assert.match(migrate, /command: \["node", "dist\/migrate\.js"\]/u);
   assert.match(migrate, /restart: "no"/u);
   assert.match(migrate, /postgres:\n {8}condition: service_healthy/u);
-  assert.match(serviceBlock(compose, "bot"), /migrate:\n {8}condition: service_completed_successfully/u);
+  assert.match(
+    serviceBlock(compose, "bot"),
+    /migrate:\n {8}condition: service_completed_successfully/u,
+  );
   const worker = serviceBlock(compose, "worker");
   assert.match(worker, /migrate:\n {8}condition: service_completed_successfully/u);
   assert.match(worker, /stop_grace_period: 35s/u);
@@ -134,7 +135,7 @@ test("package scripts and image carry the migration and worker entrypoint", () =
   assert.equal(pkg.scripts["db:migrate"], "node dist/migrate.js");
   assert.equal(pkg.scripts["start:worker"], "node dist/worker.js");
   assert.equal(pkg.scripts["db:generate"], "drizzle-kit generate");
-  assert.ok(!Object.keys(pkg.dependencies).some((name) => name.startsWith("@opentelemetry/")));
+  assert.ok(Object.keys(pkg.dependencies).some((name) => name.startsWith("@opentelemetry/")));
   assert.match(queued.get("Dockerfile") ?? "", /^COPY drizzle \.\/drizzle$/mu);
 
   const commandsOnly = files(COMMANDS_ONLY);

@@ -73,11 +73,7 @@ describe("runtime schema SQL", () => {
     assert.match(sql, /CHECK \(status IN \('paid','refunded','chargeback'\)\)/);
     assert.match(sql, /CHECK \(status IN \('requested','completed','failed'\)\)/);
     assert.match(sql, /CHECK \(status IN \('pending','running','done','dead'\)\)/);
-    assert.equal(
-      sql.includes("CREATE EXTENSION"),
-      false,
-      "schema must not install extensions",
-    );
+    assert.equal(sql.includes("CREATE EXTENSION"), false, "schema must not install extensions");
   });
 });
 
@@ -92,8 +88,7 @@ describe("renderSchemaTs", () => {
     for (const table of TABLES) {
       const exported = table.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
       assert.ok(
-        source.includes(`pgTable("${table}"`) ||
-          source.includes(`pgTable(\n  "${table}"`),
+        source.includes(`pgTable("${table}"`) || source.includes(`pgTable(\n  "${table}"`),
         `missing pgTable: ${table} (${exported})`,
       );
     }
@@ -117,9 +112,7 @@ describe("renderSchemaTs", () => {
     assert.ok(source.includes(".references(() => users.id)"));
     assert.ok(source.includes(".references(() => payments.chargeId)"));
     assert.ok(source.includes('.references(() => broadcasts.id, { onDelete: "cascade" })'));
-    assert.ok(
-      source.includes("primaryKey({ columns: [table.broadcastId, table.chatId] })"),
-    );
+    assert.ok(source.includes("primaryKey({ columns: [table.broadcastId, table.chatId] })"));
     assert.ok(source.includes('index("jobs_ready_idx").on(table.status, table.runAt)'));
   });
 
@@ -235,7 +228,7 @@ describe("renderAlembicMigration", () => {
       'sa.ForeignKey("users.id")',
       'sa.ForeignKey("payments.charge_id")',
       'sa.ForeignKey("broadcasts.id", ondelete="CASCADE")',
-      "sa.PrimaryKeyConstraint(\"broadcast_id\", \"chat_id\")",
+      'sa.PrimaryKeyConstraint("broadcast_id", "chat_id")',
       "unique=True",
       "payments_status_check",
       "refunds_status_check",
@@ -244,7 +237,7 @@ describe("renderAlembicMigration", () => {
       "broadcast_deliveries_status_check",
       'sa.ForeignKey("broadcasts.id", ondelete="CASCADE")',
       'sa.Column("raw", postgresql.JSONB(), nullable=False)',
-      'sa.Uuid()',
+      "sa.Uuid()",
     ]) {
       assert.ok(source.includes(fragment), `missing: ${fragment}`);
     }

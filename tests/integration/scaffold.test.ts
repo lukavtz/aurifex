@@ -25,6 +25,17 @@ const BASE_SPEC: Record<string, unknown> = {
   displayName: "Sample Bot",
   stack: "grammy",
   features: ["commands", "llm", "inline", "payments", "miniapps", "moderation", "broadcast"],
+  payments: {
+    products: [
+      {
+        id: "support",
+        title: "Support",
+        description: "Support the bot",
+        stars: 1,
+        subscription: false,
+      },
+    ],
+  },
   deployment: "docker",
   storage: { postgres: true, redis: true },
   i18n: { defaultLocale: "en", en: true, ru: false },
@@ -166,9 +177,7 @@ test("scaffolds a self-consistent grammY project", async () => {
     assert.equal(Object.hasOwn(manifest.files, MANIFEST_PATH), false);
     assert.deepEqual(
       Object.keys(manifest.files),
-      (await expectedFiles(spec))
-        .map((file) => file.path)
-        .filter((path) => path !== MANIFEST_PATH),
+      (await expectedFiles(spec)).map((file) => file.path).filter((path) => path !== MANIFEST_PATH),
     );
     for (const [path, hash] of Object.entries(manifest.files)) {
       assert.equal(sha256Hex(await readFile(join(root, "sample-bot", path))), hash, path);

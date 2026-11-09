@@ -62,7 +62,10 @@ export default ${locale};
 `;
 }
 
-function renderTsIndex(defaultLocale: GeneratedLocale, enabled: readonly GeneratedLocale[]): string {
+function renderTsIndex(
+  defaultLocale: GeneratedLocale,
+  enabled: readonly GeneratedLocale[],
+): string {
   return `import en from "./en.js";
 import ru from "./ru.js";
 import zh from "./zh.js";

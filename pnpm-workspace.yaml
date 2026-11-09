@@ -37,3 +37,6 @@ minimumReleaseAgeExclude:
   - "@oxlint/binding-win32-ia32-msvc@1.93.0"
   - "@oxlint/binding-win32-x64-msvc@1.93.0"
   - oxlint@1.93.0
+
+overrides:
+  zod: 4.6.7

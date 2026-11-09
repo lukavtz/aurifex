@@ -10,7 +10,10 @@ import {
   renderLlmJobTs,
   renderUserSyncTs,
 } from "../../src/core/projects/templates/jobs.ts";
-import { renderDrizzleMigration, renderSchemaTs } from "../../src/core/projects/templates/runtime-schema.ts";
+import {
+  renderDrizzleMigration,
+  renderSchemaTs,
+} from "../../src/core/projects/templates/runtime-schema.ts";
 import { resolveStack } from "../../src/core/targets/catalog.ts";
 import type { TemplateFile } from "../../src/core/projects/templates/shared.ts";
 
@@ -86,10 +89,7 @@ test("feature loader passes deps and the queue to the llm module", () => {
 
 test("migration is the consolidated runtime schema", () => {
   const files = renderGrammyProject(spec, target);
-  assert.equal(
-    find(files, "drizzle/0001_runtime_schema.sql").content,
-    renderDrizzleMigration(),
-  );
+  assert.equal(find(files, "drizzle/0001_runtime_schema.sql").content, renderDrizzleMigration());
   assert.ok(!files.some((file) => file.path === "drizzle/0001_jobs.sql"));
   assert.equal(find(files, "src/storage/schema.ts").content, renderSchemaTs(spec));
 });

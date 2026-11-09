@@ -16,6 +16,17 @@ const SPEC: Record<string, unknown> = {
   displayName: "Webhook Bot",
   stack: "grammy",
   features: ["commands", "llm", "inline", "payments", "miniapps", "moderation", "broadcast"],
+  payments: {
+    products: [
+      {
+        id: "support",
+        title: "Support",
+        description: "Support the bot",
+        stars: 1,
+        subscription: false,
+      },
+    ],
+  },
   deployment: "docker",
   storage: { postgres: true, redis: true },
   i18n: { defaultLocale: "en", en: true, ru: false, zh: false },

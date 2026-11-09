@@ -31,7 +31,7 @@
 Aurifex gives a coding agent a production path for Telegram bots. It runs in OMP,
 DeepSeek Harness, Claude Code, and any MCP client. TypeScript + grammY and Python +
 aiogram are first-class. One domain core owns scaffolding, security policy, verification,
-and deploy plans; thin host adapters project the same eight tools into each agent.
+and deploy plans; thin host adapters project the same nine tools into each agent.
 
 ## One command
 
@@ -56,7 +56,7 @@ The script keeps a persistent checkout at `~/.aurifex/src`
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **Scaffold** | Writes a standalone project from a strict `BotSpec`: webhook or polling, Docker, Caddy, Redis/Postgres, tests, and CI.                  |
 | **Add**      | Nine features: commands, LLM chat, inline mode, Stars payments, Mini Apps, moderation, broadcasts, Bot API 10.4 widgets, rich messages. |
-| **Verify**   | 16 deterministic checks over a bounded snapshot. A token literal or missing webhook secret is a failure, not a warning.                 |
+| **Verify**   | 29 deterministic checks over a bounded snapshot. A token literal or missing webhook secret is a failure, not a warning.                 |
 | **Deploy**   | Render compose, Dockerfile, Caddyfile, and a `setWebhook` script. Never calls Telegram.                                                 |
 
 ```console
@@ -64,7 +64,7 @@ $ aurifex target --stack grammy
 grammy 1.46.0 (Bot API 10.4)
 
 $ aurifex verify my-bot
-ok: 15 pass, 1 warn, 0 fail
+ok: 28 pass, 1 warn, 0 fail
 ```
 
 The single warning on a fresh scaffold is `deps.lockfile`: install once and commit the
@@ -91,14 +91,14 @@ flowchart LR
   CC[Claude Code plugin] --> MCP
   CORE --> POLICY[PathPolicy<br/>authorized root]
   CORE --> TPL[Template renderers<br/>grammY · aiogram]
-  CORE --> CHECK[Static verification<br/>16 checks]
+  CORE --> CHECK[Static verification<br/>29 checks]
   TPL --> BOT[Standalone bot project]
 ```
 
 Each host exposes the same tools: `telegram_bot_target_resolve`,
 `telegram_bot_scaffold`, `telegram_bot_inspect`, `telegram_bot_verify`,
-`telegram_bot_add_feature`, `telegram_bot_deploy_plan`, `telegram_bot_test_harness`, and
-`telegram_bot_upgrade_plan`.
+`telegram_bot_add_feature`, `telegram_bot_deploy_plan`, `telegram_bot_test_harness`, `telegram_bot_upgrade_plan`, and
+`telegram_bot_upgrade`.
 
 ## Quick start
 
@@ -174,7 +174,7 @@ my-bot/
 
 ## Verification gate
 
-`verify` runs 16 deterministic checks over a bounded snapshot (64 MiB total, 1 MiB per
+`verify` runs 29 deterministic checks over a bounded snapshot (64 MiB total, 1 MiB per
 file). Any `fail` makes `ok: false`; warnings remain visible.
 
 ```sh
@@ -194,6 +194,7 @@ aurifex verify my-bot --json    # DomainResult with evidence
 | `aurifex deploy`       | Write deploy files and a webhook script; no API call.        |
 | `aurifex harness`      | Write update fixtures, a fake transport, and tgfake compose. |
 | `aurifex upgrade-plan` | List the Bot API 10.4 migration actions for a project.       |
+| `aurifex upgrade`      | Verify the manifest; `--apply` migrates it to 1.1.           |
 | `aurifex install`      | Install into OMP, DSH, and Claude Code in one pass.          |
 
 All commands accept `--json` and emit a stable `DomainResult`. Exit codes: `0` success,

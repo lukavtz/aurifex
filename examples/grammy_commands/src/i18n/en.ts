@@ -1,0 +1,12 @@
+const en: Record<string, string> = {
+  "start.welcome": "Welcome to {bot}. Use /help to see available commands.",
+  "help.title": "Commands:",
+  "help.commands": "/start - start the bot\n/help - show this list\n/admin - admin area",
+  "errors.generic": "Something went wrong. Please try again.",
+  "payments.precheckout_failed": "Payment could not be confirmed.",
+  "payments.thanks": "Thanks for your payment!",
+  "subscription.active": "Subscription active.",
+  "subscription.canceled": "Subscription canceled.",
+};
+
+export default en;

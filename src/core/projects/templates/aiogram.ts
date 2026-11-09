@@ -1,6 +1,8 @@
 import type { BotSpec } from "../../spec/bot-spec.ts";
 import { resolveStack } from "../../targets/catalog.ts";
 import { renderAiogramFeature } from "../features/aiogram.ts";
+import { renderApi104TypesPy } from "./api104-types.ts";
+import { renderFuzzPy } from "./fuzz.ts";
 import { renderI18nFiles } from "./i18n.ts";
 import { renderUserSyncPy } from "./jobs.ts";
 import { renderQueuePy, renderWorkerPy } from "./queue.ts";
@@ -9,6 +11,7 @@ import { renderAlembicMigration, renderSchemaPy } from "./runtime-schema.ts";
 import { renderSecretsPy } from "./runtime-secrets.ts";
 import type { TemplateFile } from "./shared.ts";
 import { assertNoTokenLiteral, baseFiles } from "./shared.ts";
+import { renderHealthPy, renderTelemetryPy } from "./telemetry.ts";
 import { renderJobsIndexPy, renderWorkerEntryPy } from "./worker-entry.ts";
 
 const ALEMBIC_INI = `[alembic]
@@ -176,16 +179,15 @@ function appBot(spec: BotSpec): string {
         dispatcher.update.middleware(UserSyncMiddleware(session_factory))
 `
     : "";
-  const queue =
-    queued
-      ? `    if session_factory is None:
+  const queue = queued
+    ? `    if session_factory is None:
         raise RuntimeError("DATABASE_URL is required for the queue")
     dispatcher.workflow_data["queue"] = Queue(
         session_factory,
         visibility_timeout_seconds=settings.queue_visibility_timeout_seconds,
     )
 `
-      : "";
+    : "";
   return `from __future__ import annotations
 
 import logging
@@ -245,7 +247,8 @@ ${middleware}${queue}    dispatcher.update.middleware(DedupeMiddleware(redis))
 `;
 }
 
-const APP_MAIN = `from __future__ import annotations
+function appMain(spec: BotSpec): string {
+  return `from __future__ import annotations
 
 import asyncio
 
@@ -255,7 +258,19 @@ from aiohttp import web
 from app.bot import create_bot, create_dispatcher, create_redis
 from app.config import Settings, get_settings
 from app.logger import configure_logging
+from app.runtime.telemetry import init_telemetry, shutdown_telemetry
 from app.webhook import create_webhook_app
+
+SERVICE_NAME = ${JSON.stringify(spec.displayName)}
+
+
+def configure_telemetry(settings: Settings) -> None:
+    if settings.otel_exporter_otlp_endpoint or settings.sentry_dsn:
+        init_telemetry(
+            settings.otel_service_name or SERVICE_NAME,
+            otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+            sentry_dsn=settings.sentry_dsn,
+        )
 
 
 def allowed_updates(dispatcher: Dispatcher) -> list[str]:
@@ -274,6 +289,7 @@ async def run_polling(settings: Settings) -> None:
             drop_pending_updates=False,
         )
     finally:
+        shutdown_telemetry()
         await bot.session.close()
         if redis is not None:
             await redis.aclose()
@@ -285,9 +301,10 @@ def run_webhook(settings: Settings) -> None:
     bot = create_bot(settings)
     redis = create_redis(settings)
     dispatcher = create_dispatcher(settings, bot, redis)
-    app = create_webhook_app(dispatcher, bot, settings)
+    app = create_webhook_app(dispatcher, bot, settings, redis)
 
     async def shutdown(_app: web.Application) -> None:
+        shutdown_telemetry()
         await bot.session.close()
         if redis is not None:
             await redis.aclose()
@@ -299,6 +316,7 @@ def run_webhook(settings: Settings) -> None:
 def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
+    configure_telemetry(settings)
     if settings.bot_mode == "webhook":
         run_webhook(settings)
     else:
@@ -308,6 +326,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 `;
+}
 
 const APP_WEBHOOK = `from __future__ import annotations
 
@@ -317,15 +336,55 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from redis.asyncio import Redis
+from sqlalchemy import text
 
 from app.config import Settings
+from app.runtime.health import healthz, metrics, readyz
+
+try:
+    from app.runtime.miniapp_session import SECURITY_HEADERS
+except ModuleNotFoundError:  # miniapps feature is not enabled
+    SECURITY_HEADERS = {}
 
 MAX_BODY_BYTES = 1_048_576
 WEBHOOK_PATH = "/webhook"
 
 
-async def healthz(_request: web.Request) -> web.Response:
-    return web.json_response({"ok": True})
+@web.middleware
+async def security_headers_middleware(
+    request: web.Request, handler: Any
+) -> web.StreamResponse:
+    try:
+        response = await handler(request)
+    except web.HTTPException as error:
+        for name, value in SECURITY_HEADERS.items():
+            error.headers.setdefault(name, value)
+        raise
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
+def readiness_probes(
+    dispatcher: Dispatcher, redis: Redis | None
+) -> dict[str, Any]:
+    probes: dict[str, Any] = {}
+    session_factory = dispatcher.workflow_data.get("session_factory")
+    if session_factory is not None:
+
+        async def check_postgres() -> None:
+            async with session_factory() as session:
+                await session.execute(text("SELECT 1"))
+
+        probes["postgres"] = check_postgres
+    if redis is not None:
+
+        async def check_redis() -> None:
+            await redis.ping()
+
+        probes["redis"] = check_redis
+    return probes
 
 
 def register_miniapp_routes(app: web.Application, settings: Settings) -> bool:
@@ -335,22 +394,32 @@ def register_miniapp_routes(app: web.Application, settings: Settings) -> bool:
         if error.name != "app.services.miniapp":
             raise
         return False
-    module.register_routes(app, settings.bot_token)
+    module.register_routes(app, settings)
     return True
 
 
 def create_webhook_app(
-    dispatcher: Dispatcher, bot: Bot, settings: Settings
+    dispatcher: Dispatcher,
+    bot: Bot,
+    settings: Settings,
+    redis: Redis | None = None,
 ) -> web.Application:
     if not settings.webhook_secret:
         raise RuntimeError("WEBHOOK_SECRET is required in webhook mode")
     app = web.Application(client_max_size=MAX_BODY_BYTES)
+    app.middlewares.append(security_headers_middleware)
+    app["settings"] = settings
+    app["redis"] = redis
+    app["readiness_probes"] = readiness_probes(dispatcher, redis)
     SimpleRequestHandler(
         dispatcher=dispatcher,
         bot=bot,
         secret_token=settings.webhook_secret,
     ).register(app, path=WEBHOOK_PATH)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/readyz", readyz)
+    if settings.metrics_enabled:
+        app.router.add_get("/metrics", metrics)
     register_miniapp_routes(app, settings)
     setup_application(app, dispatcher, bot=bot)
     return app
@@ -516,8 +585,8 @@ class DedupeMiddleware(BaseMiddleware):
                 f"update:{update_id}", "1", nx=True, ex=DEDUPE_TTL_SECONDS
             )
         except Exception:
-            logger.warning("dedupe unavailable; processing update %s", update_id)
-            return await handler(event, data)
+            logger.warning("dedupe unavailable; stopping update %s", update_id)
+            return None
         if not claimed:
             logger.info("duplicate update %s ignored", update_id)
             return None
@@ -971,6 +1040,49 @@ class SendRichMessageDraft(TelegramMethod[bool]):
         return value
 
 
+
+class GetUniqueGift(TelegramMethod[dict[str, Any]]):
+    __returning__ = dict
+    __api_method__ = "getUniqueGift"
+
+    gift_id: str
+
+
+class GetChatShareThemeBackdrops(TelegramMethod[dict[str, Any]]):
+    __returning__ = dict
+    __api_method__ = "getChatShareThemeBackdrops"
+
+    chat_id: int | str
+
+
+class DeleteBusinessAccountGift(TelegramMethod[bool]):
+    __returning__ = bool
+    __api_method__ = "deleteBusinessAccountGift"
+
+    business_connection_id: str
+    gift_id: str
+
+
+class VerifyUser(TelegramMethod[bool]):
+    __returning__ = bool
+    __api_method__ = "verifyUser"
+
+    user_id: int
+    custom_description: str | None = None
+    custom_description_parse_mode: str | None = None
+    custom_description_entities: list[MessageEntity] | None = None
+
+
+class VerifyChat(TelegramMethod[bool]):
+    __returning__ = bool
+    __api_method__ = "verifyChat"
+
+    chat_id: int | str
+    custom_description: str | None = None
+    custom_description_parse_mode: str | None = None
+    custom_description_entities: list[MessageEntity] | None = None
+
+
 def _build_rich_message(
     rich_message: InputRichMessage | None,
     html: str | None,
@@ -982,6 +1094,58 @@ def _build_rich_message(
         raise ValueError("provide exactly one of rich_message, html, or markdown")
     return InputRichMessage(html=html, markdown=markdown)
 
+
+
+async def get_unique_gift(bot: Bot, gift_id: str) -> dict[str, Any]:
+    return await bot(GetUniqueGift(gift_id=gift_id))
+
+
+async def get_chat_share_theme_backdrops(bot: Bot, chat_id: int | str) -> dict[str, Any]:
+    return await bot(GetChatShareThemeBackdrops(chat_id=chat_id))
+
+
+async def delete_business_account_gift(
+    bot: Bot, business_connection_id: str, gift_id: str
+) -> bool:
+    return await bot(
+        DeleteBusinessAccountGift(
+            business_connection_id=business_connection_id, gift_id=gift_id
+        )
+    )
+
+
+async def verify_user(
+    bot: Bot,
+    user_id: int,
+    custom_description: str | None = None,
+    custom_description_parse_mode: str | None = None,
+    custom_description_entities: list[MessageEntity] | None = None,
+) -> bool:
+    return await bot(
+        VerifyUser(
+            user_id=user_id,
+            custom_description=custom_description,
+            custom_description_parse_mode=custom_description_parse_mode,
+            custom_description_entities=custom_description_entities,
+        )
+    )
+
+
+async def verify_chat(
+    bot: Bot,
+    chat_id: int | str,
+    custom_description: str | None = None,
+    custom_description_parse_mode: str | None = None,
+    custom_description_entities: list[MessageEntity] | None = None,
+) -> bool:
+    return await bot(
+        VerifyChat(
+            chat_id=chat_id,
+            custom_description=custom_description,
+            custom_description_parse_mode=custom_description_parse_mode,
+            custom_description_entities=custom_description_entities,
+        )
+    )
 
 async def send_widget(
     bot: Bot,
@@ -1415,11 +1579,13 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/__init__.py", content: '"""Telegram bot package."""\n' },
     { path: "app/runtime/__init__.py", content: '"""Runtime package."""\n' },
     { path: "app/runtime/secrets.py", content: renderSecretsPy() },
+    { path: "app/runtime/telemetry.py", content: renderTelemetryPy() },
+    { path: "app/runtime/health.py", content: renderHealthPy() },
     { path: "app/config.py", content: renderConfigPy(spec) },
     { path: "tests/test_secrets.py", content: renderSecretsTestPy(spec) },
     { path: "app/logger.py", content: APP_LOGGER },
     { path: "app/bot.py", content: appBot(spec) },
-    { path: "app/main.py", content: APP_MAIN },
+    { path: "app/main.py", content: appMain(spec) },
     { path: "app/webhook.py", content: APP_WEBHOOK },
     { path: "app/handlers/__init__.py", content: HANDLERS_INIT },
     { path: "app/handlers/commands.py", content: handlersCommands(spec) },
@@ -1430,6 +1596,7 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/middlewares/rate_limit.py", content: MIDDLEWARES_RATE_LIMIT },
     { path: "app/services/__init__.py", content: SERVICES_INIT },
     { path: "app/services/api104.py", content: API104 },
+    { path: "app/services/api104_types.py", content: renderApi104TypesPy() },
     { path: "app/services/retry.py", content: RETRY_SERVICE },
     { path: "app/db/__init__.py", content: DB_INIT },
     { path: "app/db/session.py", content: DB_SESSION },
@@ -1457,6 +1624,12 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
   }
   if (features.has("payments")) {
     files.push(...renderAiogramFeature("payments", "payments", spec));
+  }
+  if (features.has("miniapps")) {
+    files.push(...renderAiogramFeature("miniapps", "miniapp", spec));
+  }
+  if (features.has("miniapps")) {
+    files.push({ path: "tests/fuzz_init_data.py", content: renderFuzzPy() });
   }
   if (features.has("widgets")) {
     files.push(

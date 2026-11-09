@@ -88,7 +88,10 @@ test("emitted Python keeps escaped newlines and interpolated values", () => {
 
   const aiogramPkg = renderAiogramProject(aiogramSpec);
   const commands = find(aiogramPkg, "app/handlers/commands.py").content;
-  assert.match(commands, /await message\.answer\(t\(locale, "help\.title"\) \+ "\\n" \+ t\(locale, "help\.commands"\)\)/);
+  assert.match(
+    commands,
+    /await message\.answer\(t\(locale, "help\.title"\) \+ "\\n" \+ t\(locale, "help\.commands"\)\)/,
+  );
   assert.match(commands, /from app\.services\.i18n import t/);
 });
 

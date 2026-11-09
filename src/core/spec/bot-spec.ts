@@ -257,7 +257,7 @@ function parseSpec(root: Record<string, unknown>, legacy: boolean): BotSpec {
     throw new BotSpecError("spec.features", "commands is mandatory");
   }
   if (root.deployment !== "docker") {
-    throw new BotSpecError("spec.deployment", "v0.1.0 supports docker only");
+    throw new BotSpecError("spec.deployment", "this version supports docker only");
   }
   const storage = record(root.storage, "spec.storage");
   rejectUnknown(storage, ["postgres", "redis"], "spec.storage");
@@ -402,6 +402,9 @@ function parseSpec(root: Record<string, unknown>, legacy: boolean): BotSpec {
       "spec.runtime.queue",
       'must be "none" without llm, broadcast, or payments',
     );
+  }
+  if (features.includes("payments") && payments === undefined) {
+    throw new BotSpecError("spec.payments", "payments requires products");
   }
   if ((idempotency || rateLimit) && !redis) {
     throw new BotSpecError("spec.storage.redis", "idempotency and rate limiting require redis");

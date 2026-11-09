@@ -58,11 +58,17 @@ describe("renderQueueTs", () => {
 
   it("imports the postgres Sql type", () => {
     assert.ok(source.includes('import type { Sql } from "postgres";'));
-    assert.ok(source.includes("export function createQueue(sql: Sql, options: QueueOptions = {}): Queue"));
+    assert.ok(
+      source.includes("export function createQueue(sql: Sql, options: QueueOptions = {}): Queue"),
+    );
   });
 
   it("implements the full Queue interface", () => {
-    assert.ok(source.includes("enqueue(kind: string, payload: unknown, options?: EnqueueOptions): Promise<string>;"));
+    assert.ok(
+      source.includes(
+        "enqueue(kind: string, payload: unknown, options?: EnqueueOptions): Promise<string>;",
+      ),
+    );
     assert.ok(source.includes("claim(workerId: string): Promise<ClaimedJob | null>;"));
     assert.ok(source.includes("complete(id: string): Promise<void>;"));
     assert.ok(source.includes("fail(id: string, error: unknown): Promise<void>;"));
@@ -83,7 +89,9 @@ describe("renderQueueTs", () => {
 
   it("enqueues idempotently and falls back to the existing row id", () => {
     assert.ok(
-      source.includes(`VALUES ($1, $2::jsonb, $3, COALESCE($4::timestamptz, now()), COALESCE($5::integer, 5))`),
+      source.includes(
+        `VALUES ($1, $2::jsonb, $3, COALESCE($4::timestamptz, now()), COALESCE($5::integer, 5))`,
+      ),
     );
     assert.ok(source.includes("ON CONFLICT (idempotency_key) DO NOTHING"));
     assert.ok(source.includes("RETURNING id;"));
@@ -95,7 +103,9 @@ describe("renderQueueTs", () => {
       source.includes("status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'pending' END"),
     );
     assert.ok(source.includes("least(300, 5 * power(2, attempts))"));
-    assert.ok(source.includes("finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END"));
+    assert.ok(
+      source.includes("finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END"),
+    );
   });
 
   it("clips stored errors to 2 KiB", () => {
@@ -108,11 +118,18 @@ describe("renderQueueTs", () => {
   });
 
   it("never interpolates values into SQL", () => {
-    assert.ok(!source.includes("${"), "generated queue code must not contain template interpolation");
+    assert.ok(
+      !source.includes("${"),
+      "generated queue code must not contain template interpolation",
+    );
     const calls = source.match(/sql\.unsafe\(/g) ?? [];
     const parameterized = source.match(/sql\.unsafe\([A-Za-z_][A-Za-z0-9_]*,/g) ?? [];
     assert.ok(calls.length >= 6, `expected at least 6 sql.unsafe calls, got ${calls.length}`);
-    assert.equal(parameterized.length, calls.length, "every sql.unsafe call must use a SQL constant");
+    assert.equal(
+      parameterized.length,
+      calls.length,
+      "every sql.unsafe call must use a SQL constant",
+    );
   });
 });
 
@@ -124,7 +141,11 @@ describe("renderWorkerTs", () => {
   });
 
   it("exposes runWorker over a typed handler map and AbortSignal", () => {
-    assert.ok(source.includes("export type JobHandler = (job: ClaimedJob, signal: AbortSignal) => Promise<void>;"));
+    assert.ok(
+      source.includes(
+        "export type JobHandler = (job: ClaimedJob, signal: AbortSignal) => Promise<void>;",
+      ),
+    );
     assert.ok(source.includes("handlers: Readonly<Record<string, JobHandler>>"));
     assert.ok(source.includes("signal: AbortSignal,"));
   });

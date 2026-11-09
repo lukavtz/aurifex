@@ -39,16 +39,20 @@ export function renderPackageJson(spec: BotSpec): string {
         "db:generate": "drizzle-kit generate",
         "db:migrate":
           spec.runtime.queue === "postgres" ? "node dist/migrate.js" : "drizzle-kit migrate",
-        ...(spec.runtime.queue === "postgres"
-          ? { "start:worker": "node dist/worker.js" }
-          : {}),
+        ...(spec.runtime.queue === "postgres" ? { "start:worker": "node dist/worker.js" } : {}),
       },
       dependencies: {
+        "@opentelemetry/api": "1.10.0",
+        "@opentelemetry/auto-instrumentations-node": "0.83.0",
+        "@opentelemetry/exporter-trace-otlp-http": "0.301.0",
+        "@opentelemetry/sdk-node": "0.301.0",
+        "@sentry/node": "11.11.0",
         "drizzle-orm": "0.45.4",
         grammy: "1.46.0",
         ioredis: "6.0.0",
         pino: "10.4.0",
         postgres: "4.1.0",
+        "prom-client": "15.1.3",
         zod: "4.6.7",
       },
       devDependencies: {
@@ -115,11 +119,18 @@ dependencies = [
   "aiogram==3.31.0",
   "pydantic-settings==2.16.2",
   "asyncpg==0.32.0",
-  "sqlalchemy==2.1.8",
+  "sqlalchemy[asyncio]==2.1.8",
   "redis==8.1.0",
   "alembic==1.20.1",
   "httpx==0.28.1",
   "structlog==26.1.0",
+  "opentelemetry-sdk==1.45.2",
+  "opentelemetry-exporter-otlp-proto-http==1.45.2",
+  "opentelemetry-instrumentation-aiohttp-server==0.66b2",
+  "opentelemetry-instrumentation-sqlalchemy==0.66b2",
+  "opentelemetry-instrumentation-redis==0.66b2",
+  "prometheus-client==0.26.0",
+  "sentry-sdk==2.74.0",
 ]
 
 [dependency-groups]
@@ -129,6 +140,7 @@ dev = [
   "ruff==0.17.4",
   "mypy==2.4.1",
   "aiohttp==3.13.3",
+  "hypothesis==6.170.15",
 ]
 
 [tool.pytest.ini_options]
@@ -138,7 +150,7 @@ pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
@@ -213,6 +225,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 ${migrationCopy}USER node
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]
 `;
 }
@@ -230,6 +244,8 @@ COPY migrations ./migrations
 RUN useradd --create-home --uid 10001 bot
 USER bot
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"
 CMD ["uv", "run", "python", "-m", "app.main"]
 `;
 }
@@ -248,9 +264,7 @@ function composeSecretBlocks(names: readonly string[]): {
 } {
   return {
     list: names.map((name) => `      - ${name}`).join("\n"),
-    env: names
-      .map((name) => `      ${name.toUpperCase()}_FILE: /run/secrets/${name}`)
-      .join("\n"),
+    env: names.map((name) => `      ${name.toUpperCase()}_FILE: /run/secrets/${name}`).join("\n"),
   };
 }
 
@@ -356,9 +370,7 @@ ${workerCommand}${healthDepends(true)}
 ${migrateCommand}
     restart: "no"${healthDepends(false)}${botSecrets}${botEnv}`);
   }
-  const secrets = secretNames
-    .map((name) => `  ${name}:\n    file: ./secrets/${name}`)
-    .join("\n");
+  const secrets = secretNames.map((name) => `  ${name}:\n    file: ./secrets/${name}`).join("\n");
   return `services:
 ${services.join("\n")}
   # aurifex:services

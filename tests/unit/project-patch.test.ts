@@ -87,12 +87,9 @@ test("rejects config edits when the markers are missing", async () => {
   const policy = await makeProject({ "src/config.ts": "export const base = 1;\n" });
 
   await rejectsWithCode(
-    applyPatch(
-      policy,
-      "",
-      patch({ configTs: [{ key: "NOPE", expression: "true" }] }),
-      { files: {} },
-    ),
+    applyPatch(policy, "", patch({ configTs: [{ key: "NOPE", expression: "true" }] }), {
+      files: {},
+    }),
     "project_unreadable",
   );
 
@@ -108,12 +105,9 @@ test("patches package dependencies deterministically", async () => {
     )}\n`,
   });
 
-  await applyPatch(
-    policy,
-    "",
-    patch({ packageDependencies: { ioredis: "6.0.0", zod: "4.7.0" } }),
-    { files: {} },
-  );
+  await applyPatch(policy, "", patch({ packageDependencies: { ioredis: "6.0.0", zod: "4.7.0" } }), {
+    files: {},
+  });
 
   const parsed: unknown = JSON.parse(await policy.readText("package.json"));
   assert.ok(typeof parsed === "object" && parsed !== null && "dependencies" in parsed);
@@ -153,12 +147,9 @@ test("rejects paths escaping the project prefix", async () => {
   const policy = await makeProject();
 
   await rejectsWithCode(
-    applyPatch(
-      policy,
-      "bot",
-      patch({ files: [{ path: "../evil.ts", content: "boom\n" }] }),
-      { files: {} },
-    ),
+    applyPatch(policy, "bot", patch({ files: [{ path: "../evil.ts", content: "boom\n" }] }), {
+      files: {},
+    }),
     "invalid_request",
   );
   await rejectsWithCode(

@@ -76,7 +76,9 @@ test("typescript worker entry shuts down on SIGINT and SIGTERM within 30s", () =
   assert.ok(source.includes('process.once("SIGINT"'));
   assert.ok(source.includes('process.once("SIGTERM"'));
   assert.ok(source.includes("controller.abort()"));
-  assert.ok(source.includes("Promise.race([runWorker(queue, handlers, controller.signal), deadline])"));
+  assert.ok(
+    source.includes("Promise.race([runWorker(queue, handlers, controller.signal), deadline])"),
+  );
   assert.ok(source.includes("await bot.stop();"));
   assert.ok(source.includes("await closeDb();"));
   assert.ok(source.includes("await shutdownTelemetry();"));
@@ -89,14 +91,14 @@ test("typescript job loader skips index, declarations, and tests", () => {
   assert.ok(source.includes('entry.endsWith(".d.js")'));
   assert.ok(source.includes('entry.includes(".test.")'));
   assert.ok(source.includes('entry.includes(".spec.")'));
-  assert.ok(source.includes('.filter(isJobFile).sort()'));
+  assert.ok(source.includes(".filter(isJobFile).toSorted()"));
 });
 
 test("typescript job loader imports siblings by file URL and validates shape", () => {
   const source = renderJobsIndexTs();
   assert.ok(source.includes("await import(pathToFileURL(join(directory, entry)).href)"));
-  assert.ok(source.includes("typeof candidate.kind === \"string\""));
-  assert.ok(source.includes("typeof candidate.handle === \"function\""));
+  assert.ok(source.includes('typeof candidate.kind === "string"'));
+  assert.ok(source.includes('typeof candidate.handle === "function"'));
   assert.ok(source.includes("export async function loadJobHandlers("));
   assert.ok(source.includes("): Promise<Record<string, JobHandler>>"));
   assert.ok(source.includes("handlers[module.kind] = (job) => module.handle(job, ctx);"));
@@ -139,7 +141,9 @@ test("python worker entry handles signals with an asyncio.Event", () => {
   assert.ok(source.includes("signal.signal(signum"));
   assert.ok(source.includes('for name in ("SIGINT", "SIGTERM")'));
   assert.ok(source.includes("SHUTDOWN_TIMEOUT_SECONDS = 30"));
-  assert.ok(source.includes("await asyncio.wait_for(worker_task, timeout=SHUTDOWN_TIMEOUT_SECONDS)"));
+  assert.ok(
+    source.includes("await asyncio.wait_for(worker_task, timeout=SHUTDOWN_TIMEOUT_SECONDS)"),
+  );
 });
 
 test("python worker entry closes the bot session and engine", () => {
@@ -157,7 +161,7 @@ test("python job loader imports every module in the package", () => {
   assert.ok(source.includes("pkgutil.iter_modules(package.__path__)"));
   assert.ok(source.includes('importlib.import_module(f"{__name__}.{module_name}")'));
   assert.ok(source.includes("sorted("));
-  assert.ok(source.includes("if not info.name.startswith(\"_\")"));
+  assert.ok(source.includes('if not info.name.startswith("_")'));
 });
 
 test("python job loader requires KIND and handle and rejects duplicates", () => {

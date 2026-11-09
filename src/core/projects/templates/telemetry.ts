@@ -85,7 +85,8 @@ export const metrics = {
 } as const;
 `;
 
-const HEALTH_TS = `import type { IncomingMessage, ServerResponse } from "node:http";
+const HEALTH_TS = `import "./telemetry.js";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { register } from "prom-client";
 
 export const HEALTH_PATH = "/healthz";
@@ -165,13 +166,13 @@ export async function handleHealthRequest(
 
 const TELEMETRY_PY = `from __future__ import annotations
 
+import sentry_sdk
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import Counter, Gauge, Histogram
-import sentry_sdk
 
 _provider: TracerProvider | None = None
 _sentry_started = False

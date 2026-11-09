@@ -14,6 +14,10 @@ import {
 } from "../spec/bot-spec.ts";
 import { renderAiogramFeature } from "./features/aiogram.ts";
 import { renderGrammyFeature } from "./features/grammy.ts";
+import type { AurifexManifest } from "./manifest.ts";
+import { MANIFEST_PATH, readManifest, writeManifest } from "./manifest.ts";
+import type { ProjectPatch } from "./project-patch.ts";
+import { CONFIG_PY_MARKERS, CONFIG_TS_MARKERS, applyPatch } from "./project-patch.ts";
 import type { TemplateFile } from "./templates/shared.ts";
 import { assertNoTokenLiteral } from "./templates/shared.ts";
 
@@ -156,6 +160,21 @@ async function inferSpec(
       queue: queued ? "postgres" : "none",
       telemetry: { otlp: false, prometheus: false, sentry: false },
     },
+    ...(feature === "payments"
+      ? {
+          payments: {
+            products: [
+              {
+                id: "support",
+                title: "Support",
+                description: "Support the bot",
+                stars: 1,
+                subscription: false,
+              },
+            ],
+          },
+        }
+      : {}),
   };
 }
 
@@ -180,6 +199,81 @@ function assertSafePath(path: string): void {
   ) {
     throw new PathPolicyError("invalid_path", `unsafe feature path: ${path}`);
   }
+}
+
+const BROADCAST_CONFIG_TS = [
+  { key: "BROADCAST_RATE", expression: "Number(process.env.BROADCAST_RATE ?? 30)" },
+];
+const BROADCAST_CONFIG_PY = [
+  { key: "BROADCAST_RATE", expression: 'int(os.getenv("BROADCAST_RATE", "30"))' },
+];
+
+function featureEnv(feature: BotFeature): Array<{ key: string; value: string }> {
+  switch (feature) {
+    case "llm":
+      return [
+        { key: "LLM_BASE_URL", value: "https://api.openai.com/v1" },
+        { key: "LLM_MODEL", value: "" },
+        { key: "LLM_API_KEY", value: "" },
+      ];
+    case "payments":
+      return [{ key: "PAYSUPPORT_TEXT", value: "Contact support for payment issues." }];
+    case "broadcast":
+      return [{ key: "BROADCAST_RATE", value: "30" }];
+    case "miniapps":
+      return [
+        { key: "MINIAPP_SESSION_TTL_SECONDS", value: "86400" },
+        { key: "MINIAPP_ALLOWED_ORIGINS", value: "" },
+      ];
+    case "moderation":
+      return [{ key: "MODERATION_BLOCKED_WORDS", value: "" }];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Config entries are appended only inside the aurifex markers. Projects that predate
+ * the markers keep working: their config is left untouched instead of failing.
+ */
+async function buildPatch(
+  policy: PathPolicy,
+  prefix: string,
+  feature: BotFeature,
+  stack: BotStack,
+): Promise<ProjectPatch> {
+  const patch: ProjectPatch = { files: [], env: featureEnv(feature) };
+  if (feature !== "broadcast") return patch;
+  const grammy = stack === "grammy";
+  const path = projectPath(prefix, grammy ? "src/config.ts" : "app/config.py");
+  const start = grammy ? CONFIG_TS_MARKERS.start : CONFIG_PY_MARKERS.start;
+  const end = grammy ? CONFIG_TS_MARKERS.end : CONFIG_PY_MARKERS.end;
+  const text = await optionalText(policy, path);
+  if (text === null || !text.includes(start) || !text.includes(end)) return patch;
+  if (grammy) patch.configTs = BROADCAST_CONFIG_TS;
+  else patch.configPy = BROADCAST_CONFIG_PY;
+  return patch;
+}
+
+function patchFailure(error: unknown): DomainFailure {
+  let code: string | undefined;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    code = error.code;
+  }
+  if (code === "project_unreadable" || code === "invalid_request") {
+    return fail(code, error instanceof Error ? error.message : "project patch failed");
+  }
+  return pathFailure(error);
+}
+
+function manifestKey(path: string, prefix: string): string {
+  const lead = `${prefix}/`;
+  return prefix !== "" && path.startsWith(lead) ? path.slice(lead.length) : path;
 }
 
 interface Backup {
@@ -224,9 +318,26 @@ export async function addFeature(
   }
   const prefix = relative(policy.root, projectDir).split(sep).join("/");
 
+  let manifest: AurifexManifest;
+  try {
+    const existing = await readManifest(policy, prefix);
+    if (existing === null) {
+      return fail("project_unreadable", "run aurifex upgrade --apply first", {
+        path: projectPath(prefix, MANIFEST_PATH),
+      });
+    }
+    manifest = existing;
+  } catch (error) {
+    if (error instanceof PathPolicyError) return pathFailure(error);
+    return fail("project_unreadable", error instanceof Error ? error.message : "invalid manifest", {
+      path: projectPath(prefix, MANIFEST_PATH),
+    });
+  }
+
   let stack: BotStack | null;
   let spec: BotSpec;
   let templates: TemplateFile[];
+  let patch: ProjectPatch;
   try {
     stack = await detectStack(policy, prefix);
     if (stack === null) {
@@ -239,6 +350,7 @@ export async function addFeature(
     templates = prefixed(render(stack, feature, request.name, spec), prefix);
     for (const template of templates) assertSafePath(template.path);
     assertNoTokenLiteral(templates);
+    patch = await buildPatch(policy, prefix, feature, stack);
   } catch (error) {
     return pathFailure(error);
   }
@@ -274,6 +386,27 @@ export async function addFeature(
       written.push(backup ?? { path: template.path, previous: null });
       files.push(ref);
     }
+  } catch (error) {
+    await rollback(policy, written);
+    return pathFailure(error);
+  }
+
+  const patchFiles: FileRef[] = [];
+  if (patch.env.length > 0 || patch.configTs !== undefined || patch.configPy !== undefined) {
+    try {
+      patchFiles.push(...(await applyPatch(policy, prefix, patch, manifest)));
+    } catch (error) {
+      await rollback(policy, written);
+      return patchFailure(error);
+    }
+  }
+
+  const nextFiles: Record<string, string> = { ...manifest.files };
+  for (const ref of [...files, ...patchFiles]) {
+    nextFiles[manifestKey(ref.path, prefix)] = ref.sha256;
+  }
+  try {
+    await writeManifest(policy, prefix, { ...manifest, files: nextFiles });
   } catch (error) {
     await rollback(policy, written);
     return pathFailure(error);

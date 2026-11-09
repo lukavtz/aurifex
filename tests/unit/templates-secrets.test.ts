@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { renderSecretsPy, renderSecretsTs } from "../../src/core/projects/templates/runtime-secrets.ts";
+import {
+  renderSecretsPy,
+  renderSecretsTs,
+} from "../../src/core/projects/templates/runtime-secrets.ts";
 
 interface SecretsModule {
   readSecret(name: string, env?: NodeJS.ProcessEnv): string | undefined;
@@ -34,7 +37,10 @@ function writeSecretFile(dir: string, name: string, content: string, mode = 0o60
 
 test("renders a TS module that imports node:fs and exposes the secret helpers", () => {
   const source = renderSecretsTs();
-  assert.match(source, /import \{ closeSync, constants, fstatSync, openSync, readSync \} from "node:fs";/);
+  assert.match(
+    source,
+    /import \{ closeSync, constants, fstatSync, openSync, readSync \} from "node:fs";/,
+  );
   assert.match(source, /export function readSecret\(name: string, env: Env = process\.env\)/);
   assert.match(source, /export function requiredSecret\(name: string, env: Env = process\.env\)/);
   assert.match(source, /\$\{name\}_FILE/);
@@ -46,7 +52,10 @@ test("_FILE wins over the plain variable and trims exactly one trailing newline"
   const dir = await mkdtemp(join(tmpdir(), "aurifex-secret-file-"));
   const file = writeSecretFile(dir, "bot_token", "from-file\n");
 
-  assert.equal(secrets.readSecret("BOT_TOKEN", { BOT_TOKEN: "from-env", BOT_TOKEN_FILE: file }), "from-file");
+  assert.equal(
+    secrets.readSecret("BOT_TOKEN", { BOT_TOKEN: "from-env", BOT_TOKEN_FILE: file }),
+    "from-file",
+  );
 
   const twoNewlines = writeSecretFile(dir, "two", "value\n\n");
   assert.equal(secrets.readSecret("TWO", { TWO_FILE: twoNewlines }), "value\n");
@@ -70,7 +79,11 @@ test("empty secret file is an error and errors never include the value", async (
   );
 
   assert.throws(
-    () => secrets.readSecret("BOT_TOKEN", { BOT_TOKEN: "do-not-leak", BOT_TOKEN_FILE: join(dir, "missing") }),
+    () =>
+      secrets.readSecret("BOT_TOKEN", {
+        BOT_TOKEN: "do-not-leak",
+        BOT_TOKEN_FILE: join(dir, "missing"),
+      }),
     (error: unknown) => {
       const message = (error as Error).message;
       assert.match(message, /cannot read secret file for BOT_TOKEN/);

@@ -1,18 +1,9 @@
 import { domainFailure, domainSuccess, sha256Hex, type DomainResult } from "../results.ts";
-import {
-  PathPolicyError,
-  readOptionalFile,
-  type PathPolicy,
-} from "../security/path-policy.ts";
+import { PathPolicyError, readOptionalFile, type PathPolicy } from "../security/path-policy.ts";
 import { BOT_SPEC_VERSION, type BotStack } from "../spec/bot-spec.ts";
 import { BOT_API_VERSION, resolveStack } from "../targets/catalog.ts";
 import { detectProjectStack, joinProjectPath, normalizeProjectRoot } from "./deploy.ts";
-import {
-  MANIFEST_PATH,
-  readManifest,
-  writeManifest,
-  type AurifexManifest,
-} from "./manifest.ts";
+import { MANIFEST_PATH, readManifest, writeManifest, type AurifexManifest } from "./manifest.ts";
 
 export interface UpgradeResult {
   readonly currentBotApi: string;
@@ -33,7 +24,9 @@ export interface UpgradeOptions {
 function botApiActions(stack: BotStack): string[] {
   const target = resolveStack(stack).target;
   const rawCall =
-    stack === "grammy" ? "bot.api.raw.<method>(payload)" : "await bot(<TelegramMethod subclass instance>)";
+    stack === "grammy"
+      ? "bot.api.raw.<method>(payload)"
+      : "await bot(<TelegramMethod subclass instance>)";
   const sendWidget =
     stack === "grammy" ? "bot.api.raw.sendWidget(payload)" : "await bot(SendWidget(...))";
   const answerWidgetQuery =

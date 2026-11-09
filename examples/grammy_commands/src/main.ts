@@ -1,0 +1,85 @@
+import { createBot } from "./bot.js";
+import { getConfig } from "./config.js";
+import { registerFeatures } from "./features/index.js";
+import { logger } from "./logger.js";
+import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
+import { createServer } from "./server.js";
+
+const ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "callback_query",
+  "inline_query",
+  "pre_checkout_query",
+  "shipping_query",
+  "my_chat_member",
+  "chat_member",
+] as const;
+
+async function main(): Promise<void> {
+  const config = getConfig();
+  await initTelemetry({
+    serviceName: config.OTEL_SERVICE_NAME || "grammY Commands",
+    otlpEndpoint: config.OTEL_EXPORTER_OTLP_ENDPOINT,
+    sentryDsn: config.SENTRY_DSN,
+  });
+  const bot = createBot();
+  await registerFeatures({
+    bot,
+    sql: null,
+    queue: null,
+    config,
+  });
+  await bot.api.setMyCommands([
+    { command: "start", description: "Start the bot" },
+    { command: "help", description: "Show available commands" },
+  ]);
+
+  const server =
+    config.BOT_MODE === "webhook"
+      ? await createServer(bot, config.WEBHOOK_SECRET, config.BOT_TOKEN, {
+          config,
+          sql: null,
+        })
+      : undefined;
+  let stopping = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
+    logger.info({ signal }, "shutting down");
+    if (server !== undefined) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      server.close(() => resolve());
+      await promise;
+    }
+    await bot.stop();
+    await shutdownTelemetry();
+  };
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+  if (config.BOT_MODE === "webhook") {
+    if (config.WEBHOOK_URL === "") {
+      throw new Error("WEBHOOK_URL is required in webhook mode");
+    }
+    await bot.init();
+    server?.listen(config.PORT, () =>
+      logger.info({ port: config.PORT }, "webhook server listening"),
+    );
+    await bot.api.setWebhook(config.WEBHOOK_URL, {
+      secret_token: config.WEBHOOK_SECRET,
+      allowed_updates: [...ALLOWED_UPDATES],
+      max_connections: 40,
+      drop_pending_updates: false,
+    });
+    return;
+  }
+
+  await bot.api.deleteWebhook({ drop_pending_updates: false });
+  await bot.start({ allowed_updates: [...ALLOWED_UPDATES] });
+}
+
+main().catch((error: unknown) => {
+  logger.error({ message: error instanceof Error ? error.message : "unknown" }, "startup failed");
+  process.exitCode = 1;
+});

@@ -1,0 +1,12 @@
+const zh: Record<string, string> = {
+  "start.welcome": "欢迎使用 {bot}。使用 /help 查看可用命令。",
+  "help.title": "命令：",
+  "help.commands": "/start - 启动机器人\n/help - 显示此列表\n/admin - 管理面板",
+  "errors.generic": "出错了，请重试。",
+  "payments.precheckout_failed": "无法确认付款。",
+  "payments.thanks": "感谢您的付款！",
+  "subscription.active": "订阅已激活。",
+  "subscription.canceled": "订阅已取消。",
+};
+
+export default zh;

@@ -514,12 +514,22 @@ function checkPaymentsValidation(files: readonly ProjectFile[]): Check {
     (needle) => !text.includes(needle),
   );
   return missing.length === 0
-    ? make("payments.validation", "pass", "successful payment validates payload, currency, and amount", {
-        path: runtime.path,
-      })
-    : make("payments.validation", "fail", `successful payment validation is missing ${missing.join(", ")}`, {
-        path: runtime.path,
-      });
+    ? make(
+        "payments.validation",
+        "pass",
+        "successful payment validates payload, currency, and amount",
+        {
+          path: runtime.path,
+        },
+      )
+    : make(
+        "payments.validation",
+        "fail",
+        `successful payment validation is missing ${missing.join(", ")}`,
+        {
+          path: runtime.path,
+        },
+      );
 }
 
 function checkSecretsFile(files: readonly ProjectFile[]): Check {
@@ -570,9 +580,14 @@ function checkMiniappSession(files: readonly ProjectFile[]): Check {
     .filter(([, needle]) => !text.includes(needle))
     .map(([label]) => label);
   return missing.length === 0
-    ? make("miniapp.session", "pass", "miniapp session uses an HttpOnly cookie stored server-side", {
-        path: module.path,
-      })
+    ? make(
+        "miniapp.session",
+        "pass",
+        "miniapp session uses an HttpOnly cookie stored server-side",
+        {
+          path: module.path,
+        },
+      )
     : make("miniapp.session", "fail", `miniapp session is missing ${missing.join(", ")}`, {
         path: module.path,
       });
@@ -599,7 +614,11 @@ function checkBotApi104Types(files: readonly ProjectFile[]): Check {
     (needle) => !text.includes(needle),
   );
   return missing.length === 0
-    ? make("botapi.104.types", "pass", "TON wallet, share theme, and rich address types are present")
+    ? make(
+        "botapi.104.types",
+        "pass",
+        "TON wallet, share theme, and rich address types are present",
+      )
     : make("botapi.104.types", "fail", `Bot API 10.4 types are missing ${missing.join(", ")}`);
 }
 

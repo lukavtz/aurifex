@@ -873,8 +873,9 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -1210,7 +1211,7 @@ async def record_successful_payment(
         raise PaymentError(check.reason or "invalid_payment", "successful payment rejected")
     parsed = parse_invoice_payload(payment.invoice_payload, products)
     expires_at = (
-        dt.datetime.fromtimestamp(payment.subscription_expiration_date, tz=dt.timezone.utc)
+        dt.datetime.fromtimestamp(payment.subscription_expiration_date, tz=dt.UTC)
         if payment.subscription_expiration_date is not None
         else None
     )

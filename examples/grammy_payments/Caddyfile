@@ -1,0 +1,4 @@
+bot.example.com {
+  encode zstd gzip
+  reverse_proxy bot:8080
+}

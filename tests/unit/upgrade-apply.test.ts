@@ -12,7 +12,7 @@ import {
   serializeManifest,
   type AurifexManifest,
 } from "../../src/core/projects/manifest.ts";
-import { upgradeProject, type UpgradeApplyResult } from "../../src/core/projects/upgrade.ts";
+import { upgradeProject } from "../../src/core/projects/upgrade.ts";
 
 interface Fixture {
   readonly policy: PathPolicy;
@@ -24,7 +24,10 @@ function valueOf<T>(result: DomainResult<T>): T {
   return result.value;
 }
 
-async function fixture(t: { after(fn: () => Promise<void>): void }, specVersion: string): Promise<Fixture> {
+async function fixture(
+  t: { after(fn: () => Promise<void>): void },
+  specVersion: string,
+): Promise<Fixture> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-upgrade-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const policy = await createPathPolicy(root);

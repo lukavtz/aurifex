@@ -88,7 +88,7 @@ export function renderSecretsPy(): string {
 import os
 import stat
 import sys
-from typing import Mapping
+from collections.abc import Mapping
 
 MAX_SECRET_BYTES = 65_536
 _WARNED: set[str] = set()
@@ -141,10 +141,10 @@ def read_secret(name: str, env: Mapping[str, str] | None = None) -> str | None:
         if not value:
             raise RuntimeError(f"secret file for {name} is empty")
         return value
-    value = env.get(name)
-    if not value:
+    env_value = env.get(name)
+    if not env_value:
         return None
-    return value
+    return env_value
 
 
 def required_secret(name: str, env: Mapping[str, str] | None = None) -> str:

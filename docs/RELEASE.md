@@ -9,6 +9,10 @@ request:
 | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `verify (ubuntu, macos, windows)` | format, lint, strict types, unit, security, integration, host, site check, secret scan, package dry-run |
 | `e2e (generated projects)`        | generated grammY and aiogram projects install, typecheck, test, and build                               |
+| `infra`                           | Postgres/Redis queue, payments, broadcast, readiness, backup                                            |
+| `docker`                          | generated images build, run non-root, answer `/healthz`                                                 |
+| `fuzz`                            | 10,000 fast-check cases for BotSpec and PathPolicy                                                      |
+| `load`                            | generated webhook p95 and error-rate thresholds                                                         |
 | `package smoke`                   | the packed tarball installs, `aurifex` runs, and `aurifex-mcp` answers over stdio                       |
 | `audit`                           | `pnpm audit --prod --audit-level high` and the repository secret scan                                   |
 | `workflow lint`                   | `actionlint` over every workflow                                                                        |
@@ -25,13 +29,18 @@ change. The workflow requires Pages configured with **Source: GitHub Actions**.
 2. Run `pnpm verify` and `AURIFEX_E2E=1 pnpm test:e2e`.
 3. Commit, then tag:
    ```sh
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
-4. `.github/workflows/release.yml` verifies, packs, writes `SHA256SUMS`, creates a
-   GitHub Release, and publishes to npm **only when `NPM_TOKEN` is configured**.
-5. Without `NPM_TOKEN`, the workflow still creates a GitHub Release with the tarball and
-   checksums. Add the secret in repository settings before expecting npm publication.
+4. `.github/workflows/release.yml` verifies, packs, writes `SHA256SUMS`, generates a
+   CycloneDX SBOM, signs the tarball with cosign keyless, publishes the checked-in
+   example images to GHCR, creates a GitHub Release, and publishes to npm **only when
+   `NPM_TOKEN` is configured**.
+5. Without `NPM_TOKEN`, the workflow still creates a GitHub Release with the tarball,
+   checksums, SBOM, signature, and certificate. Add the secret in repository settings
+   before expecting npm publication.
+6. `.github/workflows/host-matrix.yml` runs nightly against pinned OMP, DSH, and
+   Claude Code versions.
 
 ## Secrets
 

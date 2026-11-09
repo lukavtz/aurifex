@@ -109,11 +109,11 @@ runs package managers and therefore needs network; the live suite also needs net
 
 ### Host (`tests/host`)
 
-- `omp-adapter.test.ts` — 8 tools, approval tiers, strict schemas, no filesystem I/O at
+- `omp-adapter.test.ts` — 9 tools, approval tiers, strict schemas, no filesystem I/O at
   registration, `details.status` for target resolve and scaffold.
 - `dsh-adapter.test.ts` — no default export, `name`/`inject`/`Config`/`apply`, 8 registered
   tools, disposal removes them.
-- `mcp-server.test.ts` — stdio `initialize`, `tools/list` (8 tools), `tools/call`, no
+- `mcp-server.test.ts` — stdio `initialize`, `tools/list` (9 tools), `tools/call`, no
   stdout noise.
 
 ### E2E (`tests/e2e`, gated)
@@ -180,3 +180,16 @@ framework types themselves cover 10.4.
 Raw-method use is also subject to the platform limits the catalog reports: `update_id` is
 unique per bot, updates are retained for 24 hours, and a webhook and a polling loop must
 not consume the same bot concurrently.
+
+## Infrastructure, fuzz, Docker, and load
+
+| Command                             | Gate                   | Coverage                                                                                                                                   |
+| ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AURIFEX_INFRA=1 pnpm test:infra`   | Postgres 18 + Redis 8  | queue idempotency/claim exclusivity/dead-letter/recovery, payment uniqueness/refund/reconcile, broadcast resume, readiness, backup/restore |
+| `pnpm test:fuzz`                    | 10,000 fast-check runs | `BotSpec` totality, unknown-key rejection, path escape, generated Hypothesis initData parser                                               |
+| `AURIFEX_DOCKER=1 pnpm test:docker` | Docker daemon          | generated images: non-root user and `/healthz` 200                                                                                         |
+| `AURIFEX_LOAD=1 pnpm test:load`     | generated webhook      | p95 < 250 ms, error rate < 0.1%, no 5xx                                                                                                    |
+
+The default `pnpm verify` gate does not require Docker. CI runs infrastructure, Docker,
+fuzz, and load jobs on Ubuntu; the infrastructure job receives service containers, the
+Docker job uses buildx.

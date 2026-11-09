@@ -12,7 +12,6 @@ import { QUEUE_SQL } from "./queue.ts";
 
 export { BROADCAST_SQL };
 
-
 /** Drizzle schema mirroring `PAYMENTS_SQL`, `QUEUE_SQL`, and `BROADCAST_SQL`. */
 export function renderSchemaTs(_spec: BotSpec): string {
   return `import {
@@ -166,12 +165,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     PrimaryKeyConstraint,
     Text,
     Uuid,
-    text,
 )
+from sqlalchemy import text as sa_text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -189,10 +187,10 @@ class User(Base):
         Text, nullable=False, server_default=""
     )
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -227,7 +225,7 @@ class Payment(Base):
     provider_charge_id: Mapped[str | None] = mapped_column(Text)
     raw: Mapped[dict[str, object]] = mapped_column(postgresql.JSONB, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -243,7 +241,7 @@ class Refund(Base):
     id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False),
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        server_default=sa_text("gen_random_uuid()"),
     )
     charge_id: Mapped[str] = mapped_column(
         Text, ForeignKey("payments.charge_id"), nullable=False
@@ -252,7 +250,7 @@ class Refund(Base):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -282,7 +280,7 @@ class Job(Base):
     id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False),
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        server_default=sa_text("gen_random_uuid()"),
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(postgresql.JSONB, nullable=False)
@@ -291,7 +289,7 @@ class Job(Base):
     )
     idempotency_key: Mapped[str | None] = mapped_column(Text, unique=True)
     run_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
@@ -304,7 +302,7 @@ class Job(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 
 
@@ -320,7 +318,7 @@ class Broadcast(Base):
     id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False),
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        server_default=sa_text("gen_random_uuid()"),
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
@@ -333,7 +331,7 @@ class Broadcast(Base):
         Integer, nullable=False, server_default="0"
     )
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -355,7 +353,7 @@ class BroadcastDelivery(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
+        DateTime(timezone=True), nullable=False, server_default=sa_text("now()")
     )
 `;
 }
@@ -373,8 +371,8 @@ Revision ID: 0001_runtime_schema
 Revises:
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0001_runtime_schema"

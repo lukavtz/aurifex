@@ -46,8 +46,16 @@ describe("BROADCAST_SQL", () => {
   });
 
   it("indexes the resume cursor and delivery chat id", () => {
-    assert.ok(BROADCAST_SQL.includes("CREATE INDEX broadcasts_status_idx ON broadcasts (status, created_at);"));
-    assert.ok(BROADCAST_SQL.includes("CREATE INDEX broadcast_deliveries_chat_idx ON broadcast_deliveries (chat_id);"));
+    assert.ok(
+      BROADCAST_SQL.includes(
+        "CREATE INDEX broadcasts_status_idx ON broadcasts (status, created_at);",
+      ),
+    );
+    assert.ok(
+      BROADCAST_SQL.includes(
+        "CREATE INDEX broadcast_deliveries_chat_idx ON broadcast_deliveries (chat_id);",
+      ),
+    );
   });
 });
 
@@ -60,12 +68,25 @@ describe("renderLlmJobTs", () => {
 
   it("uses the approved job kind and handler signature", () => {
     assert.ok(source.includes('export const kind = "llm.request";'));
-    assert.ok(source.includes("export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void>"));
-    assert.ok(source.includes("export async function ask(prompt: string, config: LlmConfig | null): Promise<string>"));
+    assert.ok(
+      source.includes(
+        "export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void>",
+      ),
+    );
+    assert.ok(
+      source.includes(
+        "export async function ask(prompt: string, config: LlmConfig | null): Promise<string>",
+      ),
+    );
   });
 
   it("carries the documented payload shape", () => {
-    for (const field of ["readonly chatId: number;", "readonly prompt: string;", "readonly replyToMessageId?: number;", "readonly updateId: number;"]) {
+    for (const field of [
+      "readonly chatId: number;",
+      "readonly prompt: string;",
+      "readonly replyToMessageId?: number;",
+      "readonly updateId: number;",
+    ]) {
       assert.ok(source.includes(field), `missing payload field: ${field}`);
     }
   });
@@ -119,7 +140,7 @@ describe("renderLlmJobPy", () => {
     assert.ok(source.includes('config.base_url + "/chat/completions"'));
     assert.ok(source.includes('"max_tokens": MAX_TOKENS'));
     assert.ok(source.includes('payload.get("replyToMessageId")'));
-    assert.ok(source.includes("ctx.bot.send_message(payload[\"chatId\"], answer)"));
+    assert.ok(source.includes('ctx.bot.send_message(payload["chatId"], answer)'));
   });
 
   it("never logs the prompt, answer, or key", () => {
@@ -143,8 +164,16 @@ describe("renderBroadcastJobTs", () => {
 
   it("uses the approved kind and payload", () => {
     assert.ok(source.includes('export const kind = "broadcast.send";'));
-    assert.ok(source.includes("export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void>"));
-    for (const field of ["readonly broadcastId: string;", "readonly text: string;", "readonly createdBy: number;"]) {
+    assert.ok(
+      source.includes(
+        "export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void>",
+      ),
+    );
+    for (const field of [
+      "readonly broadcastId: string;",
+      "readonly text: string;",
+      "readonly createdBy: number;",
+    ]) {
       assert.ok(source.includes(field), `missing payload field: ${field}`);
     }
   });
@@ -172,8 +201,12 @@ describe("renderBroadcastJobTs", () => {
 
   it("commits deliveries, counters, and the cursor together", () => {
     assert.ok(source.includes("await ctx.sql.begin(async (tx) =>"));
-    assert.ok(source.includes("UPDATE broadcasts SET last_user_id = $2::bigint, sent = $3, failed = $4"));
-    assert.ok(source.includes("UPDATE broadcast_deliveries SET status = $3, error = $4, sent_at = now()"));
+    assert.ok(
+      source.includes("UPDATE broadcasts SET last_user_id = $2::bigint, sent = $3, failed = $4"),
+    );
+    assert.ok(
+      source.includes("UPDATE broadcast_deliveries SET status = $3, error = $4, sent_at = now()"),
+    );
     assert.ok(source.includes("UPDATE broadcasts SET status = 'done', finished_at = now()"));
   });
 });
@@ -215,7 +248,7 @@ describe("renderBroadcastCommandTs", () => {
 
   it("inserts the broadcast and enqueues the idempotent job", () => {
     assert.ok(source.includes("INSERT INTO broadcasts (text, created_by)"));
-    assert.ok(source.includes("idempotencyKey: \"broadcast:\" + broadcastId"));
+    assert.ok(source.includes('idempotencyKey: "broadcast:" + broadcastId'));
     assert.ok(source.includes("BROADCAST_KIND"));
   });
 });

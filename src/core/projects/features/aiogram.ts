@@ -7,6 +7,7 @@ import {
   renderLlmJobPy,
 } from "../templates/jobs.ts";
 import { renderMiniApp } from "../templates/miniapp.ts";
+import { renderMiniAppSessionPy } from "../templates/miniapp-session.ts";
 import { renderPaymentsPy } from "../templates/payments.ts";
 import type { TemplateFile } from "../templates/shared.ts";
 
@@ -94,7 +95,8 @@ async def test_inline_answers_with_one_article() -> None:
 const PAYMENTS_MODULE = `from __future__ import annotations
 
 import os
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
@@ -106,7 +108,6 @@ from app.runtime.payments import (
     PRODUCTS,
     LabeledPrice,
     PaymentError,
-    PreCheckoutQuery as RuntimePreCheckoutQuery,
     SuccessfulPayment,
     cancel_subscription,
     create_invoice,
@@ -114,6 +115,7 @@ from app.runtime.payments import (
     refund_payment,
     validate_pre_checkout,
 )
+from app.runtime.payments import PreCheckoutQuery as RuntimePreCheckoutQuery
 from app.services.i18n import t
 
 PAYSUPPORT_TEXT = os.getenv(
@@ -149,7 +151,6 @@ class AiogramPayments:
                 TelegramLabeledPrice(label=price.label, amount=price.amount)
                 for price in prices
             ],
-            subscription_period=subscription_period,
         )
 
     async def create_invoice_link(
@@ -171,7 +172,6 @@ class AiogramPayments:
                 TelegramLabeledPrice(label=price.label, amount=price.amount)
                 for price in prices
             ],
-            subscription_period=subscription_period,
         )
 
     async def refund_star_payment(self, user_id: int, charge_id: str) -> object:
@@ -263,8 +263,8 @@ async def handle_successful_payment(
                 currency=payment.currency,
                 total_amount=payment.total_amount,
                 provider_charge_id=payment.provider_payment_charge_id,
-                is_recurring=payment.is_recurring,
-                is_first_recurring=payment.is_first_recurring,
+                is_recurring=bool(payment.is_recurring),
+                is_first_recurring=bool(payment.is_first_recurring),
                 subscription_expiration_date=payment.subscription_expiration_date,
                 username=user.username,
                 display_name=display_name,
@@ -448,8 +448,8 @@ async def handle(_job: ClaimedJob, ctx: JobContext) -> None:
     await reconcile_payments(ctx.session_factory, AiogramPayments(ctx.bot))
     await ctx.queue.enqueue(
         KIND,
-        {"scheduledAt": dt.datetime.now(dt.timezone.utc).isoformat()},
-        run_at=dt.datetime.now(dt.timezone.utc) + INTERVAL,
+        {"scheduledAt": dt.datetime.now(dt.UTC).isoformat()},
+        run_at=dt.datetime.now(dt.UTC) + INTERVAL,
     )
 `;
 
@@ -521,7 +521,7 @@ class FakeResult:
 
 
 class FakeSession:
-    async def __aenter__(self) -> "FakeSession":
+    async def __aenter__(self) -> FakeSession:
         return self
 
     async def __aexit__(self, *_args: object) -> bool:
@@ -622,7 +622,7 @@ async def test_reconcile_reschedules_without_granting(
     monkeypatch.setattr(payment_reconcile, "reconcile_payments", reconcile)
     queue = SimpleNamespace(enqueue=AsyncMock())
     ctx = SimpleNamespace(session_factory=object(), bot=FakeBot(), queue=queue)
-    before = dt.datetime.now(dt.timezone.utc)
+    before = dt.datetime.now(dt.UTC)
     await payment_reconcile.handle(SimpleNamespace(payload={}), ctx)  # type: ignore[arg-type]
     queue.enqueue.assert_awaited_once()
     assert queue.enqueue.await_args.args[0] == "payment.reconcile"
@@ -633,79 +633,169 @@ async def test_reconcile_reschedules_without_granting(
     )
 `;
 
-const MINIAPP_SERVICE = `import hashlib
-import hmac
-import json
-import os
-import time
-from collections.abc import Awaitable, Callable
-from typing import Any
-from urllib.parse import parse_qsl
+const MINIAPP_SERVICE = `"""Mini App HTTP routes backed by the session runtime.
 
-from aiogram import Bot, Dispatcher, F, Router
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+initData signatures are verified in app.runtime.miniapp_session with the
+Telegram b"WebAppData" HMAC secret; this module only wires HTTP responses.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Any
+
 from aiohttp import web
 
-MAX_AGE_SECONDS = 86400
+from app.config import Settings
+from app.runtime.miniapp_session import (
+    SECURITY_HEADERS,
+    SESSION_COOKIE,
+    MiniAppAuthError,
+    assert_mutation_authorized,
+    clear_session_cookie,
+    create_session,
+    read_session,
+    session_cookie,
+)
+
 SESSION_PATH = "/api/miniapp/session"
+ME_PATH = "/api/miniapp/me"
+PROFILE_KEY_PREFIX = "miniapp:profile:"
+DEFAULT_SESSION_TTL_SECONDS = 86400
 
 
-def validate_init_data(
-    init_data: str, bot_token: str, now: int | None = None
-) -> dict[str, Any] | None:
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    received = pairs.pop("hash", "")
-    if not received:
-        return None
-    check_string = "\\n".join(key + "=" + pairs[key] for key in sorted(pairs))
-    secret = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
-    expected = hmac.new(secret, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, received.lower()):
-        return None
+def _redis(request: web.Request) -> Any:
+    return request.app.get("redis")
+
+
+def _allowed_origins(settings: Settings) -> list[str]:
+    return [
+        origin.strip().rstrip("/")
+        for origin in settings.miniapp_allowed_origins.split(",")
+        if origin.strip()
+    ]
+
+
+def _secure(request: web.Request) -> bool:
+    return bool(request.secure)
+
+
+def _display_name(user: Any) -> str:
+    parts = [user.first_name, user.last_name]
+    return " ".join(part for part in parts if isinstance(part, str) and part)
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _session_key(session_id: str) -> str:
+    return "miniapp:session:" + _sha256(session_id)
+
+
+def _profile_key(session_id: str) -> str:
+    return PROFILE_KEY_PREFIX + _sha256(session_id)
+
+
+def _json(
+    payload: dict[str, Any],
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+) -> web.Response:
+    merged = dict(SECURITY_HEADERS)
+    if headers:
+        merged.update(headers)
+    return web.json_response(payload, status=status, headers=merged)
+
+
+async def create_session_handler(request: web.Request) -> web.Response:
+    redis = _redis(request)
+    if redis is None:
+        return _json({"error": "session_store_unavailable"}, status=503)
     try:
-        auth_date = int(pairs.get("auth_date", "0"))
-    except ValueError:
-        return None
-    current = int(time.time()) if now is None else now
-    if auth_date <= 0 or current - auth_date > MAX_AGE_SECONDS:
-        return None
-    raw_user = pairs.get("user")
-    if raw_user is None:
-        return None
+        body = await request.json()
+    except Exception:
+        return _json({"error": "invalid_json"}, status=400)
+    init_data = body.get("initData") if isinstance(body, dict) else None
+    if not isinstance(init_data, str) or not init_data:
+        return _json({"error": "invalid_request"}, status=400)
+    settings: Settings = request.app["settings"]
     try:
-        user = json.loads(raw_user)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(user, dict) or not isinstance(user.get("id"), int):
-        return None
-    return {"user": user, "authDate": auth_date}
+        created = await create_session(
+            init_data,
+            settings.bot_token,
+            redis,
+            ttl_seconds=settings.miniapp_session_ttl_seconds,
+        )
+    except MiniAppAuthError:
+        return _json({"error": "invalid_init_data"}, status=401)
+    display_name = _display_name(created.user)
+    await redis.setex(
+        _profile_key(created.session_id),
+        created.ttl_seconds,
+        display_name,
+    )
+    cookie = session_cookie(
+        created.session_id, created.ttl_seconds, _secure(request)
+    )
+    return _json(
+        {
+            "user": {"id": created.user.id, "displayName": display_name},
+            "csrfToken": created.csrf_token,
+        },
+        headers={"Set-Cookie": cookie},
+    )
 
 
-def create_session_handler(bot_token: str) -> Callable[[web.Request], Awaitable[web.Response]]:
-    async def handler(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"error": "invalid_json"}, status=400)
-        init_data = body.get("initData") if isinstance(body, dict) else None
-        if not isinstance(init_data, str) or not init_data:
-            return web.json_response({"error": "invalid_request"}, status=400)
-        session = validate_init_data(init_data, bot_token)
-        if session is None:
-            return web.json_response({"error": "invalid_init_data"}, status=401)
-        user = session["user"]
-        parts = [user.get("first_name"), user.get("last_name")]
-        display_name = " ".join(part for part in parts if isinstance(part, str))
-        return web.json_response({"user": {"id": user["id"], "displayName": display_name}})
-
-    return handler
+async def me_handler(request: web.Request) -> web.Response:
+    redis = _redis(request)
+    if redis is None:
+        return _json({"error": "session_store_unavailable"}, status=503)
+    session_id = request.cookies.get(SESSION_COOKIE)
+    if not session_id:
+        return _json({"error": "unauthorized"}, status=401)
+    session = await read_session(redis, session_id)
+    if session is None:
+        return _json({"error": "unauthorized"}, status=401)
+    profile = await redis.get(_profile_key(session_id))
+    return _json({"user": {"id": session.user_id, "displayName": profile or ""}})
 
 
-def register_routes(app: web.Application, bot_token: str) -> None:
-    app.router.add_post(SESSION_PATH, create_session_handler(bot_token))
+async def logout_handler(request: web.Request) -> web.Response:
+    redis = _redis(request)
+    if redis is None:
+        return _json({"error": "session_store_unavailable"}, status=503)
+    session_id = request.cookies.get(SESSION_COOKIE)
+    session = await read_session(redis, session_id) if session_id else None
+    settings: Settings = request.app["settings"]
+    try:
+        assert_mutation_authorized(
+            {
+                "origin": request.headers.get("Origin"),
+                "host": request.headers.get("Host"),
+                "csrf_token": request.headers.get("X-CSRF-Token"),
+            },
+            session,
+            _allowed_origins(settings),
+        )
+    except MiniAppAuthError:
+        return _json({"error": "forbidden"}, status=403)
+    await redis.delete(_session_key(str(session_id)))
+    await redis.delete(_profile_key(str(session_id)))
+    return web.Response(
+        status=204,
+        headers={
+            **SECURITY_HEADERS,
+            "Set-Cookie": clear_session_cookie(_secure(request)),
+        },
+    )
 
 
-async def handle_miniapp(message: Message) -> None:
+async def handle_miniapp(message: Any) -> None:
+    import os
+
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
     url = os.getenv("MINIAPP_URL", os.getenv("WEBHOOK_URL", ""))
     if not url.startswith("https://"):
         await message.answer("Set WEBHOOK_URL to an HTTPS URL to open the mini app.")
@@ -716,27 +806,79 @@ async def handle_miniapp(message: Message) -> None:
     await message.answer("Open the mini app:", reply_markup=keyboard)
 
 
-def register(dp: Dispatcher, bot: Bot) -> None:
+def register_routes(app: web.Application, settings: Settings) -> None:
+    app["settings"] = settings
+    app.router.add_post(SESSION_PATH, create_session_handler)
+    app.router.add_get(ME_PATH, me_handler)
+    app.router.add_delete(SESSION_PATH, logout_handler)
+
+
+def register(dp: Any, bot: Any) -> None:
+    from aiogram import F, Router
+
     router = Router(name="miniapp")
     router.message.register(handle_miniapp, F.text == "/miniapp")
     dp.include_router(router)
 `;
 
-const MINIAPP_TEST = `import hashlib
+const MINIAPP_TEST = `from __future__ import annotations
+
+import hashlib
 import hmac
 import json
+import time
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
-from app.services.miniapp import validate_init_data
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
 
-TOKEN = "unit-test-token"
+from app.runtime.miniapp_session import (
+    SESSION_COOKIE,
+    StoredSession,
+    assert_mutation_authorized,
+)
+from app.services.miniapp import ME_PATH, SESSION_PATH, register_routes
+
+TOKEN = "123456:unit-test-token"
+TTL = 86400
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.data: dict[str, str] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self.data.get(key)
+
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        nx: bool = False,
+        ex: int | None = None,
+    ) -> bool:
+        if nx and key in self.data:
+            return False
+        self.data[key] = value
+        return True
+
+    async def setex(self, key: str, seconds: int, value: str) -> None:
+        self.data[key] = value
+
+    async def delete(self, key: str) -> None:
+        self.data.pop(key, None)
 
 
 def signed_init_data(auth_date: int) -> str:
     pairs = {
         "auth_date": str(auth_date),
         "query_id": "query",
-        "user": json.dumps({"id": 7, "first_name": "Test"}),
+        "user": json.dumps(
+            {"id": 7, "first_name": "Test", "last_name": "User"}
+        ),
     }
     check_string = "\\n".join(key + "=" + pairs[key] for key in sorted(pairs))
     secret = hmac.new(b"WebAppData", TOKEN.encode("utf-8"), hashlib.sha256).digest()
@@ -745,22 +887,105 @@ def signed_init_data(auth_date: int) -> str:
     return urlencode(pairs)
 
 
-def test_valid_init_data_is_accepted() -> None:
-    now = 1_800_000_000
-    session = validate_init_data(signed_init_data(now - 60), TOKEN, now)
-    assert session is not None
-    assert session["user"]["id"] == 7
+def make_app() -> web.Application:
+    app = web.Application()
+    app["redis"] = FakeRedis()
+    app["settings"] = SimpleNamespace(
+        bot_token=TOKEN,
+        miniapp_session_ttl_seconds=TTL,
+        miniapp_allowed_origins="",
+    )
+    register_routes(app, app["settings"])
+    return app
 
 
-def test_stale_init_data_is_rejected() -> None:
-    now = 1_800_000_000
-    assert validate_init_data(signed_init_data(now - 90_000), TOKEN, now) is None
+@pytest.mark.asyncio
+async def test_session_sets_cookie_and_security_headers() -> None:
+    async with TestClient(TestServer(make_app())) as client:
+        response = await client.post(
+            SESSION_PATH, json={"initData": signed_init_data(int(time.time()) - 60)}
+        )
+        assert response.status == 200
+        cookie = response.headers["Set-Cookie"]
+        assert SESSION_COOKIE + "=" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=Lax" in cookie
+        assert "Path=/" in cookie
+        assert "Max-Age=" + str(TTL) in cookie
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
+        assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+        body = await response.json()
+        assert body["user"] == {"id": 7, "displayName": "Test User"}
+        assert body["csrfToken"]
 
 
-def test_tampered_init_data_is_rejected() -> None:
-    now = 1_800_000_000
-    tampered = signed_init_data(now - 60).replace("id%22%3A+7", "id%22%3A+8")
-    assert validate_init_data(tampered, TOKEN, now) is None
+@pytest.mark.asyncio
+async def test_me_returns_the_same_user() -> None:
+    async with TestClient(TestServer(make_app())) as client:
+        created = await client.post(
+            SESSION_PATH, json={"initData": signed_init_data(int(time.time()) - 60)}
+        )
+        user = (await created.json())["user"]
+        response = await client.get(ME_PATH)
+        assert response.status == 200
+        assert (await response.json())["user"] == user
+
+
+@pytest.mark.asyncio
+async def test_init_data_replay_is_rejected() -> None:
+    init_data = signed_init_data(int(time.time()) - 60)
+    async with TestClient(TestServer(make_app())) as client:
+        assert (
+            await client.post(SESSION_PATH, json={"initData": init_data})
+        ).status == 200
+        assert (
+            await client.post(SESSION_PATH, json={"initData": init_data})
+        ).status == 401
+
+
+@pytest.mark.asyncio
+async def test_expired_session_is_rejected() -> None:
+    async with TestClient(TestServer(make_app())) as client:
+        created = await client.post(
+            SESSION_PATH, json={"initData": signed_init_data(int(time.time()) - 60)}
+        )
+        session_id = created.cookies[SESSION_COOKIE].value
+        app = client.server.app
+        await app["redis"].delete(
+            "miniapp:session:" + hashlib.sha256(session_id.encode()).hexdigest()
+        )
+        assert (await client.get(ME_PATH)).status == 401
+
+
+@pytest.mark.asyncio
+async def test_mutation_requires_csrf_and_allowed_origin() -> None:
+    async with TestClient(TestServer(make_app())) as client:
+        created = await client.post(
+            SESSION_PATH, json={"initData": signed_init_data(int(time.time()) - 60)}
+        )
+        csrf = (await created.json())["csrfToken"]
+        assert (await client.delete(SESSION_PATH)).status == 403
+        assert (
+            await client.delete(
+                SESSION_PATH,
+                headers={"X-CSRF-Token": csrf, "Origin": "https://evil.example"},
+            )
+        ).status == 403
+
+
+def test_assert_mutation_authorized_accepts_same_origin() -> None:
+    session = StoredSession(user_id=7, auth_date=1, csrf="token", created_at=1)
+    authorized = assert_mutation_authorized(
+        {
+            "origin": "https://app.example",
+            "host": "app.example",
+            "csrf_token": "token",
+        },
+        session,
+        [],
+    )
+    assert authorized.user_id == 7
 `;
 
 const MODERATION_MODULE = `import os
@@ -960,6 +1185,7 @@ export function renderAiogramFeature(
     case "miniapps":
       return [
         ...renderMiniApp(spec),
+        file("app/runtime/miniapp_session.py", renderMiniAppSessionPy()),
         file("app/services/miniapp.py", MINIAPP_SERVICE),
         file("tests/test_miniapp.py", MINIAPP_TEST),
       ];

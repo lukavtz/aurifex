@@ -15,11 +15,7 @@ export function requiredSecretNames(spec: BotSpec): string[] {
   if (spec.runtime.queue === "postgres") {
     names.push("DATABASE_URL");
   }
-  if (
-    spec.security.idempotency ||
-    spec.security.rateLimit ||
-    spec.features.includes("miniapps")
-  ) {
+  if (spec.security.idempotency || spec.security.rateLimit || spec.features.includes("miniapps")) {
     names.push("REDIS_URL");
   }
   return names;
@@ -228,9 +224,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         if field in Settings.model_fields:
             resolved[field] = value
     for name in FILE_BACKED_SECRETS:
-        value = read_secret(name, source)
-        if value is not None:
-            resolved[name.lower()] = value
+        secret_value = read_secret(name, source)
+        if secret_value is not None:
+            resolved[name.lower()] = secret_value
     return Settings(**resolved)
 
 

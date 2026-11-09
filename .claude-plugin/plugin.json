@@ -1,6 +1,6 @@
 {
   "name": "aurifex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Production Telegram bot development for Claude Code: scaffold, secure, test, deploy grammY and aiogram bots with Bot API 10.4 support.",
   "author": {
     "name": "lukavtz"

@@ -90,7 +90,15 @@ test("one runtime schema migration replaces the split init and jobs migrations",
 
   const migration = contentOf("migrations/versions/0001_runtime_schema.py");
   assert.match(migration, /revision = "0001_runtime_schema"/);
-  for (const table of ["users", "payments", "refunds", "subscriptions", "jobs", "broadcasts", "broadcast_deliveries"]) {
+  for (const table of [
+    "users",
+    "payments",
+    "refunds",
+    "subscriptions",
+    "jobs",
+    "broadcasts",
+    "broadcast_deliveries",
+  ]) {
     assert.match(migration, new RegExp(`op\\.create_table\\(\\n        "${table}"`));
   }
   assert.match(migration, /def downgrade\(\) -> None:/);

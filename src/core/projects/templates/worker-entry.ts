@@ -134,7 +134,7 @@ function isJobFile(entry: string): boolean {
 
 export async function loadJobHandlers(ctx: JobContext): Promise<Record<string, JobHandler>> {
   const directory = import.meta.dirname;
-  const entries = (await readdir(directory)).filter(isJobFile).sort();
+  const entries = (await readdir(directory)).filter(isJobFile).toSorted();
   const handlers: Record<string, JobHandler> = {};
   for (const entry of entries) {
     const module: unknown = await import(pathToFileURL(join(directory, entry)).href);

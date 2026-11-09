@@ -307,7 +307,7 @@ export function renderLlmEnqueuePy(): string {
 
 from typing import Any
 
-from aiogram import Bot, Router
+from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, Update
 
@@ -355,7 +355,7 @@ async def llm_command(
     await message.answer(WORKING_TEXT)
 
 
-def register(dp, _bot: Bot) -> None:
+def register(dp: Dispatcher, _bot: Bot) -> None:
     dp.include_router(router)
 `;
 }
@@ -1003,9 +1003,13 @@ export function register(bot: Bot, deps: UserSyncDeps): void {
 export function renderUserSyncPy(): string {
   return `from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from typing import Any
+
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.types import TelegramObject
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 USER_UPSERT_SQL = text(
     """
@@ -1026,9 +1030,19 @@ def _display_name(first_name: str, last_name: str | None) -> str:
 
 
 class UserSyncMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event: TelegramObject, data: dict) -> object:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession] | None = None
+    ) -> None:
+        self._session_factory = session_factory
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
         user = getattr(event, "from_user", None)
-        session_factory = data.get("session_factory")
+        session_factory = data.get("session_factory") or self._session_factory
         if user is not None and session_factory is not None:
             username = user.username[:MAX_USERNAME] if user.username else None
             async with session_factory() as session:

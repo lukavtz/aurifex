@@ -425,7 +425,7 @@ class Queue:
                     RECOVER_SQL,
                     {"visibility_timeout": self._visibility_timeout_seconds},
                 )
-                return result.rowcount or 0
+                return getattr(result, "rowcount", 0) or 0
 `;
 }
 
@@ -436,7 +436,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 
 from app.runtime.queue import ClaimedJob, Queue
 

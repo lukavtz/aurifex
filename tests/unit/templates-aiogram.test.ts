@@ -98,7 +98,7 @@ test("pyproject pins the aiogram stack and Python range", () => {
   assert.match(pyproject, /"aiogram==3\.31\.0"/);
   assert.match(pyproject, /"pydantic-settings==2\.16\.2"/);
   assert.match(pyproject, /"asyncpg==0\.32\.0"/);
-  assert.match(pyproject, /"sqlalchemy==2\.1\.8"/);
+  assert.match(pyproject, /"sqlalchemy\[asyncio\]==2\.1\.8"/);
   assert.match(pyproject, /"redis==8\.1\.0"/);
   assert.match(pyproject, /"alembic==1\.20\.1"/);
   assert.match(pyproject, /"structlog==26\.1\.0"/);

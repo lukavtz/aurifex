@@ -55,11 +55,7 @@ async function loadGeneratedConfig(source: string): Promise<LoadedConfig> {
   const dir = await mkdtemp(join(process.cwd(), ".tmp-config-"));
   try {
     await mkdir(join(dir, "runtime"));
-    await writeFile(
-      join(dir, "runtime", "secrets.ts"),
-      renderSecretsTs(),
-      "utf8",
-    );
+    await writeFile(join(dir, "runtime", "secrets.ts"), renderSecretsTs(), "utf8");
     await writeFile(
       join(dir, "config.ts"),
       source.replace('from "./runtime/secrets.js"', 'from "./runtime/secrets.ts"'),
@@ -86,10 +82,11 @@ test("required names follow queue, redis security flags, and miniapps", () => {
     }),
     ["BOT_TOKEN", "WEBHOOK_SECRET", "REDIS_URL"],
   );
-  assert.deepEqual(
-    requiredSecretNames({ ...BASE, features: ["commands", "miniapps"] }),
-    ["BOT_TOKEN", "WEBHOOK_SECRET", "REDIS_URL"],
-  );
+  assert.deepEqual(requiredSecretNames({ ...BASE, features: ["commands", "miniapps"] }), [
+    "BOT_TOKEN",
+    "WEBHOOK_SECRET",
+    "REDIS_URL",
+  ]);
 
   const plain = /const REQUIRED_SECRETS: readonly string\[\] = \[([\s\S]*?)\];/.exec(
     renderConfigTs(BASE),
@@ -101,7 +98,9 @@ test("required names follow queue, redis security flags, and miniapps", () => {
 test("generated TS config lists required secrets and resolves files per name", () => {
   const source = renderConfigTs(QUEUED);
   assert.match(source, /import \{ readSecret, requireSecrets \} from "\.\/runtime\/secrets\.js";/);
-  const requiredBlock = /const REQUIRED_SECRETS: readonly string\[\] = \[([\s\S]*?)\];/.exec(source);
+  const requiredBlock = /const REQUIRED_SECRETS: readonly string\[\] = \[([\s\S]*?)\];/.exec(
+    source,
+  );
   assert.ok(requiredBlock, "missing REQUIRED_SECRETS");
   for (const name of ["BOT_TOKEN", "WEBHOOK_SECRET", "DATABASE_URL", "REDIS_URL"]) {
     assert.match(requiredBlock[1]!, new RegExp(`"${name}"`));
@@ -183,7 +182,10 @@ test("generated Python config imports the secret helpers and validates the same 
   for (const name of ["BOT_TOKEN", "WEBHOOK_SECRET", "DATABASE_URL", "REDIS_URL"]) {
     assert.match(requiredBlock[1]!, new RegExp(`"${name}"`));
   }
-  assert.match(source, /miniapp_session_ttl_seconds: int = Field\(default=86400, ge=300, le=2592000\)/);
+  assert.match(
+    source,
+    /miniapp_session_ttl_seconds: int = Field\(default=86400, ge=300, le=2592000\)/,
+  );
   assert.match(source, /metrics_enabled: bool = True/);
   assert.match(source, /@field_validator\("bot_token"\)/);
   assert.match(source, /def admin_id_set/);

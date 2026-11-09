@@ -7,6 +7,8 @@ import {
   renderLlmJobTs,
 } from "../templates/jobs.ts";
 import { renderMiniApp } from "../templates/miniapp.ts";
+import { renderMiniAppSessionTs } from "../templates/miniapp-session.ts";
+import { renderPaymentsTs } from "../templates/payments.ts";
 import type { TemplateFile } from "../templates/shared.ts";
 
 function file(path: string, content: string): TemplateFile {
@@ -89,7 +91,7 @@ function fakeQueue(calls: EnqueueCall[]): QueueTarget {
       payload: unknown,
       options?: EnqueueCall["options"],
     ): Promise<string> => {
-      calls.push({ kind, payload, options });
+      calls.push(options === undefined ? { kind, payload } : { kind, payload, options });
       return "job-1";
     },
   } as unknown as QueueTarget;
@@ -491,12 +493,16 @@ function harness(): {
   replies: string[];
   answers: unknown[][];
   calls: string[];
+  owners: Map<string, number>;
+  payments: Map<string, string>;
 } {
   const commands = new Map<string, Handler>();
   const events = new Map<string, Handler>();
   const replies: string[] = [];
   const answers: unknown[][] = [];
   const calls: string[] = [];
+  const owners = new Map<string, number>();
+  const payments = new Map<string, string>();
   const bot = {
     command(name: string, handler: Handler): void {
       commands.set(name, handler);
@@ -533,12 +539,8 @@ function harness(): {
       return "job";
     },
   };
-  const sql = fakeSql({
-    owners: new Map(),
-    payments: new Map(),
-    subscriptions: new Map(),
-  });
-  return { bot, queue, sql, commands, events, replies, answers, calls };
+  const sql = fakeSql({ owners, payments, subscriptions: new Map() });
+  return { bot, queue, sql, commands, events, replies, answers, calls, owners, payments };
 }
 
 function deps(sql: Sql, queue: { enqueue: (kind: string) => Promise<string> }) {
@@ -556,7 +558,7 @@ test("/buy uses createInvoiceLink for a subscription product", async () => {
     match: product.id,
     from: { id: 42, first_name: "Buyer" },
     chat: { id: 42 },
-    reply: async (text: string) => state.replies.push(text),
+    reply: async (text: string): Promise<void> => { void state.replies.push(text); },
   });
   expect(state.calls).toContain("createInvoiceLink");
   expect(state.replies).toContain("https://t.me/invoice/sub");
@@ -602,7 +604,7 @@ test("successful payment inserts once and enqueues fulfillment once", async () =
         total_amount: product?.stars ?? 0,
       },
     },
-    reply: async (text: string) => state.replies.push(text),
+    reply: async (text: string): Promise<void> => { void state.replies.push(text); },
   };
   await handler?.(ctx);
   await handler?.(ctx);
@@ -613,6 +615,8 @@ test("successful payment inserts once and enqueues fulfillment once", async () =
 
 test("refund is admin-only and idempotent", async () => {
   const state = harness();
+  state.owners.set("charge-1", 42);
+  state.payments.set("charge-1", "paid");
   register(state.bot, deps(state.sql, state.queue));
   const handler = state.commands.get("refund");
   expect(handler).toBeDefined();
@@ -620,18 +624,18 @@ test("refund is admin-only and idempotent", async () => {
   await handler?.({
     match: "charge-1",
     from: { id: 7 },
-    reply: async (text: string) => state.replies.push(text),
+    reply: async (text: string): Promise<void> => { void state.replies.push(text); },
   });
   expect(state.calls).not.toContain("refundStarPayment");
   await handler?.({
     match: "charge-1",
     from: { id: 42 },
-    reply: async (text: string) => state.replies.push(text),
+    reply: async (text: string): Promise<void> => { void state.replies.push(text); },
   });
   await handler?.({
     match: "charge-1",
     from: { id: 42 },
-    reply: async (text: string) => state.replies.push(text),
+    reply: async (text: string): Promise<void> => { void state.replies.push(text); },
   });
   expect(state.calls).toEqual(["refundStarPayment"]);
   expect(state.replies).toContain("Refund issued.");
@@ -716,111 +720,233 @@ test("broadcast command inserts one row and enqueues one idempotent job", async 
 });
 `;
 
-const MINIAPP_MODULE = `import { createHmac, timingSafeEqual } from "node:crypto";
+const MINIAPP_MODULE = `import { createHash } from "node:crypto";
 
 import { InlineKeyboard } from "grammy";
 import type { Bot } from "grammy";
 
+import {
+  MiniAppAuthError,
+  SECURITY_HEADERS,
+  SESSION_COOKIE,
+  assertMutationAuthorized,
+  clearSessionCookie,
+  createSession,
+  readSession,
+  sessionCookie,
+  validateInitData,
+  type CreatedSession,
+  type InitDataUser,
+  type MiniAppRedis,
+} from "../runtime/miniapp-session.js";
+
 export const SESSION_PATH = "/api/miniapp/session";
-const MAX_AGE_SECONDS = 86_400;
+export const ME_PATH = "/api/miniapp/me";
+const PROFILE_KEY_PREFIX = "miniapp:profile:";
 
-export interface MiniAppUser {
-  readonly id: number;
-  readonly firstName: string;
-  readonly lastName?: string;
-  readonly username?: string;
+export interface MiniAppConfig {
+  readonly MINIAPP_SESSION_TTL_SECONDS: number;
+  readonly MINIAPP_ALLOWED_ORIGINS: string;
 }
 
-export interface MiniAppSession {
-  readonly user: MiniAppUser;
-  readonly authDate: number;
-}
-
-export interface MiniAppRequest {
-  readonly body: string;
-  readonly botToken: string;
-}
-
-export interface MiniAppResponse {
-  readonly status: number;
-  readonly body: Readonly<Record<string, unknown>>;
-}
-
-function parseUser(raw: string): MiniAppUser | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const record = parsed as Record<string, unknown>;
-  if (typeof record.id !== "number" || !Number.isInteger(record.id)) return null;
-  if (typeof record.first_name !== "string") return null;
-  return {
-    id: record.id,
-    firstName: record.first_name,
-    ...(typeof record.last_name === "string" ? { lastName: record.last_name } : {}),
-    ...(typeof record.username === "string" ? { username: record.username } : {}),
+export interface MiniAppRouteRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly body: string | null;
+  readonly headers: {
+    readonly cookie?: string;
+    readonly origin?: string;
+    readonly host?: string;
+    readonly csrfToken?: string;
   };
+  readonly secure: boolean;
+  readonly botToken: string;
+  readonly redis: unknown;
+  readonly config: MiniAppConfig;
 }
 
-export function validateInitData(
-  initData: string,
-  botToken: string,
-  nowSeconds: number = Math.floor(Date.now() / 1000),
-): MiniAppSession | null {
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  if (hash === null || hash === "") return null;
-  params.delete("hash");
-  const dataCheckString = [...params.entries()]
-    .map(([key, value]) => key + "=" + value)
-    .sort()
-    .join("\\n");
-  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
-  const expected = createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
-  const expectedBytes = Buffer.from(expected, "utf8");
-  const receivedBytes = Buffer.from(hash.toLowerCase(), "utf8");
+export interface MiniAppRouteResult {
+  readonly status: number;
+  readonly body: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+export interface MiniAppRoute {
+  readonly method: string;
+  readonly path: string;
+  handler(request: MiniAppRouteRequest): Promise<MiniAppRouteResult>;
+}
+
+interface SessionStore extends MiniAppRedis {
+  del(...keys: string[]): Promise<unknown>;
+}
+
+interface RedisClient {
+  get(key: string): Promise<string | null>;
+  set(...args: unknown[]): Promise<unknown>;
+  setex(key: string, seconds: number, value: string): Promise<unknown>;
+  del?(...keys: string[]): Promise<unknown>;
+}
+
+// ioredis takes positional SET options; the session runtime takes the object
+// form. One adapter keeps both contracts honest.
+function toStore(client: unknown): SessionStore | null {
+  if (typeof client !== "object" || client === null) return null;
+  const raw = client as RedisClient;
   if (
-    expectedBytes.length !== receivedBytes.length ||
-    !timingSafeEqual(expectedBytes, receivedBytes)
+    typeof raw.get !== "function" ||
+    typeof raw.set !== "function" ||
+    typeof raw.setex !== "function"
   ) {
     return null;
   }
-  const authDate = Number(params.get("auth_date") ?? "0");
-  if (!Number.isInteger(authDate) || authDate <= 0) return null;
-  if (nowSeconds - authDate > MAX_AGE_SECONDS) return null;
-  const rawUser = params.get("user");
-  if (rawUser === null) return null;
-  const user = parseUser(rawUser);
-  if (user === null) return null;
-  return { user, authDate };
+  return {
+    get: (key) => raw.get(key),
+    set: (key, value, options) => raw.set(key, value, "EX", options.EX, "NX"),
+    setex: (key, seconds, value) => raw.setex(key, seconds, value),
+    del: (...keys) => (typeof raw.del === "function" ? raw.del(...keys) : Promise.resolve(0)),
+  };
 }
 
-export async function handleSession(request: MiniAppRequest): Promise<MiniAppResponse> {
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function sessionKey(sessionId: string): string {
+  return "miniapp:session:" + sha256Hex(sessionId);
+}
+
+function profileKey(sessionId: string): string {
+  return PROFILE_KEY_PREFIX + sha256Hex(sessionId);
+}
+
+function cookieValue(header: string | undefined, name: string): string | null {
+  if (header === undefined || header === "") return null;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    if (part.slice(0, index).trim() !== name) continue;
+    const value = part.slice(index + 1).trim();
+    if (value !== "") return value;
+  }
+  return null;
+}
+
+function displayNameOf(user: InitDataUser): string {
+  return [user.firstName, user.lastName ?? ""].filter((part) => part !== "").join(" ");
+}
+
+function allowedOrigins(config: MiniAppConfig): readonly string[] {
+  return config.MINIAPP_ALLOWED_ORIGINS.split(",")
+    .map((origin) => origin.trim().replace(/\\/$/, ""))
+    .filter((origin) => origin !== "");
+}
+
+function json(
+  payload: unknown,
+  status = 200,
+  headers: Readonly<Record<string, string>> = {},
+): MiniAppRouteResult {
+  return { status, body: payload, headers: { ...SECURITY_HEADERS, ...headers } };
+}
+
+function authorizationOf(
+  headers: MiniAppRouteRequest["headers"],
+): { origin?: string; host?: string; csrfToken?: string } {
+  const request: { origin?: string; host?: string; csrfToken?: string } = {};
+  if (headers.origin !== undefined) request.origin = headers.origin;
+  if (headers.host !== undefined) request.host = headers.host;
+  if (headers.csrfToken !== undefined) request.csrfToken = headers.csrfToken;
+  return request;
+}
+
+export async function createSessionHandler(
+  request: MiniAppRouteRequest,
+): Promise<MiniAppRouteResult> {
   let payload: unknown;
   try {
-    payload = JSON.parse(request.body);
+    payload = request.body === null ? undefined : JSON.parse(request.body);
   } catch {
-    return { status: 400, body: { error: "invalid_json" } };
+    return json({ error: "invalid_json" }, 400);
   }
-  if (typeof payload !== "object" || payload === null) {
-    return { status: 400, body: { error: "invalid_request" } };
-  }
-  const initData = (payload as { initData?: unknown }).initData;
+  const initData =
+    typeof payload === "object" && payload !== null
+      ? (payload as { initData?: unknown }).initData
+      : undefined;
   if (typeof initData !== "string" || initData === "") {
-    return { status: 400, body: { error: "invalid_request" } };
+    return json({ error: "invalid_request" }, 400);
   }
-  const session = validateInitData(initData, request.botToken);
-  if (session === null) return { status: 401, body: { error: "invalid_init_data" } };
-  const displayName = [session.user.firstName, session.user.lastName ?? ""]
-    .filter((part) => part !== "")
-    .join(" ");
-  return { status: 200, body: { user: { id: session.user.id, displayName } } };
+  try {
+    validateInitData(initData, request.botToken, {
+      ttlSeconds: request.config.MINIAPP_SESSION_TTL_SECONDS,
+      now: Date.now(),
+    });
+  } catch (error) {
+    if (error instanceof MiniAppAuthError) return json({ error: "invalid_init_data" }, 401);
+    throw error;
+  }
+  const store = toStore(request.redis);
+  if (store === null) return json({ error: "session_store_unavailable" }, 503);
+  let created: CreatedSession;
+  try {
+    created = await createSession(initData, request.botToken, store, {
+      ttlSeconds: request.config.MINIAPP_SESSION_TTL_SECONDS,
+      now: Date.now(),
+    });
+  } catch (error) {
+    if (error instanceof MiniAppAuthError) return json({ error: "invalid_init_data" }, 401);
+    throw error;
+  }
+  const displayName = displayNameOf(created.user);
+  await store.setex(profileKey(created.sessionId), created.ttlSeconds, displayName);
+  return json(
+    { user: { id: created.user.id, displayName }, csrfToken: created.csrfToken },
+    200,
+    { "Set-Cookie": sessionCookie(created.sessionId, created.ttlSeconds, request.secure) },
+  );
 }
 
-export const route = { method: "POST", path: SESSION_PATH, handler: handleSession } as const;
+export async function meHandler(request: MiniAppRouteRequest): Promise<MiniAppRouteResult> {
+  const store = toStore(request.redis);
+  if (store === null) return json({ error: "session_store_unavailable" }, 503);
+  const sessionId = cookieValue(request.headers.cookie, SESSION_COOKIE);
+  if (sessionId === null) return json({ error: "unauthorized" }, 401);
+  const session = await readSession(store, sessionId);
+  if (session === null) return json({ error: "unauthorized" }, 401);
+  const displayName = (await store.get(profileKey(sessionId))) ?? "";
+  return json({ user: { id: session.userId, displayName } });
+}
+
+export async function logoutHandler(request: MiniAppRouteRequest): Promise<MiniAppRouteResult> {
+  const store = toStore(request.redis);
+  if (store === null) return json({ error: "session_store_unavailable" }, 503);
+  const sessionId = cookieValue(request.headers.cookie, SESSION_COOKIE);
+  const session = sessionId === null ? null : await readSession(store, sessionId);
+  try {
+    assertMutationAuthorized(
+      authorizationOf(request.headers),
+      session,
+      allowedOrigins(request.config),
+    );
+  } catch (error) {
+    if (error instanceof MiniAppAuthError) return json({ error: "forbidden" }, 403);
+    throw error;
+  }
+  if (sessionId !== null) {
+    await store.del(sessionKey(sessionId), profileKey(sessionId));
+  }
+  return {
+    status: 204,
+    body: null,
+    headers: { ...SECURITY_HEADERS, "Set-Cookie": clearSessionCookie(request.secure) },
+  };
+}
+
+export const routes: readonly MiniAppRoute[] = [
+  { method: "POST", path: SESSION_PATH, handler: createSessionHandler },
+  { method: "GET", path: ME_PATH, handler: meHandler },
+  { method: "DELETE", path: SESSION_PATH, handler: logoutHandler },
+];
 
 export function register(bot: Bot): void {
   bot.command("miniapp", async (ctx) => {
@@ -837,18 +963,60 @@ export function register(bot: Bot): void {
 `;
 
 const MINIAPP_TEST = `import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { test } from "node:test";
 
-import { handleSession, validateInitData } from "../src/features/miniapp.ts";
+import {
+  ME_PATH,
+  SESSION_PATH,
+  createSessionHandler,
+  logoutHandler,
+  meHandler,
+  type MiniAppRouteRequest,
+} from "../src/features/miniapp.ts";
+import {
+  SESSION_COOKIE,
+  assertMutationAuthorized,
+  type StoredSession,
+} from "../src/runtime/miniapp-session.ts";
 
 const TOKEN = "unit-test-token";
+const TTL = 86_400;
+const CONFIG = { MINIAPP_SESSION_TTL_SECONDS: TTL, MINIAPP_ALLOWED_ORIGINS: "" };
+
+class FakeRedis {
+  readonly data = new Map<string, string>();
+
+  async get(key: string): Promise<string | null> {
+    return this.data.get(key) ?? null;
+  }
+
+  async set(key: string, value: string, ...options: unknown[]): Promise<unknown> {
+    const nx = options.includes("NX");
+    if (nx && this.data.has(key)) return null;
+    this.data.set(key, value);
+    return "OK";
+  }
+
+  async setex(key: string, _seconds: number, value: string): Promise<unknown> {
+    this.data.set(key, value);
+    return "OK";
+  }
+
+  async del(...keys: string[]): Promise<number> {
+    let removed = 0;
+    for (const key of keys) {
+      if (this.data.delete(key)) removed += 1;
+    }
+    return removed;
+  }
+}
 
 function signedInitData(authDate: number): string {
   const params = new URLSearchParams({
     auth_date: String(authDate),
     query_id: "query",
-    user: JSON.stringify({ id: 7, first_name: "Test" }),
+    user: JSON.stringify({ id: 7, first_name: "Test", last_name: "User" }),
   });
   const checkString = [...params.entries()]
     .map(([key, value]) => key + "=" + value)
@@ -860,34 +1028,146 @@ function signedInitData(authDate: number): string {
   return params.toString();
 }
 
-test("valid initData is accepted", () => {
-  const now = 1_800_000_000;
-  const session = validateInitData(signedInitData(now - 60), TOKEN, now);
-  assert.ok(session);
-  assert.equal(session.user.id, 7);
-});
-
-test("session response keeps the user contract used by the Mini App", async () => {
-  const now = Math.floor(Date.now() / 1000);
-  const response = await handleSession({
-    body: JSON.stringify({ initData: signedInitData(now - 60) }),
+function request(overrides: Partial<MiniAppRouteRequest> = {}): MiniAppRouteRequest {
+  return {
+    method: "POST",
+    path: SESSION_PATH,
+    body: null,
+    headers: {},
+    secure: false,
     botToken: TOKEN,
-  });
+    redis: new FakeRedis(),
+    config: CONFIG,
+    ...overrides,
+  };
+}
+
+function freshInitData(): string {
+  return signedInitData(Math.floor(Date.now() / 1000) - 60);
+}
+
+function cookieOf(response: { headers?: Readonly<Record<string, string>> }): string {
+  const header = response.headers?.["Set-Cookie"] ?? "";
+  const end = header.indexOf(";");
+  return end === -1 ? header : header.slice(0, end);
+}
+
+test("session sets an HttpOnly cookie and security headers", async () => {
+  const response = await createSessionHandler(
+    request({ body: JSON.stringify({ initData: freshInitData() }) }),
+  );
   assert.equal(response.status, 200);
-  const user = response.body.user as { id?: number; displayName?: string } | undefined;
-  assert.equal(user?.id, 7);
-  assert.equal(typeof user?.displayName, "string");
+  const cookie = response.headers?.["Set-Cookie"] ?? "";
+  assert.ok(cookie.startsWith(SESSION_COOKIE + "="));
+  assert.ok(cookie.includes("HttpOnly"));
+  assert.ok(cookie.includes("SameSite=Lax"));
+  assert.ok(cookie.includes("Path=/"));
+  assert.ok(cookie.includes("Max-Age=" + String(TTL)));
+  assert.equal(response.headers?.["X-Content-Type-Options"], "nosniff");
+  assert.equal(response.headers?.["Referrer-Policy"], "no-referrer");
+  assert.match(response.headers?.["Content-Security-Policy"] ?? "", /default-src 'self'/);
+  const body = response.body as {
+    user: { id: number; displayName: string };
+    csrfToken: string;
+  };
+  assert.equal(body.user.id, 7);
+  assert.equal(body.user.displayName, "Test User");
+  assert.ok(body.csrfToken.length > 0);
 });
 
-test("stale initData is rejected", () => {
-  const now = 1_800_000_000;
-  assert.equal(validateInitData(signedInitData(now - 90_000), TOKEN, now), null);
+test("me returns the same user as the session", async () => {
+  const store = new FakeRedis();
+  const created = await createSessionHandler(
+    request({ body: JSON.stringify({ initData: freshInitData() }), redis: store }),
+  );
+  const response = await meHandler(
+    request({ method: "GET", path: ME_PATH, headers: { cookie: cookieOf(created) }, redis: store }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((response.body as { user: unknown }).user, {
+    id: 7,
+    displayName: "Test User",
+  });
 });
 
-test("tampered initData is rejected", () => {
-  const now = 1_800_000_000;
-  const tampered = signedInitData(now - 60).replace("user=%7B%22id%22%3A7", "user=%7B%22id%22%3A8");
-  assert.equal(validateInitData(tampered, TOKEN, now), null);
+test("replayed initData is rejected", async () => {
+  const initData = freshInitData();
+  const redis = new FakeRedis();
+  assert.equal(
+    (await createSessionHandler(request({ redis, body: JSON.stringify({ initData }) }))).status,
+    200,
+  );
+  assert.equal(
+    (await createSessionHandler(request({ redis, body: JSON.stringify({ initData }) }))).status,
+    401,
+  );
+});
+
+test("expired session is rejected", async () => {
+  const redis = new FakeRedis();
+  const created = await createSessionHandler(
+    request({ redis, body: JSON.stringify({ initData: freshInitData() }) }),
+  );
+  const sessionId = cookieOf(created).slice(SESSION_COOKIE.length + 1);
+  redis.data.delete("miniapp:session:" + createHash("sha256").update(sessionId).digest("hex"));
+  const response = await meHandler(
+    request({ method: "GET", path: ME_PATH, redis, headers: { cookie: cookieOf(created) } }),
+  );
+  assert.equal(response.status, 401);
+});
+
+test("mutation requires csrf and an allowed origin", async () => {
+  const redis = new FakeRedis();
+  const created = await createSessionHandler(
+    request({ redis, body: JSON.stringify({ initData: freshInitData() }) }),
+  );
+  const cookie = cookieOf(created);
+  const csrfToken = (created.body as { csrfToken: string }).csrfToken;
+
+  const withoutCsrf = await logoutHandler(
+    request({ method: "DELETE", path: SESSION_PATH, redis, headers: { cookie } }),
+  );
+  assert.equal(withoutCsrf.status, 403);
+
+  const foreignOrigin = await logoutHandler(
+    request({
+      method: "DELETE",
+      path: SESSION_PATH,
+      redis,
+      headers: {
+        cookie,
+        csrfToken,
+        origin: "https://evil.example",
+        host: "app.example",
+      },
+    }),
+  );
+  assert.equal(foreignOrigin.status, 403);
+
+  const sameOrigin = await logoutHandler(
+    request({
+      method: "DELETE",
+      path: SESSION_PATH,
+      redis,
+      headers: {
+        cookie,
+        csrfToken,
+        origin: "https://app.example",
+        host: "app.example",
+      },
+    }),
+  );
+  assert.equal(sameOrigin.status, 204);
+});
+
+test("assertMutationAuthorized accepts a same-origin request", () => {
+  const session: StoredSession = { userId: 7, authDate: 1, csrf: "token", createdAt: 1 };
+  const authorized = assertMutationAuthorized(
+    { origin: "https://app.example", host: "app.example", csrfToken: "token" },
+    session,
+    [],
+  );
+  assert.equal(authorized.userId, 7);
 });
 `;
 
@@ -1001,6 +1281,117 @@ test("register is exported", () => {
 `;
 }
 
+// Payment work runs in the worker, never in the webhook. The loader maps one
+// kind per module, so fulfillment and reconciliation are separate files.
+export function renderPaymentsJobsTs(): TemplateFile[] {
+  return [
+    file(
+      "src/jobs/payments.ts",
+      `import { logger } from "../logger.js";
+import { SUBSCRIPTION_PERIOD_SECONDS } from "../runtime/payments.js";
+import type { ClaimedJob } from "../runtime/queue.js";
+import type { JobContext } from "./index.js";
+
+export const kind = "payment.fulfill";
+
+export interface FulfillPayload {
+  readonly chargeId: string;
+  readonly userId: number;
+  readonly productId: string;
+}
+
+function parsePayload(payload: unknown): FulfillPayload {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("invalid payment.fulfill payload");
+  }
+  const value = payload as Record<string, unknown>;
+  if (
+    typeof value.chargeId !== "string" ||
+    !Number.isSafeInteger(value.userId) ||
+    typeof value.productId !== "string"
+  ) {
+    throw new Error("invalid payment.fulfill payload");
+  }
+  return {
+    chargeId: value.chargeId,
+    userId: value.userId as number,
+    productId: value.productId,
+  };
+}
+
+// Fulfillment is idempotent by charge id. The paid payment row is the grant,
+// and a subscription payment also owns a subscriptions row. The generated
+// project has no application-specific entitlement table: applications that
+// need one extend this handler instead of adding a second grant path.
+export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void> {
+  const payload = parsePayload(job.payload);
+  const rows = (await ctx.sql.unsafe(
+    "UPDATE payments SET status = 'paid' WHERE charge_id = $1 AND user_id = $2" +
+      " AND status = 'paid' RETURNING subscription_expiration_date;",
+    [payload.chargeId, payload.userId],
+  )) as unknown as { readonly subscription_expiration_date: string | Date | null }[];
+  const row = rows[0];
+  if (row === undefined) {
+    logger.info({ chargeId: payload.chargeId }, "payment already refunded or missing");
+    return;
+  }
+  if (row.subscription_expiration_date !== null) {
+    await ctx.sql.unsafe(
+      "INSERT INTO subscriptions (charge_id, user_id, period_seconds, expires_at, canceled_at)" +
+        " VALUES ($1, $2, $3, $4, NULL) ON CONFLICT (charge_id) DO NOTHING;",
+      [
+        payload.chargeId,
+        payload.userId,
+        SUBSCRIPTION_PERIOD_SECONDS,
+        row.subscription_expiration_date,
+      ],
+    );
+  }
+  logger.info({ chargeId: payload.chargeId, productId: payload.productId }, "payment fulfilled");
+}
+`,
+    ),
+    file(
+      "src/jobs/payments-reconcile.ts",
+      `import { logger } from "../logger.js";
+import { reconcilePayments, type TelegramPayments } from "../runtime/payments.js";
+import type { ClaimedJob } from "../runtime/queue.js";
+import type { JobContext } from "./index.js";
+
+export const kind = "payment.reconcile";
+
+const INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+// Reconciliation only records Telegram's transactions; it never enqueues
+// fulfillment and never grants an entitlement.
+export async function handle(_job: ClaimedJob, ctx: JobContext): Promise<void> {
+  const api = ctx.bot.api as unknown as TelegramPayments;
+  const result = await reconcilePayments(ctx.sql, api, { limit: 100 });
+  logger.info(
+    {
+      scanned: result.scanned,
+      inserted: result.inserted,
+      refunded: result.refunded,
+      chargebacks: result.chargebacks,
+      skipped: result.skipped,
+    },
+    "payments reconciled",
+  );
+  const nextBucket = Math.floor(Date.now() / INTERVAL_MS) + 1;
+  await ctx.queue.enqueue(
+    "payment.reconcile",
+    {},
+    {
+      runAt: new Date(nextBucket * INTERVAL_MS),
+      idempotencyKey: "reconcile:" + String(nextBucket),
+    },
+  );
+}
+`,
+    ),
+  ];
+}
+
 export function renderGrammyFeature(
   feature: BotFeature,
   name: string,
@@ -1025,12 +1416,15 @@ export function renderGrammyFeature(
       ];
     case "payments":
       return [
+        file("src/runtime/payments.ts", renderPaymentsTs(spec)),
         file("src/features/payments.ts", PAYMENTS_MODULE),
         file("tests/payments.test.ts", PAYMENTS_TEST),
+        ...renderPaymentsJobsTs(),
       ];
     case "miniapps":
       return [
         ...renderMiniApp(spec),
+        file("src/runtime/miniapp-session.ts", renderMiniAppSessionTs()),
         file("src/features/miniapp.ts", MINIAPP_MODULE),
         file("tests/miniapp.test.ts", MINIAPP_TEST),
       ];

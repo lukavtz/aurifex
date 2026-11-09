@@ -1,6 +1,7 @@
 import type { BotSpec } from "../../spec/bot-spec.ts";
 import type { StackTarget } from "../../targets/catalog.ts";
 import { renderGrammyFeature } from "../features/grammy.ts";
+import { renderApi104TypesTs } from "./api104-types.ts";
 import { renderI18nFiles } from "./i18n.ts";
 import { renderUserSyncTs } from "./jobs.ts";
 import { QUEUE_MIGRATION_FILE, renderMigrateTs } from "./migrate.ts";
@@ -8,6 +9,7 @@ import { renderQueueTs, renderWorkerTs } from "./queue.ts";
 import { renderDrizzleMigration, renderSchemaTs } from "./runtime-schema.ts";
 import { renderConfigTs, renderSecretsTestTs } from "./runtime-config.ts";
 import { renderSecretsTs } from "./runtime-secrets.ts";
+import { renderHealthTs, renderTelemetryTs } from "./telemetry.ts";
 import { renderJobsIndexTs, renderWorkerEntryTs } from "./worker-entry.ts";
 import { assertNoTokenLiteral, baseFiles, type TemplateFile } from "./shared.ts";
 
@@ -18,6 +20,34 @@ import { assertNoTokenLiteral, baseFiles, type TemplateFile } from "./shared.ts"
 // `aurifex add <root> --feature miniapps --name miniapp`. server.ts always
 // mounts the route when the runtime module is present.
 const MINIAPP_HELPERS = `
+interface MiniAppRouteRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly body: string | null;
+  readonly headers: {
+    readonly cookie?: string;
+    readonly origin?: string;
+    readonly host?: string;
+    readonly csrfToken?: string;
+  };
+  readonly secure: boolean;
+  readonly botToken: string;
+  readonly redis: unknown;
+  readonly config: unknown;
+}
+
+interface MiniAppRouteResult {
+  readonly status: number;
+  readonly body: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+interface MiniAppRoute {
+  readonly method: string;
+  readonly path: string;
+  handler(request: MiniAppRouteRequest): Promise<MiniAppRouteResult>;
+}
+
 async function readBody(req: IncomingMessage): Promise<string | null> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -30,75 +60,77 @@ async function readBody(req: IncomingMessage): Promise<string | null> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function initDataOf(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const record = payload as Record<string, unknown>;
-  const value = record.initData;
-  return typeof value === "string" && value !== "" ? value : null;
+function isMiniAppRoute(value: unknown): value is MiniAppRoute {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.method === "string" &&
+    typeof candidate.path === "string" &&
+    typeof candidate.handler === "function"
+  );
 }
 
-interface MiniAppRoute {
-  readonly method: string;
-  readonly path: string;
-  handler(request: { body: string; botToken: string }): Promise<{
-    status: number;
-    body: unknown;
-  }>;
-}
-
-async function loadMiniAppRoute(): Promise<MiniAppRoute | null> {
+async function loadMiniAppRoute(): Promise<readonly MiniAppRoute[]> {
   // Runtime plugin registry: the module is added after scaffolding, so the
   // specifier cannot be a static import.
   const name = "miniapp";
   try {
     const mod: unknown = await import("./features/" + name + ".js");
-    if (typeof mod !== "object" || mod === null) return null;
+    if (typeof mod !== "object" || mod === null) return [];
     const record = mod as Record<string, unknown>;
-    const route = record.route;
-    if (typeof route !== "object" || route === null) return null;
-    const candidate = route as Record<string, unknown>;
-    if (typeof candidate.path !== "string") return null;
-    const handler = candidate.handler;
-    if (typeof handler !== "function") return null;
-    return {
-      method: typeof candidate.method === "string" ? candidate.method : "POST",
-      path: candidate.path,
-      handler: handler as MiniAppRoute["handler"],
-    };
+    const routes = record.routes;
+    if (!Array.isArray(routes)) return [];
+    return routes.filter(isMiniAppRoute);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return null;
+    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return [];
     throw error;
   }
 }
 `;
 
-const MINIAPP_ROUTE = `    if (
-      miniAppRoute !== null &&
-      req.method === miniAppRoute.method &&
-      req.url === miniAppRoute.path
+const MINIAPP_ROUTE = `    const miniAppRoute = miniAppRoutes.find(
+      (candidate) => candidate.method === req.method && candidate.path === req.url,
+    );
+    if (
+      miniAppRoute !== undefined &&
+      miniAppRoute.method === req.method &&
+      miniAppRoute.path === req.url &&
+      miniAppConfig !== undefined
     ) {
-      void readBody(req)
+      const reading =
+        req.method === "GET" || req.method === "HEAD" ? Promise.resolve(null) : readBody(req);
+      void reading
         .then((body) => {
-          if (body === null) {
+          if (body === null && req.method !== "GET" && req.method !== "HEAD") {
             res.writeHead(413, { "content-type": "application/json" });
             res.end('{"error":"payload_too_large"}');
             return;
           }
-          let payload: unknown;
-          try {
-            payload = JSON.parse(body);
-          } catch {
-            payload = undefined;
-          }
-          if (initDataOf(payload) === null) {
-            res.writeHead(401, { "content-type": "application/json" });
-            res.end('{"error":"invalid_init_data"}');
-            return;
-          }
           return miniAppRoute
-            .handler({ body, botToken })
+            .handler({
+              method: req.method ?? "GET",
+              path: req.url ?? "",
+              body,
+              headers: {
+                ...(typeof req.headers.cookie === "string" ? { cookie: req.headers.cookie } : {}),
+                ...(typeof req.headers.origin === "string" ? { origin: req.headers.origin } : {}),
+                ...(typeof req.headers.host === "string" ? { host: req.headers.host } : {}),
+                ...(typeof req.headers["x-csrf-token"] === "string"
+                  ? { csrfToken: req.headers["x-csrf-token"] }
+                  : {}),
+              },
+              secure:
+                req.headers["x-forwarded-proto"] === "https" ||
+                (req.socket as { readonly encrypted?: boolean }).encrypted === true,
+              botToken,
+              redis,
+              config: miniAppConfig,
+            })
             .then((result) => {
-              res.writeHead(result.status, { "content-type": "application/json" });
+              res.writeHead(result.status, {
+                "content-type": "application/json",
+                ...result.headers,
+              });
               res.end(JSON.stringify(result.body));
             });
         })
@@ -119,6 +151,7 @@ function grammyFiles(spec: BotSpec): TemplateFile[] {
   const expectedMiddleware = Number(hasIdempotency) + Number(hasRateLimit);
   const hasPostgres = spec.storage.postgres;
   const hasQueue = spec.runtime.queue === "postgres";
+  const hasPayments = spec.features.includes("payments");
   const needsDb = hasPostgres || hasQueue;
   return [
     {
@@ -136,6 +169,14 @@ export default defineConfig({
     {
       path: "src/runtime/secrets.ts",
       content: renderSecretsTs(),
+    },
+    {
+      path: "src/runtime/telemetry.ts",
+      content: renderTelemetryTs(),
+    },
+    {
+      path: "src/runtime/health.ts",
+      content: renderHealthTs(),
     },
     {
       path: "src/config.ts",
@@ -193,7 +234,8 @@ ${hasIdempotency ? "  security.push(dedupeMiddleware(config.REDIS_URL));\n" : ""
 import { getConfig } from "./config.js";
 import { registerFeatures } from "./features/index.js";
 import { logger } from "./logger.js";
-${hasQueue ? 'import { createQueue } from "./runtime/queue.js";\n' : ""}${hasPostgres ? 'import { userSyncMiddleware } from "./security/user-sync.js";\n' : ""}import { createServer } from "./server.js";
+${hasQueue ? 'import { createQueue } from "./runtime/queue.js";\n' : ""}import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
+${hasPostgres ? 'import { userSyncMiddleware } from "./security/user-sync.js";\n' : ""}import { createServer } from "./server.js";
 ${needsDb ? 'import { closeDb, getDb } from "./storage/db.js";\n' : ""}
 const ALLOWED_UPDATES = [
   "message",
@@ -208,8 +250,15 @@ const ALLOWED_UPDATES = [
 
 async function main(): Promise<void> {
   const config = getConfig();
+  await initTelemetry({
+    serviceName: config.OTEL_SERVICE_NAME || ${displayName},
+    otlpEndpoint: config.OTEL_EXPORTER_OTLP_ENDPOINT,
+    sentryDsn: config.SENTRY_DSN,
+  });
   const bot = createBot();
-${needsDb ? `  const database = getDb(config.DATABASE_URL);
+${
+  needsDb
+    ? `  const database = getDb(config.DATABASE_URL);
   if (database === null) {
     throw new Error(${JSON.stringify(
       hasQueue
@@ -217,10 +266,25 @@ ${needsDb ? `  const database = getDb(config.DATABASE_URL);
         : "DATABASE_URL is required when storage.postgres is enabled",
     )});
   }
-` : ""}${hasPostgres && needsDb ? "  bot.use(userSyncMiddleware(database.client));\n" : ""}${hasQueue ? `  const queue = createQueue(database.client, {
+`
+    : ""
+}${hasPostgres && needsDb ? "  bot.use(userSyncMiddleware(database.client));\n" : ""}${
+        hasQueue
+          ? `  const queue = createQueue(database.client, {
     visibilityTimeoutSeconds: config.QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   });
-` : ""}  await registerFeatures({
+${
+  hasPayments
+    ? `  // One bootstrap run; the handler reschedules itself every six hours.
+  await queue.enqueue("payment.reconcile", {}, {
+    runAt: new Date(Date.now() + 60_000),
+    idempotencyKey: "reconcile:bootstrap",
+  });
+`
+    : ""
+}`
+          : ""
+      }  await registerFeatures({
     bot,
     sql: ${needsDb ? "database.client" : "null"},
     queue: ${hasQueue ? "queue" : "null"},
@@ -233,7 +297,10 @@ ${needsDb ? `  const database = getDb(config.DATABASE_URL);
 
   const server =
     config.BOT_MODE === "webhook"
-      ? await createServer(bot, config.WEBHOOK_SECRET, config.BOT_TOKEN)
+      ? await createServer(bot, config.WEBHOOK_SECRET, config.BOT_TOKEN, {
+          config,
+          sql: ${needsDb ? "database.client" : "null"},
+        })
       : undefined;
   let stopping = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -246,7 +313,8 @@ ${needsDb ? `  const database = getDb(config.DATABASE_URL);
       await promise;
     }
     await bot.stop();
-${needsDb ? "    await closeDb();\n" : ""}  };
+${needsDb ? "    await closeDb();\n" : ""}    await shutdownTelemetry();
+  };
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
@@ -278,28 +346,52 @@ main().catch((error: unknown) => {
     {
       path: "src/server.ts",
       content: `import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { Sql } from "postgres";
 import { webhookCallback, type Bot } from "grammy";
+import type { Config } from "./config.js";
+import { handleHealthRequest } from "./runtime/health.js";
+import { getRedis } from "./security/dedupe.js";
 
 const MAX_BODY_BYTES = 1_048_576;
 ${MINIAPP_HELPERS}
+export interface ServerOptions {
+  readonly sql?: Sql | null | undefined;
+  readonly config?: Config | undefined;
+}
+
 export async function createServer(
   bot: Bot,
   secretToken: string,
   botToken = "",
+  options: ServerOptions = {},
 ): Promise<Server> {
-  const miniAppRoute = await loadMiniAppRoute();
+  const miniAppRoutes = await loadMiniAppRoute();
+  const miniAppConfig = options.config;
+  const sql = options.sql ?? null;
+  const redis =
+    miniAppConfig === undefined || miniAppConfig.REDIS_URL === ""
+      ? null
+      : getRedis(miniAppConfig.REDIS_URL);
   const handleUpdate = webhookCallback(bot, "http", {
     secretToken,
     timeoutMilliseconds: 9000,
     onTimeout: "return",
   });
 
-  return createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-${MINIAPP_ROUTE}    if (req.method === "GET" && req.url === "/healthz") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end('{"ok":true}');
-      return;
-    }
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+${MINIAPP_ROUTE}    // Route handlers own the 401/403 responses; the server only dispatches.
+    // /healthz, /readyz, and /metrics are served by the readiness runtime.
+    const handled = await handleHealthRequest(req, res, {
+      postgres:
+        sql === null
+          ? undefined
+          : async () => {
+              await sql\`SELECT 1\`;
+            },
+      redis: redis === null ? undefined : () => redis.ping().then(() => undefined),
+      metricsEnabled: miniAppConfig?.METRICS_ENABLED ?? true,
+    });
+    if (handled) return;
     if (req.method !== "POST" || req.url !== "/telegram/webhook") {
       res.writeHead(404, { "content-type": "application/json" });
       res.end('{"error":"not_found"}');
@@ -322,7 +414,7 @@ ${MINIAPP_ROUTE}    if (req.method === "GET" && req.url === "/healthz") {
       }
     };
     req.on("data", onData);
-    void handleUpdate(req, res)
+    await handleUpdate(req, res)
       .catch(() => {
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json" });
@@ -332,9 +424,22 @@ ${MINIAPP_ROUTE}    if (req.method === "GET" && req.url === "/healthz") {
       .finally(() => {
         req.off("data", onData);
       });
+  };
+
+  return createHttpServer((req: IncomingMessage, res: ServerResponse) => {
+    void handleRequest(req, res).catch(() => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end('{"error":"internal_error"}');
+      }
+    });
   });
 }
 `,
+    },
+    {
+      path: "src/telegram/api104-types.ts",
+      content: renderApi104TypesTs(),
     },
     {
       path: "src/telegram/api104.ts",
@@ -480,6 +585,26 @@ export interface SendMessageEphemeralParams {
   reply_markup?: ReplyMarkup;
 }
 
+
+export interface GetUniqueGiftParams { gift_id: string; }
+export interface GetChatShareThemeBackdropsParams { chat_id: number | string; }
+export interface DeleteBusinessAccountGiftParams {
+  business_connection_id: string;
+  gift_id: string;
+}
+export interface VerifyUserParams {
+  user_id: number;
+  custom_description?: string;
+  custom_description_parse_mode?: string;
+  custom_description_entities?: readonly MessageEntity[];
+}
+export interface VerifyChatParams {
+  chat_id: number | string;
+  custom_description?: string;
+  custom_description_parse_mode?: string;
+  custom_description_entities?: readonly MessageEntity[];
+}
+
 interface RawApi104 {
   sendWidget(payload: SendWidgetParams): Promise<Message>;
   sendSharedWidget(payload: SendSharedWidgetParams): Promise<Message>;
@@ -489,6 +614,11 @@ interface RawApi104 {
   sendRichMessage(payload: SendRichMessageParams): Promise<Message>;
   sendRichMessageDraft(payload: SendRichMessageDraftParams): Promise<true>;
   sendMessage(payload: SendMessageEphemeralParams): Promise<Message>;
+  getUniqueGift(payload: GetUniqueGiftParams): Promise<unknown>;
+  getChatShareThemeBackdrops(payload: GetChatShareThemeBackdropsParams): Promise<unknown>;
+  deleteBusinessAccountGift(payload: DeleteBusinessAccountGiftParams): Promise<true>;
+  verifyUser(payload: VerifyUserParams): Promise<true>;
+  verifyChat(payload: VerifyChatParams): Promise<true>;
 }
 
 export interface Api104 {
@@ -500,6 +630,11 @@ export interface Api104 {
   sendRichMessage(payload: SendRichMessageParams): Promise<Message>;
   sendRichMessageDraft(payload: SendRichMessageDraftParams): Promise<true>;
   sendMessageEphemeral(payload: SendMessageEphemeralParams): Promise<Message>;
+  getUniqueGift(payload: GetUniqueGiftParams): Promise<unknown>;
+  getChatShareThemeBackdrops(payload: GetChatShareThemeBackdropsParams): Promise<unknown>;
+  deleteBusinessAccountGift(payload: DeleteBusinessAccountGiftParams): Promise<true>;
+  verifyUser(payload: VerifyUserParams): Promise<true>;
+  verifyChat(payload: VerifyChatParams): Promise<true>;
 }
 
 export function api104(bot: Bot): Api104 {
@@ -515,6 +650,11 @@ export function api104(bot: Bot): Api104 {
     // Bot API 10.4 has no sendMessageEphemeral method: ephemeral delivery is
     // sendMessage with ephemeral_message_parameters.
     sendMessageEphemeral: (payload) => raw.sendMessage(payload),
+    getUniqueGift: (payload) => raw.getUniqueGift(payload),
+    getChatShareThemeBackdrops: (payload) => raw.getChatShareThemeBackdrops(payload),
+    deleteBusinessAccountGift: (payload) => raw.deleteBusinessAccountGift(payload),
+    verifyUser: (payload) => raw.verifyUser(payload),
+    verifyChat: (payload) => raw.verifyChat(payload),
   };
 }
 `,
@@ -554,7 +694,7 @@ export async function sendWithRetry<T>(send: () => Promise<T>): Promise<T> {
 }
 `,
     },
-{
+    {
       path: "src/features/index.ts",
       content: `import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -584,7 +724,7 @@ export async function registerFeatures(deps: FeatureDeps): Promise<void> {
   const entries = (await readdir(directory)).filter(
     (entry) => FEATURE_FILE_RE.test(entry) && SKIPPED[entry] === undefined && !entry.endsWith(".d.ts"),
   );
-  entries.sort();
+  entries.toSorted();
   for (const entry of entries) {
     // Feature modules are a runtime registry, so the specifier is selected at run time.
     const loaded = (await import(pathToFileURL(join(directory, entry)).href)) as Partial<FeatureModule>;
@@ -692,9 +832,9 @@ export async function claimUpdate(
   } catch (error) {
     logger.error(
       { message: error instanceof Error ? error.message : "redis error" },
-      "dedupe check failed; processing update",
+      "dedupe check failed; stopping update",
     );
-    return true;
+    return false;
   }
 }
 
@@ -1281,14 +1421,15 @@ const MINIAPP_SESSION_TEST: TemplateFile = {
   path: "tests/miniapp-session.test.ts",
   content: `import { expect, test } from "bun:test";
 import type { Bot } from "grammy";
-import { createServer } from "../src/server.js";
+import type { Sql } from "postgres";
+import { createServer, type ServerOptions } from "../src/server.js";
 
 async function hasMiniAppRoute(): Promise<boolean> {
   // Runtime plugin registry: the module exists only after the feature is added.
   const name = "miniapp";
   try {
     const mod: unknown = await import("../src/features/" + name + ".js");
-    return typeof mod === "object" && mod !== null && "route" in mod;
+    return typeof mod === "object" && mod !== null && "routes" in mod;
   } catch {
     return false;
   }
@@ -1304,23 +1445,26 @@ function fakeBot(): Bot {
   } as unknown as Bot;
 }
 
-async function postSession(body: string): Promise<number> {
-  const server = await createServer(fakeBot(), "expected_secret", "");
+const serverOptions: ServerOptions = {
+  config: {
+    MINIAPP_SESSION_TTL_SECONDS: 86_400,
+    MINIAPP_ALLOWED_ORIGINS: "",
+  } as unknown as ServerOptions["config"],
+};
+
+async function fetchServer(
+  path: string,
+  init: RequestInit = {},
+  options: ServerOptions = serverOptions,
+): Promise<Response> {
+  const server = await createServer(fakeBot(), "expected_secret", "", options);
   const { promise, resolve } = Promise.withResolvers<void>();
   server.listen(0, "127.0.0.1", resolve);
   await promise;
   try {
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("no address");
-    const response = await fetch(
-      "http://127.0.0.1:" + String(address.port) + "/api/miniapp/session",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      },
-    );
-    return response.status;
+    return await fetch("http://127.0.0.1:" + String(address.port) + path, init);
   } finally {
     const { promise: closed, resolve: onClosed } = Promise.withResolvers<void>();
     server.close(() => onClosed());
@@ -1328,12 +1472,42 @@ async function postSession(body: string): Promise<number> {
   }
 }
 
-test.skipIf(!available)("rejects a session request without initData", async () => {
-  expect(await postSession("{}")).toBe(401);
+test("healthz returns ok without dependencies", async () => {
+  const response = await fetchServer("/healthz");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ok: true });
 });
 
-test.skipIf(!available)("rejects malformed initData with 401", async () => {
-  expect(await postSession(JSON.stringify({ initData: "not-signed" }))).toBe(401);
+test("readyz returns the 503 shape when postgres fails", async () => {
+  const failingSql = (() => {
+    throw new Error("postgres down");
+  }) as unknown as Sql;
+  const response = await fetchServer("/readyz", {}, { ...serverOptions, sql: failingSql });
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({
+    ok: false,
+    checks: { postgres: "fail", redis: "skip" },
+  });
+});
+
+test("metrics exposes the bounded metric names", async () => {
+  const response = await fetchServer("/metrics");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toContain("text/plain");
+  const body = await response.text();
+  expect(body).toContain("bot_updates_total");
+  expect(body).toContain("job_failures_total");
+});
+
+test.skipIf(!available)("rejects malformed initData with 401 and security headers", async () => {
+  const response = await fetchServer("/api/miniapp/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ initData: "not-signed" }),
+  });
+  expect(response.status).toBe(401);
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("content-security-policy")).toContain("default-src 'self'");
 });
 `,
 };
@@ -1387,6 +1561,9 @@ function featureFiles(spec: BotSpec): TemplateFile[] {
   }
   if (spec.features.includes("broadcast")) {
     files.push(...renderGrammyFeature("broadcast", "broadcast", spec));
+  }
+  if (spec.features.includes("payments")) {
+    files.push(...renderGrammyFeature("payments", "payments", spec));
   }
   if (spec.storage.postgres) {
     files.push({ path: "src/security/user-sync.ts", content: renderUserSyncTs() });

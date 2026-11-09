@@ -23,6 +23,17 @@ const spec: BotSpec = {
     "widgets",
     "rich",
   ],
+  payments: {
+    products: [
+      {
+        id: "support",
+        title: "Support",
+        description: "Support the bot",
+        stars: 1,
+        subscription: false,
+      },
+    ],
+  },
   deployment: "docker",
   storage: { postgres: true, redis: true },
   i18n: { defaultLocale: "en", en: true, ru: true, zh: false },
@@ -199,7 +210,7 @@ test("start command embeds the display name safely", () => {
 
 test("feature loader is deterministic and skips index", () => {
   const content = find("src/features/index.ts").content;
-  assert.ok(content.includes("entries.sort()"));
+  assert.ok(content.includes("entries.toSorted()"));
   assert.ok(content.includes('"index.js"'));
   assert.ok(content.includes("registerFeatures"));
 });

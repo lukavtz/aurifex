@@ -34,7 +34,7 @@ const stackSchema = z.enum(["grammy", "aiogram"]);
 const featureSchema = z.enum(BOT_FEATURES);
 
 export function createMcpServer(operations: CoreOperations): McpServer {
-  const server = new McpServer({ name: "aurifex", version: "0.1.0" });
+  const server = new McpServer({ name: "aurifex", version: "0.2.0" });
 
   server.registerTool(
     "telegram_bot_target_resolve",

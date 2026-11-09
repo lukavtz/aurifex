@@ -1,0 +1,56 @@
+name: host-matrix
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosts:
+    name: host matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [omp, dsh, claude]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkg"
+          pnpm pack --pack-destination "$RUNNER_TEMP/pkg"
+      - name: OMP
+        if: matrix.host == 'omp'
+        run: |
+          npm install --global @oh-my-pi/pi-coding-agent@18.18.3
+          omp plugin link .
+          omp plugin doctor
+          pnpm test:host
+      - name: DeepSeek Harness
+        if: matrix.host == 'dsh'
+        run: |
+          npm install --global @deepseek-ai/dsh@0.2.2-rc.1
+          dsh plugin --profile aurifex-ci add "$RUNNER_TEMP"/pkg/*.tgz
+          dsh plugin --profile aurifex-ci --dump-config
+          AURIFEX_DSH_PROFILE=1 pnpm test:host
+      - name: Claude Code
+        if: matrix.host == 'claude'
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.308
+          claude plugin validate .
+          HOME="$RUNNER_TEMP/claude-home" claude plugin marketplace add "$PWD"
+          HOME="$RUNNER_TEMP/claude-home" claude plugin install aurifex@aurifex
+          HOME="$RUNNER_TEMP/claude-home" claude plugin details aurifex

@@ -1,6 +1,6 @@
 # Aurifex — Product Specification
 
-Status: accepted for v0.1.0
+Status: accepted for v0.2.0
 Last verified: 2026-11-09
 
 ## 1. Problem
@@ -29,7 +29,7 @@ test, deploy, and migrate.
 4. Reuse one domain core across OMP, DeepSeek Harness, and MCP.
 5. Keep live Telegram access optional and secret-gated.
 
-## 3. Non-goals for v0.1.0
+## 3. Non-goals for v0.2.0
 
 - A hosted bot runtime or control plane.
 - A full Bot API client library.
@@ -193,7 +193,7 @@ OMP uses `package.json#omp.extensions`; DSH uses `cordis.patch.yml`.
 
 ## 8. Acceptance criteria
 
-v0.1.0 is accepted when:
+v0.2.0 is accepted when:
 
 1. `pnpm verify` passes on Linux, macOS, and Windows CI.
 2. `telegram_bot_scaffold` produces a TypeScript project that passes `bun install`,

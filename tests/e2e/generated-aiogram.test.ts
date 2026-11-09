@@ -52,6 +52,17 @@ const SPEC = {
   displayName: "E2E Bot",
   stack: "aiogram",
   features: [...BOT_FEATURES],
+  payments: {
+    products: [
+      {
+        id: "support",
+        title: "Support",
+        description: "Support the bot",
+        stars: 1,
+        subscription: false,
+      },
+    ],
+  },
   deployment: "docker",
   storage: { postgres: true, redis: true },
   i18n: { defaultLocale: "en", en: true, ru: true, zh: false },

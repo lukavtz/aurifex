@@ -31,7 +31,7 @@
 Aurifex даёт кодирующему агенту продакшен-путь для ботов Telegram. Он работает в OMP,
 DeepSeek Harness, Claude Code и любом MCP-клиенте. TypeScript + grammY и Python +
 aiogram поддерживаются полноценно. Одно доменное ядро отвечает за генерацию, политику
-безопасности, проверку и план деплоя; тонкие адаптеры проецируют одни и те же восемь
+безопасности, проверку и план деплоя; тонкие адаптеры проецируют одни и те же девять
 инструментов в каждого агента.
 
 ## Одна команда
@@ -57,7 +57,7 @@ powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/instal
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **Генерирует** | Самодостаточный проект из строгой `BotSpec`: webhook или polling, Docker, Caddy, Redis/Postgres, тесты и CI.                    |
 | **Добавляет**  | Девять функций: команды, LLM-чат, inline, платежи Stars, Mini Apps, модерацию, рассылки, виджеты Bot API 10.4 и rich-сообщения. |
-| **Проверяет**  | 16 детерминированных проверок по ограниченному снимку. Токен-литерал или отсутствующий секрет webhook — это `fail`.             |
+| **Проверяет**  | 29 детерминированных проверок по ограниченному снимку. Токен-литерал или отсутствующий секрет webhook — это `fail`.             |
 | **Деплоит**    | Рендерит compose, Dockerfile, Caddyfile и скрипт `setWebhook`. Telegram не вызывает.                                            |
 
 ```console
@@ -65,7 +65,7 @@ $ aurifex target --stack grammy
 grammy 1.46.0 (Bot API 10.4)
 
 $ aurifex verify my-bot
-ok: 15 pass, 1 warn, 0 fail
+ok: 28 pass, 1 warn, 0 fail
 ```
 
 Единственное предупреждение свежего проекта — `deps.lockfile`: установите зависимости
@@ -93,14 +93,14 @@ flowchart LR
   CC[Плагин Claude Code] --> MCP
   CORE --> POLICY[PathPolicy<br/>доверенный корень]
   CORE --> TPL[Генераторы шаблонов<br/>grammY · aiogram]
-  CORE --> CHECK[Статическая проверка<br/>16 проверок]
+  CORE --> CHECK[Статическая проверка<br/>29 проверок]
   TPL --> BOT[Самостоятельный проект бота]
 ```
 
 Каждый хост предоставляет одни и те же инструменты: `telegram_bot_target_resolve`,
 `telegram_bot_scaffold`, `telegram_bot_inspect`, `telegram_bot_verify`,
-`telegram_bot_add_feature`, `telegram_bot_deploy_plan`, `telegram_bot_test_harness` и
-`telegram_bot_upgrade_plan`.
+`telegram_bot_add_feature`, `telegram_bot_deploy_plan`, `telegram_bot_test_harness`, `telegram_bot_upgrade_plan` и
+`telegram_bot_upgrade`.
 
 ## Быстрый старт
 
@@ -176,7 +176,7 @@ my-bot/
 
 ## Проверочный шлюз
 
-`verify` выполняет 16 детерминированных проверок по ограниченному снимку (64 МиБ всего,
+`verify` выполняет 29 детерминированных проверок по ограниченному снимку (64 МиБ всего,
 1 МиБ на файл). Любой `fail` делает `ok: false`; предупреждения остаются видимыми.
 
 ```sh
@@ -196,6 +196,7 @@ aurifex verify my-bot --json    # DomainResult с доказательствам
 | `aurifex deploy`       | Пишет файлы деплоя и скрипт webhook; API не вызывает.       |
 | `aurifex harness`      | Пишет фикстуры, фейковый транспорт и tgfake compose.        |
 | `aurifex upgrade-plan` | Перечисляет действия миграции на Bot API 10.4.              |
+| `aurifex upgrade`      | Проверяет manifest; `--apply` переводит его на 1.1.         |
 | `aurifex install`      | Устанавливает в OMP, DSH и Claude Code за один проход.      |
 
 Все команды принимают `--json` и выводят стабильный `DomainResult`. Коды выхода: `0` —

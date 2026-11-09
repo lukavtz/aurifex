@@ -36,7 +36,7 @@ window.AURIFEX_I18N = {
     "demo.lede":
       "Scaffold, test, verify, deploy. Every command returns a stable DomainResult and accepts --json.",
     "demo.note":
-      "A fresh scaffold reports 15 passes and one warning: commit the lockfile after the first install.",
+      "A fresh scaffold reports 28 passes and one warning: commit the lockfile after the first install.",
     "demo.replay": "Replay the session",
 
     "features.title": "What Aurifex does",
@@ -54,7 +54,7 @@ window.AURIFEX_I18N = {
     "features.gate.title": "Verification is a gate",
     "features.gate.body":
       "Sixteen static checks run over a bounded snapshot. A token literal, a missing secret, or a root container makes verify return ok: false.",
-    "features.hosts.title": "Four hosts, eight tools",
+    "features.hosts.title": "Four hosts, nine tools",
     "features.hosts.body":
       "OMP, DeepSeek Harness, Claude Code through MCP, and any MCP client expose the same eight telegram_bot tools.",
     "features.skills.title": "Domain knowledge included",
@@ -76,7 +76,7 @@ window.AURIFEX_I18N = {
     "arch.nodeVerify": "Verify",
     "arch.policyNote": "authorized root",
     "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "16 checks",
+    "arch.verifyNote": "29 checks",
     "arch.nodeBot": "Standalone bot",
     "arch.botNote": "no Aurifex import",
     "arch.caption":
@@ -150,7 +150,7 @@ window.AURIFEX_I18N = {
       "Installs the plugin that points Claude Code at the bundled MCP server through .mcp.json.",
     "install.mcp.title": "MCP client",
     "install.mcp.body":
-      "Any other MCP client connects to the built stdio server and receives the same eight tools.",
+      "Any other MCP client connects to the built stdio server and receives the same nine tools.",
     "install.rootNote":
       "AURIFEX_ROOT bounds every read and write. It defaults to the working directory.",
 
@@ -192,7 +192,7 @@ window.AURIFEX_I18N = {
   ru: {
     "meta.title": "Aurifex · production-боты Telegram из одного запроса агенту",
     "meta.description":
-      "Скаффолд, проверка и деплой production-ботов Telegram прямо из кодинг-агента. grammY и aiogram, Bot API 10.4, 16 проверок безопасности, четыре хоста.",
+      "Скаффолд, проверка и деплой production-ботов Telegram прямо из кодинг-агента. grammY и aiogram, Bot API 10.4, 29 проверок безопасности, четыре хоста.",
 
     "nav.skip": "Перейти к содержимому",
     "nav.home": "Главная Aurifex",
@@ -242,7 +242,7 @@ window.AURIFEX_I18N = {
     "features.gate.title": "Проверка как гейт",
     "features.gate.body":
       "Шестнадцать статических проверок по ограниченному снимку. Токен в коде, отсутствующий секрет или root-контейнер дают ok: false.",
-    "features.hosts.title": "Четыре хоста, восемь инструментов",
+    "features.hosts.title": "Четыре хоста, девять инструментов",
     "features.hosts.body":
       "OMP, DeepSeek Harness, Claude Code через MCP и любой MCP-клиент получают одни и те же восемь инструментов telegram_bot.",
     "features.skills.title": "Знание предметной области",
@@ -264,7 +264,7 @@ window.AURIFEX_I18N = {
     "arch.nodeVerify": "Verify",
     "arch.policyNote": "авторизованный корень",
     "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "16 проверок",
+    "arch.verifyNote": "29 проверок",
     "arch.nodeBot": "Самостоятельный бот",
     "arch.botNote": "без импорта Aurifex",
     "arch.caption":
@@ -409,7 +409,7 @@ window.AURIFEX_I18N = {
 
     "demo.title": "一个终端跑完整个流程",
     "demo.lede": "脚手架、测试、校验、部署。每条命令都返回稳定的 DomainResult，并支持 --json。",
-    "demo.note": "全新脚手架给出 15 项通过、1 项警告：首次安装后请提交 lockfile。",
+    "demo.note": "全新脚手架给出 28 项通过、1 项警告：首次安装后请提交 lockfile。",
     "demo.replay": "重播会话",
 
     "features.title": "Aurifex 做什么",
@@ -426,7 +426,7 @@ window.AURIFEX_I18N = {
     "features.gate.title": "校验即门禁",
     "features.gate.body":
       "16 项静态检查跑在受控快照上。代码里的令牌、缺失的密钥或 root 容器，都会让 verify 返回 ok: false。",
-    "features.hosts.title": "四个宿主，八个工具",
+    "features.hosts.title": "四个宿主，九个工具",
     "features.hosts.body":
       "OMP、DeepSeek Harness、经 MCP 接入的 Claude Code，以及任意 MCP 客户端，都拿到同样的八个 telegram_bot 工具。",
     "features.skills.title": "内置领域知识",
@@ -448,7 +448,7 @@ window.AURIFEX_I18N = {
     "arch.nodeVerify": "Verify",
     "arch.policyNote": "授权根目录",
     "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "16 项检查",
+    "arch.verifyNote": "29 项检查",
     "arch.nodeBot": "独立机器人项目",
     "arch.botNote": "不导入 Aurifex",
     "arch.caption": "宿主不直接写文件。PathPolicy 把每次读取和写入都限制在授权根目录之内。",

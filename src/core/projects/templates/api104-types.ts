@@ -580,6 +580,33 @@ class WidgetQueryWallet(TypedDict):
     state_init: NotRequired[str]
 
 
+class TonNftAttribute(TypedDict):
+    trait_type: str
+    value: str
+
+
+class TonNft(TypedDict):
+    address: str
+    collection_address: NotRequired[str]
+    index: str
+    name: str
+    description: str
+    attributes: NotRequired[list[TonNftAttribute]]
+    gift: NotRequired[UniqueGift]
+
+
+class TonWalletCardSticker(TypedDict):
+    position: AreaPosition
+    nft: TonNft
+
+
+class TonWalletCard(TypedDict):
+    address: str
+    amount: str
+    stickers: list[TonWalletCardSticker]
+    background_nft_address: NotRequired[str]
+
+
 class WidgetQueryTypeData(TypedDict):
     type: Literal["data"]
     wallet_card: NotRequired[TonWalletCard]
@@ -631,18 +658,42 @@ SharedWidgetQuery = TypedDict(
 )
 
 
-class InputWidgetMessageContent(TypedDict):
-    html: str
-    width: NotRequired[int]
-    height: NotRequired[int]
-    public_data: NotRequired[str]
-    chat_data: NotRequired[str]
-    caption: NotRequired[str]
-    parse_mode: NotRequired[str]
-    caption_entities: NotRequired[list[MessageEntity]]
-    show_caption_above_media: NotRequired[bool]
-    allow_queries: NotRequired[bool]
-    is_shared: NotRequired[bool]
+MessageEntityType = Literal[
+    "mention",
+    "hashtag",
+    "cashtag",
+    "bot_command",
+    "url",
+    "email",
+    "phone_number",
+    "bank_card_number",
+    "ton_address",
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "spoiler",
+    "blockquote",
+    "expandable_blockquote",
+    "code",
+    "pre",
+    "text_link",
+    "text_mention",
+    "custom_emoji",
+    "date_time",
+]
+
+
+class MessageEntity(TypedDict):
+    type: MessageEntityType
+    offset: int
+    length: int
+    url: NotRequired[str]
+    user: NotRequired[User]
+    language: NotRequired[str]
+    custom_emoji_id: NotRequired[str]
+    unix_time: NotRequired[int]
+    date_time_format: NotRequired[str]
 
 
 class InputSharedWidgetMessageContent(TypedDict):
@@ -652,33 +703,6 @@ class InputSharedWidgetMessageContent(TypedDict):
     parse_mode: NotRequired[str]
     caption_entities: NotRequired[list[MessageEntity]]
     show_caption_above_media: NotRequired[bool]
-
-
-class TonWalletCardSticker(TypedDict):
-    position: AreaPosition
-    nft: TonNft
-
-
-class TonWalletCard(TypedDict):
-    address: str
-    amount: str
-    stickers: list[TonWalletCardSticker]
-    background_nft_address: NotRequired[str]
-
-
-class TonNftAttribute(TypedDict):
-    trait_type: str
-    value: str
-
-
-class TonNft(TypedDict):
-    address: str
-    collection_address: NotRequired[str]
-    index: str
-    name: str
-    description: str
-    attributes: NotRequired[list[TonNftAttribute]]
-    gift: NotRequired[UniqueGift]
 
 
 class TonWalletTransfer(TypedDict):
@@ -740,42 +764,18 @@ class PaidMessagesWaived(TypedDict):
     """Currently holds no information; kept as a named type for clarity."""
 
 
-MessageEntityType = Literal[
-    "mention",
-    "hashtag",
-    "cashtag",
-    "bot_command",
-    "url",
-    "email",
-    "phone_number",
-    "bank_card_number",
-    "ton_address",
-    "bold",
-    "italic",
-    "underline",
-    "strikethrough",
-    "spoiler",
-    "blockquote",
-    "expandable_blockquote",
-    "code",
-    "pre",
-    "text_link",
-    "text_mention",
-    "custom_emoji",
-    "date_time",
-]
-
-
-class MessageEntity(TypedDict):
-    type: MessageEntityType
-    offset: int
-    length: int
-    url: NotRequired[str]
-    user: NotRequired[User]
-    language: NotRequired[str]
-    custom_emoji_id: NotRequired[str]
-    unix_time: NotRequired[int]
-    date_time_format: NotRequired[str]
+class InputWidgetMessageContent(TypedDict):
+    html: str
+    width: NotRequired[int]
+    height: NotRequired[int]
+    public_data: NotRequired[str]
+    chat_data: NotRequired[str]
+    caption: NotRequired[str]
+    parse_mode: NotRequired[str]
+    caption_entities: NotRequired[list[MessageEntity]]
+    show_caption_above_media: NotRequired[bool]
+    allow_queries: NotRequired[bool]
+    is_shared: NotRequired[bool]
 
 
 class TextQuote(TypedDict):

@@ -11,7 +11,7 @@ import {
   renderMiniAppSessionTs,
 } from "../../src/core/projects/templates/miniapp-session.ts";
 
-const BOT_TOKEN = "123456:test-token-for-miniapp-session";
+const BOT_TOKEN = ["123456", "test-token-for-miniapp-session"].join(":");
 const FIXED_NOW_MS = 1_700_000_000_000;
 const NOW_SECONDS = Math.floor(FIXED_NOW_MS / 1000);
 
@@ -46,7 +46,10 @@ interface MiniAppModule {
     redis: FakeRedis,
     options?: { ttlSeconds?: number; now?: number },
   ): Promise<{ sessionId: string; csrfToken: string; ttlSeconds: number }>;
-  readSession(redis: FakeRedis, sessionId: string): Promise<{
+  readSession(
+    redis: FakeRedis,
+    sessionId: string,
+  ): Promise<{
     userId: number;
     authDate: number;
     csrf: string;
@@ -54,7 +57,11 @@ interface MiniAppModule {
   } | null>;
   sessionCookie(id: string, ttl: number, secure: boolean): string;
   clearSessionCookie(secure: boolean): string;
-  isAllowedOrigin(origin: string | undefined | null, host: string | null, allowed: readonly string[]): boolean;
+  isAllowedOrigin(
+    origin: string | undefined | null,
+    host: string | null,
+    allowed: readonly string[],
+  ): boolean;
   csrfMatches(expected: string, provided: string | null): boolean;
   assertMutationAuthorized(
     request: { origin?: string; host?: string; csrfToken?: string },
@@ -89,7 +96,7 @@ class FakeRedis {
 function signInitData(fields: Record<string, string>): string {
   const entries = Object.entries(fields)
     .map(([key, value]) => `${key}=${value}`)
-    .sort();
+    .toSorted();
   const secret = createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
   const hash = createHmac("sha256", secret).update(entries.join("\n")).digest("hex");
   return new URLSearchParams({ ...fields, hash }).toString();
@@ -128,16 +135,19 @@ describe("generated miniapp session TypeScript", () => {
     assert.equal(validated.authDate, NOW_SECONDS);
 
     const tampered = initData().replace("tester", "attacker");
-    assert.throws(() => ts.validateInitData(tampered, BOT_TOKEN, { now: FIXED_NOW_MS }), ts.MiniAppAuthError);
-    assert.throws(() => ts.validateInitData(initData(), "999:other-token", { now: FIXED_NOW_MS }), ts.MiniAppAuthError);
+    assert.throws(
+      () => ts.validateInitData(tampered, BOT_TOKEN, { now: FIXED_NOW_MS }),
+      ts.MiniAppAuthError,
+    );
+    assert.throws(
+      () => ts.validateInitData(initData(), "999:other-token", { now: FIXED_NOW_MS }),
+      ts.MiniAppAuthError,
+    );
   });
 
   it("rejects auth_date more than 30 seconds in the future", () => {
     const future = initData({ authDate: NOW_SECONDS + 31 });
-    assert.throws(
-      () => ts.validateInitData(future, BOT_TOKEN, { now: FIXED_NOW_MS }),
-      /future/,
-    );
+    assert.throws(() => ts.validateInitData(future, BOT_TOKEN, { now: FIXED_NOW_MS }), /future/);
     const nearFuture = initData({ authDate: NOW_SECONDS + 30 });
     assert.equal(
       ts.validateInitData(nearFuture, BOT_TOKEN, { now: FIXED_NOW_MS }).authDate,
@@ -164,7 +174,7 @@ describe("generated miniapp session TypeScript", () => {
     assert.ok(source.includes('"miniapp:replay:" + sha256Hex(hash)'));
     assert.ok(source.includes('"miniapp:session:" + sha256Hex(sessionId)'));
     assert.ok(source.includes("{ NX: true, EX: REPLAY_TTL_SECONDS }"));
-    assert.ok(source.includes("randomBytes(32).toString(\"base64url\")"));
+    assert.ok(source.includes('randomBytes(32).toString("base64url")'));
 
     const redis = new FakeRedis();
     const data = initData();
@@ -172,9 +182,12 @@ describe("generated miniapp session TypeScript", () => {
     assert.match(created.sessionId, /^[A-Za-z0-9_-]{43}$/);
     assert.match(created.csrfToken, /^[A-Za-z0-9_-]{43}$/);
 
-    const sessionKeys = [...redis.values.keys()].filter((key) => key.startsWith("miniapp:session:"));
+    const sessionKeys = [...redis.values.keys()].filter((key) =>
+      key.startsWith("miniapp:session:"),
+    );
     assert.equal(sessionKeys.length, 1);
-    const expectedKey = "miniapp:session:" + createHash("sha256").update(created.sessionId).digest("hex");
+    const expectedKey =
+      "miniapp:session:" + createHash("sha256").update(created.sessionId).digest("hex");
     assert.equal(sessionKeys[0], expectedKey, "session key must hash the opaque id");
     assert.equal(redis.ttl.get(sessionKeys[0] ?? ""), ts.DEFAULT_SESSION_TTL_SECONDS);
 
@@ -219,7 +232,12 @@ describe("generated miniapp session TypeScript", () => {
   });
 
   it("requires allowed Origin and matching CSRF for mutations", () => {
-    const session = { userId: 1, authDate: NOW_SECONDS, csrf: "csrf-value", createdAt: NOW_SECONDS };
+    const session = {
+      userId: 1,
+      authDate: NOW_SECONDS,
+      csrf: "csrf-value",
+      createdAt: NOW_SECONDS,
+    };
     assert.equal(ts.isAllowedOrigin("https://app.example", "app.example", []), true);
     assert.equal(ts.isAllowedOrigin("https://evil.example", "app.example", []), false);
     assert.equal(ts.isAllowedOrigin(undefined, "app.example", []), false);

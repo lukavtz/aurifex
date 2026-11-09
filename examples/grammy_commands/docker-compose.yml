@@ -1,0 +1,36 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "8080"
+    secrets:
+      - bot_token
+      - webhook_secret
+    environment:
+      BOT_TOKEN_FILE: /run/secrets/bot_token
+      WEBHOOK_SECRET_FILE: /run/secrets/webhook_secret
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - bot
+  # aurifex:services
+
+secrets:
+  bot_token:
+    file: ./secrets/bot_token
+  webhook_secret:
+    file: ./secrets/webhook_secret
+
+volumes:
+  caddy-data:
+  caddy-config:

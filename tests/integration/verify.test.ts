@@ -25,6 +25,17 @@ const SPEC: BotSpec = {
   displayName: "Demo Bot",
   stack: "grammy",
   features: ["commands", "inline", "payments", "miniapps", "moderation", "broadcast", "llm"],
+  payments: {
+    products: [
+      {
+        id: "support",
+        title: "Support",
+        description: "Support the bot",
+        stars: 1,
+        subscription: false,
+      },
+    ],
+  },
   deployment: "docker",
   storage: { postgres: true, redis: true },
   i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
@@ -73,7 +84,7 @@ const FILES: readonly TemplateFile[] = [
   {
     path: "src/runtime/payments.ts",
     content:
-      'export const PAYMENTS = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true, total_amount: true };\n',
+      "export const PAYMENTS = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true, total_amount: true };\n",
   },
   {
     path: "src/runtime/health.ts",
@@ -314,7 +325,7 @@ test("payments without total_amount validation fails payments.validation", async
   const policy = await setup(t);
   await policy.writeFile(
     `${PROJECT}/src/runtime/payments.ts`,
-    'export const schema = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true };\n',
+    "export const schema = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true };\n",
     { overwrite: true },
   );
   const result = valueOf(await verifyBot(PROJECT, policy));
@@ -332,9 +343,13 @@ test("config without _FILE indirection fails secrets.file", async (t) => {
 
 test("missing /readyz fails telemetry.readiness", async (t) => {
   const policy = await setup(t);
-  await policy.writeFile(`${PROJECT}/src/runtime/health.ts`, 'export const routes = ["/healthz"];\n', {
-    overwrite: true,
-  });
+  await policy.writeFile(
+    `${PROJECT}/src/runtime/health.ts`,
+    'export const routes = ["/healthz"];\n',
+    {
+      overwrite: true,
+    },
+  );
   const result = valueOf(await verifyBot(PROJECT, policy));
   assert.equal(statusOf(result, "telemetry.readiness"), "fail");
 });
@@ -352,9 +367,13 @@ test("missing /metrics warns telemetry.metrics", async (t) => {
 
 test("miniapp session without HttpOnly or server key fails miniapp.session", async (t) => {
   const policy = await setup(t);
-  await policy.writeFile(`${PROJECT}/src/runtime/miniapp-session.ts`, "export const cookie = 1;\n", {
-    overwrite: true,
-  });
+  await policy.writeFile(
+    `${PROJECT}/src/runtime/miniapp-session.ts`,
+    "export const cookie = 1;\n",
+    {
+      overwrite: true,
+    },
+  );
   const result = valueOf(await verifyBot(PROJECT, policy));
   assert.equal(statusOf(result, "miniapp.session"), "fail");
 });
