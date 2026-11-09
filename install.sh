@@ -105,6 +105,15 @@ fi
   fail "the build did not produce dist/cli.js in $SOURCE_DIR."
 
 set -- install --source "$SOURCE_DIR"
+if [ -n "${AURIFEX_HOSTS:-}" ]; then
+  set -- "$@" --host "$AURIFEX_HOSTS"
+fi
+if [ -n "${AURIFEX_SCOPE:-}" ]; then
+  set -- "$@" --scope "$AURIFEX_SCOPE"
+fi
+if [ "${AURIFEX_YES:-0}" = "1" ]; then
+  set -- "$@" --yes
+fi
 if [ "$DRY_RUN" = "1" ]; then
   set -- "$@" --dry-run
 fi

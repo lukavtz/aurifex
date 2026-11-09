@@ -81,11 +81,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          gh release create "$TAG" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$TAG" \
-            --generate-notes \
-            --verify-tag
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --generate-notes \
+              --verify-tag
+          fi
 
   npm:
     name: npm publish
@@ -120,3 +124,29 @@ jobs:
             exit 0
           fi
           npm publish dist/*.tgz --access public --provenance
+  examples:
+    name: GHCR examples
+    if: github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        example: [grammy_commands, aiogram_commands, grammy_payments]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: examples/${{ matrix.example }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/lukavtz/aurifex-example-${{ matrix.example }}:${{ github.ref_name }}

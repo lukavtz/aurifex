@@ -48,7 +48,10 @@ powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/instal
 The script keeps a persistent checkout at `~/.aurifex/src`
 (`%LOCALAPPDATA%\Aurifex\src` on Windows), builds it once, and runs
 `aurifex install --host all`. Re-running updates that checkout.
-`AURIFEX_DRY_RUN=1` prints the host commands without executing them.
+`AURIFEX_DRY_RUN=1` prints the host commands without executing them. On an
+interactive terminal the installer asks which hosts and scope to use; set
+`AURIFEX_HOSTS=omp,claude`, `AURIFEX_SCOPE=user|project`, or `AURIFEX_YES=1` for
+non-interactive runs.
 
 ## What it does
 

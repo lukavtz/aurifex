@@ -125,6 +125,15 @@ try {
     }
 
     $CliArgs = @("install", "--source", $SourceDir)
+    if ($env:AURIFEX_HOSTS) {
+        $CliArgs += @("--host", $env:AURIFEX_HOSTS)
+    }
+    if ($env:AURIFEX_SCOPE) {
+        $CliArgs += @("--scope", $env:AURIFEX_SCOPE)
+    }
+    if ($env:AURIFEX_YES -eq "1") {
+        $CliArgs += "--yes"
+    }
     if ($DryRun) {
         $CliArgs += "--dry-run"
     }
