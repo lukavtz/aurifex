@@ -5,13 +5,13 @@
 `.github/workflows/ci.yml` runs on every push to `main`/`feat/**` and every pull
 request:
 
-| Job                               | What it proves                                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `verify (ubuntu, macos, windows)` | format, lint, strict types, 118 unit, 11 security, 60 integration, 9 host, site check, secret scan, package dry-run |
-| `e2e (generated projects)`        | generated grammY and aiogram projects install, typecheck, test, and build                                           |
-| `package smoke`                   | the packed tarball installs, `aurifex` runs, and `aurifex-mcp` answers over stdio                                   |
-| `audit`                           | `pnpm audit --prod --audit-level high` and the repository secret scan                                               |
-| `workflow lint`                   | `actionlint` over every workflow                                                                                    |
+| Job                               | What it proves                                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `verify (ubuntu, macos, windows)` | format, lint, strict types, unit, security, integration, host, site check, secret scan, package dry-run |
+| `e2e (generated projects)`        | generated grammY and aiogram projects install, typecheck, test, and build                               |
+| `package smoke`                   | the packed tarball installs, `aurifex` runs, and `aurifex-mcp` answers over stdio                       |
+| `audit`                           | `pnpm audit --prod --audit-level high` and the repository secret scan                                   |
+| `workflow lint`                   | `actionlint` over every workflow                                                                        |
 
 `security.yml` adds CodeQL (`javascript-typescript`, `security-and-quality`) on pushes,
 pull requests, and a weekly schedule, plus dependency review on pull requests.
