@@ -70,12 +70,14 @@ function validateInput(input: string): void {
     throw new PathPolicyError("invalid_path", "path must be a nonempty string");
   }
   if (input.includes("\0")) throw new PathPolicyError("invalid_path", "path contains NUL");
-  if (input.includes("\\"))
+  if (process.platform !== "win32" && input.includes("\\")) {
     throw new PathPolicyError("invalid_path", "backslashes are not allowed");
+  }
 }
 
 function validateRelativeComponents(input: string): void {
-  for (const part of input.split("/")) {
+  const parts = process.platform === "win32" ? input.split(/[\\/]/) : input.split("/");
+  for (const part of parts) {
     if (part === "" || part === "." || part === "..") {
       throw new PathPolicyError("invalid_path", `invalid path component: ${part || "empty"}`);
     }

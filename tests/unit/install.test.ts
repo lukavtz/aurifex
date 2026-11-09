@@ -4,7 +4,10 @@ import { existsSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test as nodeTest } from "node:test";
+
+// Fake host shims are POSIX shell scripts; Windows coverage lives in install.ps1.
+const test = process.platform === "win32" ? nodeTest.skip : nodeTest;
 import { fileURLToPath } from "node:url";
 
 import { defaultInstallSource, needsBuild } from "../../src/cli.ts";

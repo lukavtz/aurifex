@@ -85,6 +85,24 @@ architecture, security-review, and test-writing subagents.
 
 ## Install
 
+One command installs every detected host (OMP, DSH, Claude Code):
+
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | sh
+```
+
+```powershell
+# Windows PowerShell
+powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"
+```
+
+The script keeps a persistent checkout at `~/.aurifex/src`
+(`%LOCALAPPDATA%\Aurifex\src` on Windows), builds it once, and runs
+`aurifex install --host all`. Re-running updates that checkout. `AURIFEX_DRY_RUN=1`
+prints the host commands without executing them.
+
+From a checkout:
 v0.1 is distributed from the repository; the npm package is not published yet.
 
 ```sh

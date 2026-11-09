@@ -86,6 +86,24 @@ grammY, aiogram, безопасности, тестированию, депло�
 
 ## Установка
 
+Одна команда устанавливает во все найденные хосты (OMP, DSH, Claude Code):
+
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | sh
+```
+
+```powershell
+# Windows PowerShell
+powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"
+```
+
+Скрипт хранит постоянный checkout в `~/.aurifex/src`
+(`%LOCALAPPDATA%\Aurifex\src` в Windows), один раз собирает его и запускает
+`aurifex install --host all`. Повторный запуск обновляет checkout.
+`AURIFEX_DRY_RUN=1` печатает команды без выполнения.
+
+Из checkout:
 v0.1 распространяется из репозитория; npm-пакет ещё не опубликован.
 
 ```sh

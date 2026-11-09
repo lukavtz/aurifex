@@ -69,7 +69,11 @@ test("rejects dot-dot, backslash, NUL and empty paths", async () => {
   const policy = await createPathPolicy(root);
   assert.throws(() => policy.resolve("a/../b"), isPolicyError("invalid_path"));
   assert.throws(() => policy.resolve(".."), isPolicyError("unauthorized_path"));
-  assert.throws(() => policy.resolve("a\\b"), isPolicyError("invalid_path"));
+  if (process.platform === "win32") {
+    assert.equal(policy.resolve("a\\b"), join(root, "a", "b"));
+  } else {
+    assert.throws(() => policy.resolve("a\\b"), isPolicyError("invalid_path"));
+  }
   assert.throws(() => policy.resolve("a\0b"), isPolicyError("invalid_path"));
   assert.throws(() => policy.resolve(""), isPolicyError("invalid_path"));
 });

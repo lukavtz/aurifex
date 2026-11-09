@@ -242,13 +242,36 @@ function displayCommand(bin: string, args: readonly string[]): string {
   return [bin, ...args].map(quoteArg).join(" ");
 }
 
+function quoteWindowsArg(value: string): string {
+  if (/[\r\n\0"%&|<>^]/.test(value)) {
+    throw new Error("refusing unsafe Windows command argument");
+  }
+  return `"${value}"`;
+}
+
+function windowsCommand(bin: string, args: readonly string[]): string {
+  return [bin, ...args].map(quoteWindowsArg).join(" ");
+}
+
 async function capture(bin: string, args: readonly string[], cwd?: string): Promise<Captured> {
   const { promise, resolve: finish, reject } = Promise.withResolvers<Captured>();
-  const child = spawn(bin, args, {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
-    ...(cwd === undefined ? {} : { cwd }),
-  });
+  const windows = process.platform === "win32";
+  const child = windows
+    ? spawn(
+        process.env.ComSpec ?? "cmd.exe",
+        ["/d", "/s", "/c", `"${windowsCommand(bin, args)}"`],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: process.env,
+          windowsVerbatimArguments: true,
+          ...(cwd === undefined ? {} : { cwd }),
+        },
+      )
+    : spawn(bin, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+        ...(cwd === undefined ? {} : { cwd }),
+      });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
@@ -260,7 +283,7 @@ async function capture(bin: string, args: readonly string[], cwd?: string): Prom
 
 async function hasCommand(bin: string): Promise<boolean> {
   try {
-    return (await capture("which", [bin])).code === 0;
+    return (await capture(process.platform === "win32" ? "where.exe" : "which", [bin])).code === 0;
   } catch {
     return false;
   }
