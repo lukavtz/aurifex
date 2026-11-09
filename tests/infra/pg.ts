@@ -5,7 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer as createNetServer, connect, type Socket } from "node:net";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -325,110 +325,7 @@ export function createSql(postgres: Postgres): {
   };
 }
 
-// --- Redis over RESP ---------------------------------------------------------
-
-type Reply = string | number | null | Reply[];
-
-function encodeCommand(args: readonly string[]): Buffer {
-  const parts = [`*${args.length}\r\n`];
-  for (const arg of args) parts.push(`$${Buffer.byteLength(arg)}\r\n${arg}\r\n`);
-  return Buffer.from(parts.join(""), "utf8");
-}
-
-function parseReply(buffer: Buffer, offset: number): { value: Reply; next: number } | null {
-  const lineEnd = buffer.indexOf("\r\n", offset);
-  if (lineEnd === -1) return null;
-  const marker = String.fromCharCode(buffer[offset] ?? 0);
-  const line = buffer.subarray(offset + 1, lineEnd).toString("utf8");
-  const next = lineEnd + 2;
-  if (marker === "+") return { value: line, next };
-  if (marker === "-") throw new Error(`redis error: ${line}`);
-  if (marker === ":") return { value: Number(line), next };
-  if (marker === "$") {
-    const length = Number(line);
-    if (length === -1) return { value: null, next };
-    if (buffer.length < next + length + 2) return null;
-    return {
-      value: buffer.subarray(next, next + length).toString("utf8"),
-      next: next + length + 2,
-    };
-  }
-  if (marker === "*") {
-    const count = Number(line);
-    if (count === -1) return { value: null, next };
-    const items: Reply[] = [];
-    let cursor = next;
-    for (let index = 0; index < count; index += 1) {
-      const item = parseReply(buffer, cursor);
-      if (item === null) return null;
-      items.push(item.value);
-      cursor = item.next;
-    }
-    return { value: items, next: cursor };
-  }
-  throw new Error(`unexpected redis reply: ${marker}`);
-}
-
-class RespClient {
-  private readonly socket: Socket;
-  private buffer: Buffer = Buffer.alloc(0);
-  private pending: Array<{ resolve: (value: Reply) => void; reject: (error: Error) => void }> = [];
-  private ready: Promise<void>;
-
-  constructor(port: number) {
-    this.socket = connect({ host: "127.0.0.1", port });
-    const { promise, resolve, reject } = Promise.withResolvers<void>();
-    this.ready = promise;
-    this.socket.once("connect", () => resolve());
-    this.socket.once("error", reject);
-    this.socket.on("data", (chunk: Buffer) => {
-      this.buffer = Buffer.concat([this.buffer, chunk]);
-      this.drain();
-    });
-    void this.ready;
-  }
-
-  private drain(): void {
-    for (;;) {
-      if (this.pending.length === 0) return;
-      let parsed: { value: Reply; next: number } | null;
-      try {
-        parsed = parseReply(this.buffer, 0);
-      } catch (error) {
-        const pending = this.pending.shift();
-        pending?.reject(error instanceof Error ? error : new Error(String(error)));
-        this.buffer = Buffer.alloc(0);
-        continue;
-      }
-      if (parsed === null) return;
-      this.buffer = this.buffer.subarray(parsed.next);
-      const pending = this.pending.shift();
-      pending?.resolve(parsed.value);
-    }
-  }
-
-  async command(...args: string[]): Promise<Reply> {
-    await this.ready;
-    const { promise, resolve, reject } = Promise.withResolvers<Reply>();
-    const timer = setTimeout(() => reject(new Error(`redis command timed out: ${args.join(" ")}`)), 5_000);
-    this.pending.push({
-      resolve: (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      reject: (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    });
-    this.socket.write(encodeCommand(args));
-    return promise;
-  }
-
-  close(): void {
-    this.socket.destroy();
-  }
-}
+// --- Redis over the server CLI ------------------------------------------------
 
 export interface Redis extends Container {
   incr(key: string): Promise<number>;
