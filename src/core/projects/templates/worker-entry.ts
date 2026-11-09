@@ -101,6 +101,7 @@ export interface JobContext {
   queue: Queue;
   config: Config;
   redis: Redis | null;
+  signal?: AbortSignal;
 }
 
 export interface JobModule {
@@ -146,7 +147,7 @@ export async function loadJobHandlers(ctx: JobContext): Promise<Record<string, J
     if (handlers[module.kind] !== undefined) {
       throw new Error("duplicate job kind: " + module.kind);
     }
-    handlers[module.kind] = (job) => module.handle(job, ctx);
+    handlers[module.kind] = (job, signal) => module.handle(job, { ...ctx, signal });
   }
   return handlers;
 }
@@ -248,6 +249,7 @@ export function renderJobsIndexPy(): string {
   return `from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib
 import pkgutil
 from collections.abc import Awaitable, Callable
@@ -271,11 +273,12 @@ class JobContext:
     queue: Queue
     settings: Settings
     redis: Redis | None
+    stop: asyncio.Event | None = None
 
 
 def _bind(handle: Callable[[ClaimedJob, JobContext], Awaitable[None]], ctx: JobContext) -> JobHandler:
-    async def handler(job: ClaimedJob, _stop: asyncio.Event) -> None:
-        await handle(job, ctx)
+    async def handler(job: ClaimedJob, stop: asyncio.Event) -> None:
+        await handle(job, dataclasses.replace(ctx, stop=stop))
 
     return handler
 

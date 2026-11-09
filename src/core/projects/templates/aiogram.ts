@@ -584,9 +584,9 @@ class DedupeMiddleware(BaseMiddleware):
             claimed = await self.redis.set(
                 f"update:{update_id}", "1", nx=True, ex=DEDUPE_TTL_SECONDS
             )
-        except Exception:
-            logger.warning("dedupe unavailable; stopping update %s", update_id)
-            return None
+        except Exception as error:
+            logger.error("dedupe unavailable; refusing update %s", update_id)
+            raise RuntimeError("update deduplication unavailable") from error
         if not claimed:
             logger.info("duplicate update %s ignored", update_id)
             return None

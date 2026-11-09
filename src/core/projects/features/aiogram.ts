@@ -172,6 +172,7 @@ class AiogramPayments:
                 TelegramLabeledPrice(label=price.label, amount=price.amount)
                 for price in prices
             ],
+            subscription_period=subscription_period,
         )
 
     async def refund_star_payment(self, user_id: int, charge_id: str) -> object:

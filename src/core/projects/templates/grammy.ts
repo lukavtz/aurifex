@@ -835,9 +835,9 @@ export async function claimUpdate(
   } catch (error) {
     logger.error(
       { message: error instanceof Error ? error.message : "redis error" },
-      "dedupe check failed; stopping update",
+      "dedupe check failed; refusing update",
     );
-    return false;
+    throw new Error("update deduplication unavailable");
   }
 }
 

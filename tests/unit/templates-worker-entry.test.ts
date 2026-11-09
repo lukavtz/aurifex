@@ -101,7 +101,11 @@ test("typescript job loader imports siblings by file URL and validates shape", (
   assert.ok(source.includes('typeof candidate.handle === "function"'));
   assert.ok(source.includes("export async function loadJobHandlers("));
   assert.ok(source.includes("): Promise<Record<string, JobHandler>>"));
-  assert.ok(source.includes("handlers[module.kind] = (job) => module.handle(job, ctx);"));
+  assert.ok(
+    source.includes(
+      "handlers[module.kind] = (job, signal) => module.handle(job, { ...ctx, signal });",
+    ),
+  );
 });
 
 test("typescript job loader exposes the shared context contract", () => {
