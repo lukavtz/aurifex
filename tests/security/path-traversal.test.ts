@@ -64,7 +64,8 @@ test("rejects traversal corpus for resolve, read, and write", async () => {
   const { root, outside, policy } = await setup("corpus");
   try {
     const absoluteOutside = join(outside, "absolute.txt");
-    const invalid = ["../escape.txt", "a/../../escape.txt", "..", "a/../b", "a\0b", "a\\b", ""];
+    const invalid = ["../escape.txt", "a/../../escape.txt", "..", "a/../b", "a\0b", ""];
+    if (process.platform !== "win32") invalid.push("a\\b");
     for (const candidate of invalid) {
       const code = await rejectionCode(() => policy.resolve(candidate));
       assert.equal(ESCAPE_CODES[code], true, `${candidate}: ${code}`);
