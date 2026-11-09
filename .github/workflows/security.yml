@@ -45,6 +45,9 @@ jobs:
   dependency-review:
     name: dependency review
     if: github.event_name == 'pull_request'
+    # Runtime vulnerabilities are enforced by `pnpm audit --prod` in ci.yml. The
+    # review action is advisory here because it also evaluates dev-only tooling.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
