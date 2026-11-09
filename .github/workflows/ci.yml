@@ -110,6 +110,8 @@ jobs:
               tail -200 "$RUNNER_TEMP/infra.log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -40 "$RUNNER_TEMP/infra.log" | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=infra failure::$message"
           fi
           exit "$status"
 
