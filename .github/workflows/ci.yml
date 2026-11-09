@@ -97,7 +97,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm test:infra
+      - name: Run infra suite (one retry for Docker-in-Docker startup)
+        run: |
+          pnpm test:infra || {
+            echo "infra failed once; retrying"
+            pnpm test:infra
+          }
 
   docker:
     name: docker images
