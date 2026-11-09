@@ -213,7 +213,7 @@ function installSelection(raw: string | undefined): readonly InstallHost[] {
 function ttyStream(): ReturnType<typeof createReadStream> | null {
   try {
     const path = process.platform === "win32" ? "CONIN$" : "/dev/tty";
-    return createReadStream(path, { autoClose: false });
+    return createReadStream(path);
   } catch {
     return null;
   }
@@ -259,7 +259,7 @@ async function chooseInstall(
     return { hosts: selected, scope: chosenScope };
   } finally {
     rl.close();
-    input.close();
+    input.destroy();
   }
 }
 

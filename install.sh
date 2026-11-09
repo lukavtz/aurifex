@@ -52,6 +52,46 @@ paint() {
   fi
 }
 
+ANIMATE=0
+if [ "$COLOR" = "1" ] && [ -z "${CI:-}" ]; then
+  ANIMATE=1
+fi
+
+spinner_frame() {
+  index=$1
+  case $((index % 10)) in
+    0) printf '⠋' ;; 1) printf '⠙' ;; 2) printf '⠹' ;; 3) printf '⠸' ;; 4) printf '⠼' ;;
+    5) printf '⠴' ;; 6) printf '⠦' ;; 7) printf '⠧' ;; 8) printf '⠇' ;; *) printf '⠏' ;;
+  esac
+}
+
+# Shows a moving line only on an interactive terminal. The command is a real
+# child process; failures propagate exactly as a plain invocation would.
+run_with_spinner() {
+  label=$1
+  shift
+  if [ "$ANIMATE" != "1" ]; then
+    say "$label"
+    "$@"
+    return
+  fi
+  "$@" &
+  pid=$!
+  frame=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r\033[2K  \033[38;2;214;178;84m%s\033[0m  %s' "$(spinner_frame "$frame")" "$label"
+    frame=$((frame + 1))
+    sleep 0.08
+  done
+  if wait "$pid"; then
+    printf '\r\033[2K  \033[38;2;120;190;120m✔\033[0m  %s\n' "$label"
+  else
+    status=$?
+    printf '\r\033[2K  \033[38;2;220;100;100m✖\033[0m  %s\n' "$label"
+    return "$status"
+  fi
+}
+
 printf '\n'
 paint 36 "  ╭─────────────────────────────╮"
 paint "1;36" "  │  AURIFEX INSTALLER          │"
@@ -93,11 +133,12 @@ if [ -z "$SOURCE_DIR" ]; then
     mkdir -p "$HOME_DIR"
     TMP_DIR=$(mktemp -d "$HOME_DIR/.download.XXXXXX") ||
       fail "could not create a staging directory in $HOME_DIR."
-    say "Downloading $REPO@$REF..."
-    curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" -o "$TMP_DIR/aurifex.tar.gz" ||
+    run_with_spinner "Downloading $REPO@$REF" \
+      curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" -o "$TMP_DIR/aurifex.tar.gz" ||
       fail "failed to download $REPO@$REF from GitHub."
     mkdir -p "$TMP_DIR/src"
-    tar -xzf "$TMP_DIR/aurifex.tar.gz" -C "$TMP_DIR/src" --strip-components=1 ||
+    run_with_spinner "Extracting checkout" \
+      tar -xzf "$TMP_DIR/aurifex.tar.gz" -C "$TMP_DIR/src" --strip-components=1 ||
       fail "failed to extract the downloaded archive."
     printf '%s\n' "$REF" >"$TMP_DIR/src/.aurifex-ref"
     BACKUP_DIR=""
@@ -118,11 +159,14 @@ fi
 [ -f "$SOURCE_DIR/package.json" ] ||
   fail "no package.json in $SOURCE_DIR; refusing to install."
 
-if [ ! -f "$SOURCE_DIR/dist/cli.js" ]; then
-  say "Building Aurifex..."
-  (cd "$SOURCE_DIR" &&
+build_dependencies() {
+  cd "$SOURCE_DIR" &&
     npm_config_update_notifier=false npm_config_loglevel=error \
-      npm install --silent --no-audit --no-fund --no-progress) ||
+      npm install --silent --no-audit --no-fund --no-progress
+}
+
+if [ ! -f "$SOURCE_DIR/dist/cli.js" ]; then
+  run_with_spinner "Building Aurifex" build_dependencies ||
     fail "npm install failed in $SOURCE_DIR."
 fi
 [ -f "$SOURCE_DIR/dist/cli.js" ] ||
