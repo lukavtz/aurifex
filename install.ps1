@@ -66,7 +66,7 @@ try {
         } else {
             $null
         }
-        if ((Test-Path (Join-Path $PersistDir "package.json")) -and $RecordedRef -eq $Ref) {
+        if ($Ref -ne "main" -and (Test-Path (Join-Path $PersistDir "package.json")) -and $RecordedRef -eq $Ref) {
             Write-Host "Using existing Aurifex checkout: $PersistDir ($Ref)"
             $SourceDir = $PersistDir
         } else {
@@ -111,7 +111,7 @@ try {
         Write-Host "Building Aurifex..."
         Push-Location $SourceDir
         try {
-            & npm install
+            & npm install --silent --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) {
                 throw "npm install failed in $SourceDir"
             }
@@ -124,7 +124,7 @@ try {
         throw "the build did not produce dist/cli.js in $SourceDir"
     }
 
-    $CliArgs = @("install", "--host", "all", "--source", $SourceDir)
+    $CliArgs = @("install", "--source", $SourceDir)
     if ($DryRun) {
         $CliArgs += "--dry-run"
     }

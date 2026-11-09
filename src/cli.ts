@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { createReadStream, existsSync, realpathSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -196,8 +197,70 @@ const HOST_LABEL: Readonly<Record<InstallHost, string>> = {
 
 function installSelection(raw: string | undefined): readonly InstallHost[] {
   if (raw === undefined || raw === "all") return INSTALL_HOSTS;
-  if (raw === "omp" || raw === "dsh" || raw === "claude") return [raw];
-  throw new UsageError(`unknown host: ${raw}`);
+  const values = raw
+    .split(/[,\s]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (values.length === 0) throw new UsageError("no install host selected");
+  for (const value of values) {
+    if (value !== "omp" && value !== "dsh" && value !== "claude") {
+      throw new UsageError(`unknown host: ${value}`);
+    }
+  }
+  return INSTALL_HOSTS.filter((host) => values.includes(host));
+}
+
+function ttyStream(): ReturnType<typeof createReadStream> | null {
+  try {
+    const path = process.platform === "win32" ? "CONIN$" : "/dev/tty";
+    return createReadStream(path, { autoClose: false });
+  } catch {
+    return null;
+  }
+}
+
+async function chooseInstall(
+  hosts: readonly InstallHost[],
+  scope: string,
+): Promise<{
+  readonly hosts: readonly InstallHost[];
+  readonly scope: string;
+}> {
+  if (!process.stdin.isTTY && !existsSync(process.platform === "win32" ? "CONIN$" : "/dev/tty")) {
+    return { hosts, scope };
+  }
+  const input = ttyStream();
+  if (input === null) return { hosts, scope };
+  const rl = createInterface({ input, output: process.stdout });
+  try {
+    process.stdout.write("\n  Aurifex installer\n");
+    process.stdout.write("  Choose hosts (comma-separated) or press Enter for all detected:\n");
+    for (const [index, host] of hosts.entries()) {
+      const found = await hasCommand(host);
+      process.stdout.write(`    ${index + 1}) ${HOST_LABEL[host]} ${found ? "" : "(not found)"}\n`);
+    }
+    const hostAnswer = (await rl.question(`  Hosts [1-${hosts.length}/all] (all): `)).trim();
+    let selected = hosts;
+    if (hostAnswer !== "" && hostAnswer.toLowerCase() !== "all") {
+      const picked = new Set(
+        hostAnswer
+          .split(/[,\s]+/)
+          .map((value) => Number(value) - 1)
+          .filter((index) => Number.isInteger(index) && index >= 0 && index < hosts.length),
+      );
+      if (picked.size === 0) throw new UsageError("no valid host selected");
+      selected = hosts.filter((_, index) => picked.has(index));
+    }
+    const scopeAnswer = (await rl.question("  Scope [user/project] (user): ")).trim();
+    const chosenScope = scopeAnswer === "" ? scope : scopeAnswer;
+    if (chosenScope !== "user" && chosenScope !== "project") {
+      throw new UsageError(`unknown scope: ${chosenScope}`);
+    }
+    return { hosts: selected, scope: chosenScope };
+  } finally {
+    rl.close();
+    input.close();
+  }
 }
 
 export function defaultInstallSource(
@@ -418,8 +481,21 @@ async function runInstall(parsed: Parsed): Promise<number> {
   const source =
     stringValue(parsed.values.source) ?? defaultInstallSource(PACKAGE_ROOT, existsSync);
   const localSource = isLocalSource(source);
-  const selected = installSelection(stringValue(parsed.values.host));
   const dryRun = parsed.values["dry-run"] === true;
+  const requestedHost = stringValue(parsed.values.host);
+  const interactive =
+    requestedHost === undefined &&
+    parsed.values.yes !== true &&
+    !parsed.json &&
+    !dryRun &&
+    process.stdout.isTTY === true;
+  let selected = installSelection(requestedHost);
+  let chosenScope = scope;
+  if (interactive) {
+    const choice = await chooseInstall(selected, scope);
+    selected = choice.hosts;
+    chosenScope = choice.scope;
+  }
   const started = performance.now();
   const hosts: InstallHostResult[] = [];
   const notes = new Map<InstallHost, string>();
@@ -444,7 +520,7 @@ async function runInstall(parsed: Parsed): Promise<number> {
   }
 
   for (const host of selected) {
-    const commands = installCommands(host, source, localSource, scope, profile);
+    const commands = installCommands(host, source, localSource, chosenScope, profile);
     const command = commands.map((args) => displayCommand(host, args)).join(" && ");
     if (dryRun) {
       hosts.push({ host, status: "planned", command });

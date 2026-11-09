@@ -60,16 +60,21 @@ jobs:
         with:
           path: dist
           format: cyclonedx-json
-          output-file: dist/aurifex.sbom.json
+          output-file: aurifex.sbom.json
           upload-artifact: false
       - uses: sigstore/cosign-installer@v4.1.3
-      - run: |
-          cd dist
-          for file in *.tgz; do
+      - name: Sign tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la
+          ls -la dist
+          for file in dist/*.tgz; do
             cosign sign-blob --yes "$file" \
               --output-signature "${file}.sig" \
               --output-certificate "${file}.pem"
           done
+          cp aurifex.sbom.json dist/aurifex.sbom.json
       - uses: actions/upload-artifact@v7
         with:
           name: release-sbom

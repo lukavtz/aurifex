@@ -93,6 +93,18 @@ test("install --dry-run prints exact commands without executing", async (t) => {
   assert.equal(await exists(log), false, "dry run must not execute host commands");
 });
 
+test("install --host accepts a comma-separated selection", async (t) => {
+  const root = await tempRoot();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const result = await run(
+    ["install", "--host", "omp,claude", "--source", "aurifex", "--dry-run", "--json"],
+    envFor(join(root, "bin"), join(root, "calls.log")),
+  );
+  assert.equal(result.code, 0, result.stderr);
+  const payload = JSON.parse(result.stdout) as InstallPayload;
+  assert.deepEqual(payload.value.hosts.map((host) => host.host).toSorted(), ["claude", "omp"]);
+});
+
 test("install --host all runs each host and reports stable JSON", async (t) => {
   const root = await tempRoot();
   t.after(() => rm(root, { recursive: true, force: true }));

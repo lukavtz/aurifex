@@ -63,7 +63,8 @@ if [ -z "$SOURCE_DIR" ]; then
     fail "curl was not found. Install curl and retry."
   command -v tar >/dev/null 2>&1 ||
     fail "tar was not found. Install tar and retry."
-  if [ -f "$PERSIST_DIR/package.json" ] &&
+  if [ "$REF" != "main" ] &&
+    [ -f "$PERSIST_DIR/package.json" ] &&
     [ "$(cat "$PERSIST_DIR/.aurifex-ref" 2>/dev/null || true)" = "$REF" ]; then
     say "Using existing Aurifex checkout: $PERSIST_DIR ($REF)"
     SOURCE_DIR="$PERSIST_DIR"
@@ -98,12 +99,12 @@ fi
 
 if [ ! -f "$SOURCE_DIR/dist/cli.js" ]; then
   say "Building Aurifex..."
-  (cd "$SOURCE_DIR" && npm install) || fail "npm install failed in $SOURCE_DIR."
+  (cd "$SOURCE_DIR" && npm install --silent --no-audit --no-fund) || fail "npm install failed in $SOURCE_DIR."
 fi
 [ -f "$SOURCE_DIR/dist/cli.js" ] ||
   fail "the build did not produce dist/cli.js in $SOURCE_DIR."
 
-set -- install --host all --source "$SOURCE_DIR"
+set -- install --source "$SOURCE_DIR"
 if [ "$DRY_RUN" = "1" ]; then
   set -- "$@" --dry-run
 fi

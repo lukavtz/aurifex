@@ -91,7 +91,7 @@ test(
     assert.ok(script.includes('PERSIST_DIR="$HOME_DIR/src"'));
     assert.ok(script.includes(".aurifex-ref"));
     assert.ok(script.includes('"$SOURCE_DIR/dist/cli.js"'));
-    assert.ok(script.includes('install --host all --source "$SOURCE_DIR"'));
+    assert.ok(script.includes('install --source "$SOURCE_DIR"'));
     assert.ok(script.includes('mv "$TMP_DIR/src" "$PERSIST_DIR"'));
     assert.ok(script.includes('REPO="lukavtz/aurifex"'));
     assert.ok(script.includes("https://codeload.github.com/$REPO/tar.gz/$REF"));
@@ -101,7 +101,7 @@ test(
     assert.match(script, /mktemp -d/);
     assert.match(script, /npm install/);
     assert.match(script, /node dist\/cli\.js/);
-    assert.ok(script.includes("install --host all"));
+    assert.ok(script.includes("install --source"));
     assert.ok(script.includes("--dry-run"));
     assert.match(script, /trap cleanup EXIT/);
     assert.match(script, /rm -rf "\$TMP_DIR"/);
@@ -207,11 +207,16 @@ test(
     await mkdir(persist, { recursive: true });
     await cp(join(REPO, "package.json"), join(persist, "package.json"));
     await cp(join(REPO, "dist"), join(persist, "dist"), { recursive: true });
-    await writeFile(join(persist, ".aurifex-ref"), "main\n");
+    await writeFile(join(persist, ".aurifex-ref"), "v0.2.0\n");
     const scratch = join(root, "tmp");
     await mkdir(scratch);
 
-    const env = { AURIFEX_HOME: home, AURIFEX_DRY_RUN: "1", TMPDIR: scratch };
+    const env = {
+      AURIFEX_HOME: home,
+      AURIFEX_REF: "v0.2.0",
+      AURIFEX_DRY_RUN: "1",
+      TMPDIR: scratch,
+    };
     const first = await run("/bin/sh", [INSTALL_SH], { cwd: root, env });
     assert.equal(first.code, 0, first.stderr);
     assert.match(first.stdout, /Using existing Aurifex checkout/);
@@ -249,7 +254,7 @@ test("install.ps1 implements the required Windows install flow", async () => {
   assert.match(script, /Expand-Archive/);
   assert.match(script, /& npm install/);
   assert.match(script, /node "dist\/cli\.js"/);
-  assert.ok(script.includes('@("install", "--host", "all", "--source", $SourceDir)'));
+  assert.ok(script.includes('@("install", "--source", $SourceDir)'));
   assert.ok(script.includes('"--dry-run"'));
   assert.match(script, /try \{/);
   assert.match(script, /finally \{/);
