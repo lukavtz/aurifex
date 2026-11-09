@@ -138,6 +138,13 @@ test("Dockerfile runs as a non-root user", () => {
   );
 });
 
+test("Dockerfile installs production dependencies without Bun prune", () => {
+  const dockerfile = find("Dockerfile").content;
+  assert.match(dockerfile, /AS deps/);
+  assert.match(dockerfile, /bun install --frozen-lockfile --production/);
+  assert.doesNotMatch(dockerfile, /bun pm prune/);
+});
+
 test("no rendered file contains a token-shaped literal", () => {
   for (const file of files) {
     assert.ok(!hasTokenLiteral(file.content), `token literal in ${file.path}`);

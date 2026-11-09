@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -235,6 +235,30 @@ test("rejects destinations that escape the policy root", async () => {
     assert.deepEqual(await stagingEntries(root), []);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("overwrite refuses a symlinked subdirectory and writes nothing outside", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("symlink coverage requires a POSIX host");
+    return;
+  }
+  const { root, policy } = await makeRoot("symlink-commit");
+  const outside = await mkdtemp(join(tmpdir(), "aurifex-outside-commit-"));
+  try {
+    await mkdir(join(root, "bot"));
+    await symlink(outside, join(root, "bot", "src"));
+    const result = await scaffoldBot(
+      { destination: "bot", spec: specFor("grammy"), overwrite: true },
+      { policy, now: () => new Date(0) },
+    );
+    assert.ok(result.status === "error");
+    assert.equal(result.error.code, "unauthorized_path");
+    assert.deepEqual(await readdir(outside), []);
+    assert.deepEqual(await stagingEntries(root), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });
 

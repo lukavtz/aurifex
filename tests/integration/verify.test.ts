@@ -154,13 +154,14 @@ async function symlinkOrSkip(
   target: string,
   path: string,
   type: "dir" | "file" = "file",
-): Promise<void> {
+): Promise<boolean> {
   try {
     await symlink(target, path, type);
+    return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
       t.skip("symlink requires privileges on this platform");
-      return;
+      return false;
     }
     throw error;
   }
@@ -258,7 +259,7 @@ test("symlinked project root fails unauthorized_path", async (t) => {
   const outside = join(base, "outside");
   await mkdir(root);
   await mkdir(outside);
-  await symlinkOrSkip(t, outside, join(root, "escape"), "dir");
+  if (!(await symlinkOrSkip(t, outside, join(root, "escape"), "dir"))) return;
   const policy = await createPathPolicy(root);
   const result = await verifyBot("escape", policy);
   assert.equal(result.status, "error");

@@ -25,6 +25,11 @@ test("compose never ships fixed database passwords or publishes the bot port", (
   assert.match(compose, /REDIS_PASSWORD: \$\{REDIS_PASSWORD:\?/);
   assert.match(compose, /expose:\n\s+- "8080"/);
   assert.match(compose, /caddy:2\.10-alpine/);
+  assert.match(
+    compose,
+    /DATABASE_URL: postgres:\/\/\$\{POSTGRES_USER:-bot\}:\$\{POSTGRES_PASSWORD:\?/,
+  );
+  assert.match(compose, /REDIS_URL: redis:\/\/:\$\{REDIS_PASSWORD:\?/);
 });
 
 test("env example uses explicit placeholders, not working credentials", () => {
@@ -34,4 +39,6 @@ test("env example uses explicit placeholders, not working credentials", () => {
   assert.match(env, /^REDIS_PASSWORD=$/m);
   assert.doesNotMatch(env, /bot:bot@/);
   assert.doesNotMatch(env, /redis:\/\/redis:/);
+  assert.match(env, /^DATABASE_URL=$/m);
+  assert.match(env, /^REDIS_URL=$/m);
 });

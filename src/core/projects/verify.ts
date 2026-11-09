@@ -127,12 +127,13 @@ interface ProjectSnapshot {
 
 async function projectFiles(policy: PathPolicy, projectRoot: string): Promise<ProjectSnapshot> {
   const normalized = projectRoot === "." || projectRoot === "" ? undefined : projectRoot;
-  const listed =
-    normalized === undefined ? await policy.listFiles() : await policy.listFiles(normalized);
   const rel =
     normalized === undefined
       ? ""
-      : relative(policy.root, policy.resolve(normalized)).split(sep).join("/");
+      : relative(policy.root, await policy.resolveExisting(normalized))
+          .split(sep)
+          .join("/");
+  const listed = normalized === undefined ? await policy.listFiles() : await policy.listFiles(rel);
   const prefix = rel === "" ? "" : `${rel}/`;
   const files: ProjectFile[] = [];
   const oversized: string[] = [];

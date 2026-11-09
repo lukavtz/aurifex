@@ -41,7 +41,7 @@ $ node dist/cli.js target --stack grammy
 grammy 1.46.0 (Bot API 10.4)
 
 $ node dist/cli.js verify my-bot
-ok: 16 pass, 1 warn, 0 fail
+ok: 15 pass, 1 warn, 0 fail
 ```
 
 В свежем проекте предупреждение — `deps.lockfile`: установите зависимости один раз и

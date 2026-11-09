@@ -140,19 +140,24 @@ async function detectStorage(policy: PathPolicy, projectRoot: string): Promise<S
 
 function renderDockerfile(stack: BotStack): string {
   if (stack === "grammy") {
-    return `FROM oven/bun:1.4.2 AS build
+    return `FROM oven/bun:1.4.2 AS deps
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1.4.2 AS build
 WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN bun run build && bun pm prune --production
+RUN bun run build
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json ./
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 8080
@@ -183,13 +188,23 @@ function renderCompose(storage: StorageProfile): string {
     depends.length === 0
       ? ""
       : `\n    depends_on:\n${depends.map((service) => `      - ${service}`).join("\n")}`;
+  const botEnvironment = [
+    storage.postgres
+      ? `      DATABASE_URL: postgres://\${POSTGRES_USER:-bot}:\${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/\${POSTGRES_DB:-bot}`
+      : "",
+    storage.redis
+      ? `      REDIS_URL: redis://:\${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0`
+      : "",
+  ].filter(Boolean);
+  const botEnv =
+    botEnvironment.length === 0 ? "" : `\n    environment:\n${botEnvironment.join("\n")}`;
   const services = [
     `  bot:
     build: .
     env_file: .env
     restart: unless-stopped
     expose:
-      - "8080"${botDepends}`,
+      - "8080"${botDepends}${botEnv}`,
     `  caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -442,7 +457,7 @@ export async function planDeploy(
 
   const projectRoot = normalizeProjectRoot(request.projectRoot);
   try {
-    if (projectRoot !== "") policy.resolve(projectRoot);
+    if (projectRoot !== "") await policy.resolveExisting(projectRoot);
     const stack = await detectProjectStack(policy, projectRoot);
     if (stack === null) {
       return domainFailure({

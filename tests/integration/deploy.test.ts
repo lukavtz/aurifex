@@ -277,7 +277,7 @@ test("upgradePlan lists raw-method guidance without touching files", async () =>
 test("upgradePlan uses the aiogram raw escape hatch and rejects unknown projects", async () => {
   const { policy } = await project("aiogram");
   const result = valueOf(await upgradePlan("bot", policy));
-  assert.ok(result.actions.join("\n").includes("bot.session.make_request"));
+  assert.ok(result.actions.join("\n").includes("await bot("));
 
   await policy.writeFile("empty/README.md", "no manifest\n");
   const missing = await upgradePlan("empty", policy);

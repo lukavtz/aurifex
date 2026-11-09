@@ -36,13 +36,14 @@ async function symlinkOrSkip(
   t: import("node:test").TestContext,
   target: string,
   path: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await symlink(target, path);
+    return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
       t.skip("symlink requires privileges on this platform");
-      return;
+      return false;
     }
     throw error;
   }
@@ -92,7 +93,7 @@ test("rejects symlinked files", async (t) => {
   const outsideDir = await makeTempDir("aurifex-outside-");
   const outsideFile = join(outsideDir, "secret.txt");
   await fsWriteFile(outsideFile, "secret");
-  await symlinkOrSkip(t, outsideFile, join(root, "link-file"));
+  if (!(await symlinkOrSkip(t, outsideFile, join(root, "link-file")))) return;
   const policy = await createPathPolicy(root);
   await assert.rejects(policy.readText("link-file"), isPolicyError("unauthorized_path"));
 });
@@ -105,7 +106,7 @@ test("rejects symlinked parent directories", async (t) => {
   const root = await makeRoot();
   const outsideDir = await makeTempDir("aurifex-outside-");
   await fsWriteFile(join(outsideDir, "secret.txt"), "secret");
-  await symlinkOrSkip(t, outsideDir, join(root, "escape"));
+  if (!(await symlinkOrSkip(t, outsideDir, join(root, "escape")))) return;
   const policy = await createPathPolicy(root);
   await assert.rejects(policy.readText("escape/secret.txt"), isPolicyError("unauthorized_path"));
   await assert.rejects(policy.writeFile("escape/new.txt", "x"), isPolicyError("unauthorized_path"));
@@ -136,7 +137,7 @@ test("ensureDir creates nested directories and refuses symlink components", asyn
   }
   const root = await makeRoot();
   const outsideDir = await makeTempDir("aurifex-outside-");
-  await symlinkOrSkip(t, outsideDir, join(root, "link-dir"));
+  if (!(await symlinkOrSkip(t, outsideDir, join(root, "link-dir")))) return;
   const policy = await createPathPolicy(root);
   assert.equal(await policy.ensureDir("a/b"), join(root, "a/b"));
   await assert.rejects(policy.ensureDir("link-dir/sub"), isPolicyError("unauthorized_path"));

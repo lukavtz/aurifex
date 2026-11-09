@@ -47,13 +47,14 @@ async function symlinkOrSkip(
   t: import("node:test").TestContext,
   target: string,
   path: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await symlink(target, path);
+    return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
       t.skip("symlink requires privileges on this platform");
-      return;
+      return false;
     }
     throw error;
   }
@@ -102,7 +103,7 @@ test("rejects symlink file and symlink directory escapes", async (t) => {
   try {
     const outsideFile = join(outside, "secret.txt");
     await writeFile(outsideFile, "secret\n");
-    await symlinkOrSkip(t, outsideFile, join(root, "link-file.txt"));
+    if (!(await symlinkOrSkip(t, outsideFile, join(root, "link-file.txt")))) return;
     assert.equal(await rejectionCode(() => policy.readText("link-file.txt")), "unauthorized_path");
     assert.equal(
       await rejectionCode(() => policy.writeFile("link-file.txt", "clobber")),
@@ -110,7 +111,7 @@ test("rejects symlink file and symlink directory escapes", async (t) => {
     );
     assert.equal(await readFile(outsideFile, "utf8"), "secret\n");
 
-    await symlinkOrSkip(t, outside, join(root, "link-dir"));
+    if (!(await symlinkOrSkip(t, outside, join(root, "link-dir")))) return;
     assert.equal(await rejectionCode(() => policy.ensureDir("link-dir/sub")), "unauthorized_path");
     assert.equal(
       await rejectionCode(() => policy.readText("link-dir/secret.txt")),
@@ -123,6 +124,26 @@ test("rejects symlink file and symlink directory escapes", async (t) => {
     assert.deepEqual((await readdir(outside)).toSorted(), ["secret.txt"]);
   } finally {
     await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("removeFile refuses a symlinked parent directory", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("symlink coverage requires a POSIX host");
+    return;
+  }
+  const { root, outside, policy } = await setup("remove-link");
+  try {
+    const secret = join(outside, "keep.txt");
+    await writeFile(secret, "keep\n");
+    if (!(await symlinkOrSkip(t, outside, join(root, "linked")))) return;
+    assert.equal(
+      await rejectionCode(() => policy.removeFile("linked/keep.txt")),
+      "unauthorized_path",
+    );
+    assert.equal(await readFile(secret, "utf8"), "keep\n");
+  } finally {
     await rm(outside, { recursive: true, force: true });
   }
 });
@@ -155,7 +176,7 @@ test("scaffold and add-feature reject destinations outside the policy root", asy
       assert.equal(result.error.code, "unauthorized_path", destination);
     }
 
-    await symlinkOrSkip(t, outside, join(root, "linked-dest"));
+    if (!(await symlinkOrSkip(t, outside, join(root, "linked-dest")))) return;
     const throughLink = await operations.scaffoldBot({ destination: "linked-dest", spec: SPEC });
     assert.ok(throughLink.status === "error");
     assert.equal(throughLink.error.code, "unauthorized_path");

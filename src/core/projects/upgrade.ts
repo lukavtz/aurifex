@@ -31,17 +31,17 @@ export async function upgradePlan(
     const rawCall =
       stack === "grammy"
         ? "bot.api.raw.<method>(payload)"
-        : "bot.session.make_request(<method instance>)";
+        : "await bot(<TelegramMethod subclass instance>)";
     const sendWidget =
-      stack === "grammy" ? "bot.api.raw.sendWidget(payload)" : "bot.session.make_request(widget)";
+      stack === "grammy" ? "bot.api.raw.sendWidget(payload)" : "await bot(SendWidget(...))";
     const answerWidgetQuery =
       stack === "grammy"
         ? "bot.api.raw.answerWidgetQuery(payload)"
-        : "bot.session.make_request(answer)";
+        : "await bot(AnswerWidgetQuery(...))";
     const answerCallbackQuery =
       stack === "grammy"
         ? "bot.api.raw.answerCallbackQuery(payload)"
-        : "bot.session.make_request(answer)";
+        : "await bot(AnswerWidgetQuery(...))";
 
     return domainSuccess({
       currentBotApi: target.testedBotApi,

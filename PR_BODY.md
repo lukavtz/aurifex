@@ -61,7 +61,7 @@ Local results:
 
 | Command                       | Result                                                                                           |
 | ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| `pnpm verify`                 | pass — format, lint, typecheck, 108 unit, 10 security, 59 integration, 9 host, secret scan, pack |
+| `pnpm verify`                 | pass — format, lint, typecheck, 109 unit, 11 security, 60 integration, 9 host, secret scan, pack |
 | `AURIFEX_E2E=1 pnpm test:e2e` | 2 pass, 1 skipped (live)                                                                         |
 | Generated grammY project      | `bun install`, `bun run typecheck`, `bun test` (27 pass), `bun run build`                        |
 | Generated aiogram project     | `uv lock`, `uv sync --frozen`, `ruff`, `mypy`, `pytest` (28 pass)                                |

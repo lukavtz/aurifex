@@ -40,7 +40,7 @@ $ node dist/cli.js target --stack grammy
 grammy 1.46.0 (Bot API 10.4)
 
 $ node dist/cli.js verify my-bot
-ok: 16 pass, 1 warn, 0 fail
+ok: 15 pass, 1 warn, 0 fail
 ```
 
 In a fresh scaffold the warning is `deps.lockfile`: install dependencies once and commit

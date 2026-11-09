@@ -25,9 +25,11 @@ import type { TemplateFile } from "./templates/shared.ts";
 import { assertNoTokenLiteral } from "./templates/shared.ts";
 
 export interface ScaffoldResult {
+  /** Destination directory, relative to the path policy root. */
   readonly root: string;
   readonly stack: BotStack;
   readonly specHash: string;
+  /** Written files, relative to the path policy root (they include `root`). */
   readonly files: readonly FileRef[];
   readonly nextSteps: readonly string[];
 }
@@ -123,11 +125,14 @@ async function commitOverwrite(
   destination: string,
   staging: string,
   files: readonly TemplateFile[],
+  policy: PathPolicy,
 ): Promise<void> {
   const committed: CommittedFile[] = [];
   try {
     for (const file of files) {
       const target = join(destination, file.path);
+      const parentRelative = relative(policy.root, dirname(target)).split(sep).join("/");
+      if (parentRelative !== "") await policy.ensureDir(parentRelative);
       const existing = await pathInfo(target);
       if (existing !== null) {
         if (existing.isSymbolicLink() || !existing.isFile()) {
@@ -138,13 +143,7 @@ async function commitOverwrite(
         await copyFile(target, backup);
         committed.push({ target, backup });
       } else {
-        const parent = dirname(target);
-        await mkdir(parent, { recursive: true });
         committed.push({ target, backup: null });
-      }
-      const canonicalParent = await realpath(dirname(target));
-      if (canonicalParent !== dirname(target)) {
-        throw new Error(`unsafe target directory: ${file.path}`);
       }
       await rename(join(staging, file.path), target);
     }
@@ -243,7 +242,7 @@ export async function scaffoldBot(
       if (destinationInfo !== null) await rmdir(destination);
       await rename(staging, destination);
     } else {
-      await commitOverwrite(destination, staging, files);
+      await commitOverwrite(destination, staging, files, policy);
     }
 
     const fileRefs: FileRef[] = [];

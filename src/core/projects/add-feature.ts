@@ -213,7 +213,7 @@ export async function addFeature(
   const { policy } = options;
   let projectDir: string;
   try {
-    projectDir = policy.resolve(request.projectRoot);
+    projectDir = await policy.resolveExisting(request.projectRoot);
   } catch (error) {
     return pathFailure(error);
   }

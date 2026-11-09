@@ -149,7 +149,7 @@ plugins = ["pydantic.mypy"]
 `;
 }
 
-export function renderEnvExample(spec: BotSpec): string {
+export function renderEnvExample(_spec: BotSpec): string {
   return `BOT_TOKEN=
 WEBHOOK_SECRET=
 WEBHOOK_URL=
@@ -159,9 +159,10 @@ ADMIN_IDS=
 POSTGRES_USER=bot
 POSTGRES_PASSWORD=
 POSTGRES_DB=bot
-DATABASE_URL=${spec.storage.postgres ? "postgres://bot:CHANGE_ME@postgres:5432/bot" : ""}
+# Compose derives these from the passwords above; set them for non-compose runs.
+DATABASE_URL=
 REDIS_PASSWORD=
-REDIS_URL=${spec.storage.redis ? "redis://:CHANGE_ME@redis:6379/0" : ""}
+REDIS_URL=
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=
 LLM_API_KEY=
@@ -170,19 +171,24 @@ LOG_LEVEL=info
 }
 
 export function renderDockerfile(_spec: BotSpec): string {
-  return `FROM oven/bun:1.4.2 AS build
+  return `FROM oven/bun:1.4.2 AS deps
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1.4.2 AS build
 WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN bun run build && bun pm prune --production
+RUN bun run build
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json ./
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 USER node
 EXPOSE 8080
@@ -215,13 +221,23 @@ export function renderCompose(spec: BotSpec): string {
     depends.length === 0
       ? ""
       : `\n    depends_on:\n${depends.map((service) => `      - ${service}`).join("\n")}`;
+  const botEnvironment = [
+    spec.storage.postgres
+      ? `      DATABASE_URL: postgres://\${POSTGRES_USER:-bot}:\${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/\${POSTGRES_DB:-bot}`
+      : "",
+    spec.storage.redis
+      ? `      REDIS_URL: redis://:\${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0`
+      : "",
+  ].filter(Boolean);
+  const botEnv =
+    botEnvironment.length === 0 ? "" : `\n    environment:\n${botEnvironment.join("\n")}`;
   const services = [
     `  bot:
     build: .
     env_file: .env
     restart: unless-stopped
     expose:
-      - "8080"${botDepends}`,
+      - "8080"${botDepends}${botEnv}`,
     `  caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped

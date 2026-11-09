@@ -311,7 +311,7 @@ export async function generateTestHarness(
   const { policy } = options;
   const projectRoot = normalizeProjectRoot(request.projectRoot);
   try {
-    if (projectRoot !== "") policy.resolve(projectRoot);
+    if (projectRoot !== "") await policy.resolveExisting(projectRoot);
     const stack = await detectProjectStack(policy, projectRoot);
     if (stack === null) {
       return domainFailure({

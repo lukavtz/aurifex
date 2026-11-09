@@ -36,6 +36,7 @@ export class PathPolicyError extends Error {
 export interface PathPolicy {
   readonly root: string;
   resolve(relativeOrAbsolute: string): string;
+  resolveExisting(relativeOrAbsolute: string): Promise<string>;
   readText(relativePath: string, maxBytes?: number): Promise<string>;
   writeFile(
     relativePath: string,
@@ -134,6 +135,32 @@ export async function createPathPolicy(rootInput: string): Promise<PathPolicy> {
     }
     if (!absolute) validateRelativeComponents(relativeOrAbsolute);
     return candidate;
+  }
+
+  async function resolveExisting(relativeOrAbsolute: string): Promise<string> {
+    validateInput(relativeOrAbsolute);
+    const candidate = isAbsolute(relativeOrAbsolute)
+      ? resolvePath(relativeOrAbsolute)
+      : resolve(relativeOrAbsolute);
+    let canonical: string;
+    try {
+      canonical = await realpath(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (!contains(root, candidate)) {
+          throw new PathPolicyError(
+            "unauthorized_path",
+            `path escapes root: ${relativeOrAbsolute}`,
+          );
+        }
+        throw new PathPolicyError("not_a_file", `path not found: ${relativeOrAbsolute}`);
+      }
+      throw error;
+    }
+    if (!contains(root, canonical)) {
+      throw new PathPolicyError("unauthorized_path", `path escapes root: ${relativeOrAbsolute}`);
+    }
+    return canonical;
   }
 
   async function ensureDir(relativePath: string): Promise<string> {
@@ -235,6 +262,10 @@ export async function createPathPolicy(rootInput: string): Promise<PathPolicy> {
 
   async function listFiles(relativePath?: string): Promise<string[]> {
     const start = relativePath === undefined ? root : resolve(relativePath);
+    const canonicalStart = await realpath(start);
+    if (!contains(root, canonicalStart)) {
+      throw new PathPolicyError("unauthorized_path", `path escapes root: ${relativePath ?? "."}`);
+    }
     const startInfo = await lstat(start);
     if (startInfo.isSymbolicLink()) {
       throw new PathPolicyError("unauthorized_path", `symlink is not allowed: ${relativePath}`);
@@ -262,6 +293,16 @@ export async function createPathPolicy(rootInput: string): Promise<PathPolicy> {
 
   async function removeFile(relativePath: string): Promise<void> {
     const target = resolve(relativePath);
+    let canonicalTarget: string;
+    try {
+      canonicalTarget = await realpath(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (!contains(root, canonicalTarget)) {
+      throw new PathPolicyError("unauthorized_path", `path escapes root: ${relativePath}`);
+    }
     let info;
     try {
       info = await lstat(target);
@@ -275,7 +316,16 @@ export async function createPathPolicy(rootInput: string): Promise<PathPolicy> {
     await unlink(target);
   }
 
-  return { root, resolve, readText, writeFile, ensureDir, listFiles, removeFile };
+  return {
+    root,
+    resolve,
+    resolveExisting,
+    readText,
+    writeFile,
+    ensureDir,
+    listFiles,
+    removeFile,
+  };
 }
 
 export async function readOptionalFile(policy: PathPolicy, path: string): Promise<string | null> {

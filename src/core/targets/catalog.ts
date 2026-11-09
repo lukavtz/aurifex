@@ -90,7 +90,8 @@ const targets: Record<BotStack, StackTarget> = {
       "sendRichMessageDraft",
     ],
     docs: "https://docs.aiogram.dev/",
-    rawApiHint: "bot.session.make_request(BotMethod) for methods newer than aiogram types",
+    rawApiHint:
+      "await bot(method) with a TelegramMethod subclass for methods newer than aiogram types",
     packageManager: "uv",
     testRunner: "pytest",
     features: {
