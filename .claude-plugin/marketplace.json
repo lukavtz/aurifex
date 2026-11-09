@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "aurifex",
+  "description": "Production Telegram bot development for coding agents.",
+  "owner": {
+    "name": "lukavtz"
+  },
+  "plugins": [
+    {
+      "name": "aurifex",
+      "description": "Scaffold, secure, verify, test, and deploy grammY and aiogram bots. Bot API 10.4 widgets, rich messages, ephemeral replies, Stars, and Mini Apps.",
+      "author": {
+        "name": "lukavtz"
+      },
+      "category": "development",
+      "source": "./",
+      "homepage": "https://github.com/lukavtz/aurifex"
+    }
+  ]
+}

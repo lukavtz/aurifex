@@ -1,0 +1,5 @@
+- insert:
+    - id: aurifex
+      name: aurifex
+      config:
+        root: !!js process.cwd()

@@ -1,0 +1,61 @@
+name: Feature request
+description: Propose a capability, template, check, or host integration.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can an agent not do today, and why does it matter?
+      placeholder: "A coding agent cannot scaffold a bot that ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: The smallest observable change that fixes the problem.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      description: Which surfaces should expose this?
+      options:
+        - label: Domain core (`CoreOperations`)
+        - label: OMP extension
+        - label: DeepSeek Harness plugin
+        - label: MCP server
+        - label: CLI
+        - label: Generated templates
+
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      options:
+        - grammY (TypeScript)
+        - aiogram (Python)
+        - Both
+        - Not stack-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: How should it be verified?
+      description: A check ID, test, or fixture that proves the feature works.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

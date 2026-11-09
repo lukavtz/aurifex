@@ -1,0 +1,86 @@
+name: Bug report
+description: Report a defect in Aurifex or in a project it generated.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste bot tokens, webhook secrets, API keys, or production logs.**
+        Redact every secret before submitting. If a token leaked, revoke it in
+        [@BotFather](https://t.me/BotFather) with `/revoke` first, then follow
+        [SECURITY.md](https://github.com/lukavtz/aurifex/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      description: Where did the failure occur?
+      options:
+        - OMP extension
+        - DeepSeek Harness plugin
+        - Claude Code plugin
+        - MCP server
+        - CLI (`aurifex ...`)
+        - Generated project (standalone bot)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      description: Which generated stack is involved?
+      options:
+        - grammY (TypeScript)
+        - aiogram (Python)
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Aurifex, framework, runtime, and Bot API versions.
+      placeholder: "aurifex 0.1.0, grammY 1.46.0, Node 24.9.0, Bot API 10.4"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Observed behavior and the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Exact command, tool call, or bot spec JSON that triggers the defect.
+      render: shell
+      placeholder: |
+        aurifex new tests/tmp/demo --spec tests/fixtures/spec-grammy.json --json
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Error output with tokens, secrets, and chat IDs removed.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction check
+      options:
+        - label: I removed all bot tokens, webhook secrets, API keys, and private chat IDs.
+          required: true

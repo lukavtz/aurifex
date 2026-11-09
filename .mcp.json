@@ -1,0 +1,7 @@
+{
+  "aurifex": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js"]
+  }
+}

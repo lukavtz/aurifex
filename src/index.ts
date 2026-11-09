@@ -1,0 +1,14 @@
+export * from "./core/operations.ts";
+export * from "./core/results.ts";
+export * from "./core/spec/bot-spec.ts";
+export * from "./core/targets/catalog.ts";
+export * from "./core/security/path-policy.ts";
+export * from "./core/security/secrets.ts";
+export type { ScaffoldResult } from "./core/projects/scaffold.ts";
+export type { InspectResult, Finding } from "./core/projects/inspect.ts";
+export type { VerifyResult } from "./core/projects/verify.ts";
+export type { FeatureResult } from "./core/projects/add-feature.ts";
+export type { DeployResult } from "./core/projects/deploy.ts";
+export type { HarnessResult } from "./core/projects/test-harness.ts";
+export type { UpgradeResult } from "./core/projects/upgrade.ts";
+export type { TemplateFile } from "./core/projects/templates/shared.ts";

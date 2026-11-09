@@ -1,0 +1,120 @@
+{
+  "name": "aurifex",
+  "version": "0.1.0",
+  "description": "Production-grade Telegram bot development capability for OMP, DeepSeek Harness, and MCP.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aurifex": "./dist/cli.js",
+    "aurifex-mcp": "./dist/adapters/mcp/server.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/operations.d.ts",
+      "import": "./dist/core/operations.js"
+    },
+    "./omp": {
+      "types": "./dist/adapters/omp/index.d.ts",
+      "import": "./dist/adapters/omp/index.js"
+    },
+    "./dsh": {
+      "types": "./dist/adapters/dsh/index.d.ts",
+      "import": "./dist/adapters/dsh/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/adapters/mcp/server.d.ts",
+      "import": "./dist/adapters/mcp/server.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "agents",
+    "commands",
+    "rules",
+    "prompts",
+    "cordis.patch.yml",
+    "docs/SPEC.md",
+    "docs/ARCHITECTURE.md",
+    "docs/TEST_PLAN.md",
+    "README.md",
+    "README.ru.md",
+    "LICENSE",
+    ".claude-plugin",
+    ".mcp.json",
+    "THIRD_PARTY_NOTICES.md",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "omp": {
+    "extensions": [
+      "./dist/adapters/omp/index.js"
+    ]
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "3.19.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "3.19.0",
+    "@oh-my-pi/pi-coding-agent": "18.18.3",
+    "@types/node": "^24.10.0",
+    "oxlint": "^1.93.0",
+    "prettier": "^3.9.10",
+    "typescript": "5.9.3"
+  },
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "build": "node --input-type=module --eval \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"tests/**/*.test.ts\"",
+    "test:unit": "node --test --experimental-strip-types \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --test --experimental-strip-types \"tests/integration/**/*.test.ts\"",
+    "test:host": "node --test --experimental-strip-types \"tests/host/**/*.test.ts\"",
+    "test:security": "node --test --experimental-strip-types --test-timeout=60000 --test-concurrency=1 \"tests/security/**/*.test.ts\"",
+    "test:e2e": "node --test --experimental-strip-types --test-timeout=600000 \"tests/e2e/**/*.test.ts\"",
+    "test:e2e:live": "node --test --experimental-strip-types --test-timeout=120000 \"tests/e2e/live-telegram.test.ts\"",
+    "check:secrets": "node scripts/check-no-secrets.mjs",
+    "pack:check": "pnpm pack --dry-run",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:integration && pnpm test:host && pnpm check:secrets && pnpm pack:check",
+    "prepare": "npm run build"
+  }
+}
