@@ -97,19 +97,41 @@ Stable error codes:
 
 ```ts
 interface BotSpec {
-  schemaVersion: "bot-spec-1.0.0";
+  schemaVersion: "bot-spec-1.1.0";
   name: string; // ^[a-z][a-z0-9_]{1,63}$
   displayName: string;
   stack: "grammy" | "aiogram";
   features: readonly BotFeature[];
   deployment: "docker";
   storage: { postgres: boolean; redis: boolean };
-  i18n: { defaultLocale: "en" | "ru"; en: boolean; ru: boolean };
+  i18n: {
+    defaultLocale: "en" | "ru" | "zh";
+    en: boolean;
+    ru: boolean;
+    zh: boolean;
+  };
   security: {
     webhookSecret: true;
     adminAllowlist: boolean;
     rateLimit: boolean;
     idempotency: boolean;
+  };
+  runtime: {
+    queue: "postgres" | "none";
+    telemetry: { otlp: boolean; prometheus: boolean; sentry: boolean };
+  };
+  miniapps?: {
+    sessionTtlSeconds: number; // 300..2592000, default 86400
+    allowedOrigins: readonly string[];
+  };
+  payments?: {
+    products: readonly {
+      id: string; // ^[a-z][a-z0-9_]{1,31}$
+      title: string; // 1..32
+      description: string; // 1..255
+      stars: number; // 1..10000
+      subscription: boolean;
+    }[];
   };
 }
 ```

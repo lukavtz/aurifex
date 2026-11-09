@@ -106,19 +106,23 @@ flowchart LR
 
 ```json
 {
-  "schemaVersion": "bot-spec-1.0.0",
+  "schemaVersion": "bot-spec-1.1.0",
   "name": "my_bot",
   "displayName": "My Bot",
   "stack": "grammy",
   "features": ["commands"],
   "deployment": "docker",
-  "storage": { "postgres": false, "redis": false },
-  "i18n": { "defaultLocale": "en", "en": true, "ru": false },
+  "storage": { "postgres": true, "redis": true },
+  "i18n": { "defaultLocale": "en", "en": true, "ru": false, "zh": false },
   "security": {
     "webhookSecret": true,
     "adminAllowlist": true,
     "rateLimit": true,
     "idempotency": true
+  },
+  "runtime": {
+    "queue": "none",
+    "telemetry": { "otlp": false, "prometheus": false, "sentry": false }
   }
 }
 ```

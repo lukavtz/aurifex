@@ -429,6 +429,221 @@ function checkLockfile(files: readonly ProjectFile[], prefix: string): Check {
     : make("deps.lockfile", "pass", "dependency lockfile is committed", { path: found.path });
 }
 
+const QUEUE_MODULES = ["src/runtime/queue.ts", "app/runtime/queue.py"] as const;
+const PAYMENTS_MODULES = ["src/runtime/payments.ts", "app/runtime/payments.py"] as const;
+const MINIAPP_MODULES = [
+  "src/runtime/miniapp-session.ts",
+  "app/runtime/miniapp_session.py",
+] as const;
+const WORKER_MODULES = ["src/worker.ts", "app/worker.py"] as const;
+
+function isTestPath(path: string): boolean {
+  return /(^|\/)tests?\//.test(path) || /(^|\/)test_[^/]+\.py$/.test(path);
+}
+
+function findModule(
+  files: readonly ProjectFile[],
+  suffixes: readonly string[],
+): ProjectFile | undefined {
+  return files.find(
+    (file) =>
+      !isTestPath(file.path) &&
+      suffixes.some((suffix) => file.path === suffix || file.path.endsWith(`/${suffix}`)),
+  );
+}
+
+function checkQueueWorker(files: readonly ProjectFile[]): Check {
+  const configured = files.some(
+    (file) =>
+      findModule([file], QUEUE_MODULES) !== undefined ||
+      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
+  );
+  if (!configured) return make("queue.worker", "pass", "no queue configured");
+  const worker = findModule(files, WORKER_MODULES);
+  return worker === undefined
+    ? make(
+        "queue.worker",
+        "fail",
+        "queue is configured but no src/worker.ts or app/worker.py entrypoint exists",
+        { path: findModule(files, QUEUE_MODULES)?.path ?? "unknown" },
+      )
+    : make("queue.worker", "pass", "queue worker entrypoint is present", { path: worker.path });
+}
+
+function checkQueueSchema(files: readonly ProjectFile[]): Check {
+  const configured = files.some(
+    (file) =>
+      findModule([file], QUEUE_MODULES) !== undefined ||
+      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
+  );
+  if (!configured) return make("queue.schema", "pass", "no queue configured");
+  const text = files.map((file) => file.content).join("\n");
+  const missing = [
+    ["jobs table", /\bjobs\b/],
+    ["idempotency_key", /idempotency_key/],
+    ["FOR UPDATE SKIP LOCKED", /FOR UPDATE SKIP LOCKED/],
+  ]
+    .filter(([, pattern]) => !(pattern as RegExp).test(text))
+    .map(([label]) => label);
+  return missing.length === 0
+    ? make("queue.schema", "pass", "jobs table, idempotency_key, and SKIP LOCKED claim query found")
+    : make("queue.schema", "fail", `queue schema is missing ${missing.join(", ")}`);
+}
+
+function checkPaymentsSchema(files: readonly ProjectFile[]): Check {
+  const runtime = findModule(files, PAYMENTS_MODULES);
+  if (runtime === undefined) return make("payments.schema", "pass", "payments are not enabled");
+  const text = files.map((file) => file.content).join("\n");
+  const missing = ["charge_id", "refunds", "subscriptions"].filter(
+    (needle) => !text.includes(needle),
+  );
+  return missing.length === 0
+    ? make("payments.schema", "pass", "payments, refunds, and subscriptions schema found", {
+        path: runtime.path,
+      })
+    : make("payments.schema", "fail", `payments schema is missing ${missing.join(", ")}`, {
+        path: runtime.path,
+      });
+}
+
+function checkPaymentsValidation(files: readonly ProjectFile[]): Check {
+  const runtime = findModule(files, PAYMENTS_MODULES);
+  if (runtime === undefined) return make("payments.validation", "pass", "payments are not enabled");
+  const text = files.map((file) => file.content).join("\n");
+  const missing = ["invoice_payload", "currency", "total_amount"].filter(
+    (needle) => !text.includes(needle),
+  );
+  return missing.length === 0
+    ? make("payments.validation", "pass", "successful payment validates payload, currency, and amount", {
+        path: runtime.path,
+      })
+    : make("payments.validation", "fail", `successful payment validation is missing ${missing.join(", ")}`, {
+        path: runtime.path,
+      });
+}
+
+function checkSecretsFile(files: readonly ProjectFile[]): Check {
+  const configFiles = files.filter(
+    (file) => /(^|\/)(?:config|secrets)[^/]*$/.test(file.path) || /(^|\/)\.env/.test(file.path),
+  );
+  const text = configFiles.map((file) => file.content).join("\n");
+  const missing = ["BOT_TOKEN_FILE", "WEBHOOK_SECRET_FILE"].filter(
+    (needle) => !text.includes(needle),
+  );
+  return missing.length === 0
+    ? make("secrets.file", "pass", "config reads BOT_TOKEN_FILE and WEBHOOK_SECRET_FILE")
+    : make("secrets.file", "fail", `config is missing ${missing.join(", ")} indirection`);
+}
+
+function checkTelemetryReadiness(files: readonly ProjectFile[]): Check {
+  const text = files.map((file) => file.content).join("\n");
+  const missing = (
+    [
+      ["/readyz", /\/readyz/],
+      ["SELECT 1 or PING", /SELECT 1|\bPING\b/],
+    ] as const
+  )
+    .filter(([, pattern]) => !pattern.test(text))
+    .map(([label]) => label);
+  return missing.length === 0
+    ? make("telemetry.readiness", "pass", "readiness endpoint checks dependencies")
+    : make("telemetry.readiness", "fail", `readiness endpoint is missing ${missing.join(", ")}`);
+}
+
+function checkTelemetryMetrics(files: readonly ProjectFile[]): Check {
+  const found = files.find((file) => file.content.includes("/metrics"));
+  return found === undefined
+    ? make("telemetry.metrics", "warn", "metrics disabled: no /metrics route")
+    : make("telemetry.metrics", "pass", "/metrics route is exposed", { path: found.path });
+}
+
+function checkMiniappSession(files: readonly ProjectFile[]): Check {
+  const module = findModule(files, MINIAPP_MODULES);
+  if (module === undefined) return make("miniapp.session", "pass", "miniapp is not enabled");
+  const text = files.map((file) => file.content).join("\n");
+  const missing = (
+    [
+      ["HttpOnly cookie", "HttpOnly"],
+      ["server-side session key", "miniapp:session"],
+    ] as const
+  )
+    .filter(([, needle]) => !text.includes(needle))
+    .map(([label]) => label);
+  return missing.length === 0
+    ? make("miniapp.session", "pass", "miniapp session uses an HttpOnly cookie stored server-side", {
+        path: module.path,
+      })
+    : make("miniapp.session", "fail", `miniapp session is missing ${missing.join(", ")}`, {
+        path: module.path,
+      });
+}
+
+function checkMiniappCsp(files: readonly ProjectFile[]): Check {
+  const module = findModule(files, MINIAPP_MODULES);
+  if (module === undefined) return make("miniapp.csp", "pass", "miniapp is not enabled");
+  return files
+    .map((file) => file.content)
+    .join("\n")
+    .includes("Content-Security-Policy")
+    ? make("miniapp.csp", "pass", "miniapp responses set Content-Security-Policy", {
+        path: module.path,
+      })
+    : make("miniapp.csp", "fail", "miniapp responses are missing Content-Security-Policy", {
+        path: module.path,
+      });
+}
+
+function checkBotApi104Types(files: readonly ProjectFile[]): Check {
+  const text = files.map((file) => file.content).join("\n");
+  const missing = ["TonWalletCard", "ChatShareTheme", "RichTextTonAddress"].filter(
+    (needle) => !text.includes(needle),
+  );
+  return missing.length === 0
+    ? make("botapi.104.types", "pass", "TON wallet, share theme, and rich address types are present")
+    : make("botapi.104.types", "fail", `Bot API 10.4 types are missing ${missing.join(", ")}`);
+}
+
+function checkDockerHealthcheck(files: readonly ProjectFile[]): Check {
+  const dockerfile = files.find((file) => /(^|\/)Dockerfile$/.test(file.path));
+  if (dockerfile === undefined) return make("docker.healthcheck", "fail", "Dockerfile is missing");
+  return /^\s*HEALTHCHECK\b/im.test(dockerfile.content)
+    ? make("docker.healthcheck", "pass", "Dockerfile defines a HEALTHCHECK", {
+        path: dockerfile.path,
+      })
+    : make("docker.healthcheck", "fail", "Dockerfile has no HEALTHCHECK", {
+        path: dockerfile.path,
+      });
+}
+
+function checkDedupeFailClosed(files: readonly ProjectFile[]): Check {
+  const dedupe = files.find(
+    (file) => !isTestPath(file.path) && /(^|\/)dedupe\.(?:ts|js|py)$/.test(file.path),
+  );
+  if (dedupe === undefined) return make("dedupe.fail_closed", "pass", "dedupe is not enabled");
+  const failOpen =
+    /catch[\s\S]{0,300}?return\s+true/.test(dedupe.content) ||
+    /except[\s\S]{0,300}?return\s+True/.test(dedupe.content);
+  return failOpen
+    ? make("dedupe.fail_closed", "fail", "dedupe returns true on error instead of failing closed", {
+        path: dedupe.path,
+      })
+    : make("dedupe.fail_closed", "pass", "dedupe does not fail open on errors", {
+        path: dedupe.path,
+      });
+}
+
+function checkTestsInfrastructure(files: readonly ProjectFile[]): Check {
+  const tests = files.filter((file) => isTestPath(file.path));
+  const found = tests.find((file) =>
+    /AURIFEX_INFRA|testcontainers|\bpostgres\b|\bredis\b/i.test(file.content),
+  );
+  return found === undefined
+    ? make("tests.infrastructure", "warn", "no Postgres/Redis integration test found")
+    : make("tests.infrastructure", "pass", "infrastructure test is present", {
+        path: found.path,
+      });
+}
+
 /**
  * Verification gate. Every check is evaluated from static file contents only; no project
  * code is executed and no network call is made.
@@ -478,7 +693,20 @@ export async function verifyBot(
       ),
       checkTestsPresent(files, prefix),
       checkBotApi104(files),
+      checkBotApi104Types(files),
       checkLockfile(files, prefix),
+      checkQueueWorker(files),
+      checkQueueSchema(files),
+      checkPaymentsSchema(files),
+      checkPaymentsValidation(files),
+      checkSecretsFile(files),
+      checkTelemetryReadiness(files),
+      checkTelemetryMetrics(files),
+      checkMiniappSession(files),
+      checkMiniappCsp(files),
+      checkDockerHealthcheck(files),
+      checkDedupeFailClosed(files),
+      checkTestsInfrastructure(files),
       checkWarnMarker(
         files,
         "logs.redaction",

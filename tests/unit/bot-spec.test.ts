@@ -25,6 +25,10 @@ interface TestSpec {
     rateLimit: boolean;
     idempotency: boolean;
   };
+  runtime: {
+    queue: string;
+    telemetry: { otlp: boolean; prometheus: boolean; sentry: boolean };
+  };
 }
 
 function baseSpec(): TestSpec {
@@ -35,7 +39,7 @@ function baseSpec(): TestSpec {
     stack: "grammy",
     features: ["commands", "llm"],
     deployment: "docker",
-    storage: { postgres: false, redis: false },
+    storage: { postgres: true, redis: true },
     i18n: { defaultLocale: "en", en: true, ru: false },
     security: {
       webhookSecret: true,
@@ -43,6 +47,7 @@ function baseSpec(): TestSpec {
       rateLimit: true,
       idempotency: true,
     },
+    runtime: { queue: "postgres", telemetry: { otlp: false, prometheus: false, sentry: false } },
   };
 }
 

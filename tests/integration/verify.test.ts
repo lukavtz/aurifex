@@ -26,13 +26,17 @@ const SPEC: BotSpec = {
   stack: "grammy",
   features: ["commands", "inline", "payments", "miniapps", "moderation", "broadcast", "llm"],
   deployment: "docker",
-  storage: { postgres: false, redis: false },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  storage: { postgres: true, redis: true },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: {
     webhookSecret: true,
     adminAllowlist: true,
     rateLimit: true,
     idempotency: true,
+  },
+  runtime: {
+    queue: "postgres",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
   },
 };
 
@@ -54,7 +58,37 @@ const FILES: readonly TemplateFile[] = [
   {
     path: "src/telegram/api104.ts",
     content:
-      'export const methods = ["sendWidget", "answerWidgetQuery", "sendRichMessage"] as const;\n',
+      'export interface TonWalletCard { readonly title: string }\nexport interface ChatShareTheme { readonly emoji: string }\nexport interface RichTextTonAddress { readonly address: string }\nexport const methods = ["sendWidget", "answerWidgetQuery", "sendRichMessage"] as const;\n',
+  },
+  {
+    path: "src/worker.ts",
+    content:
+      'import { createQueue } from "./runtime/queue.ts";\n\nexport const worker = createQueue;\n',
+  },
+  {
+    path: "migrations/0001_jobs.sql",
+    content:
+      "CREATE TABLE jobs (id uuid PRIMARY KEY, idempotency_key text UNIQUE);\n-- claim: SELECT id FROM jobs FOR UPDATE SKIP LOCKED;\n",
+  },
+  {
+    path: "src/runtime/payments.ts",
+    content:
+      'export const PAYMENTS = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true, total_amount: true };\n',
+  },
+  {
+    path: "src/runtime/health.ts",
+    content:
+      'export const routes = ["/healthz", "/readyz", "/metrics"];\nexport const queries = { postgres: "SELECT 1", redis: "PING" };\n',
+  },
+  {
+    path: "src/runtime/miniapp-session.ts",
+    content:
+      'export const cookie = "aurifex_session=; HttpOnly; SameSite=Lax";\nexport const sessionKey = "miniapp:session";\nexport const headers = { "Content-Security-Policy": "default-src \'self\'" };\n',
+  },
+  {
+    path: "Dockerfile",
+    content:
+      'FROM node:24-alpine\nUSER node\nEXPOSE 8080\nHEALTHCHECK --interval=30s CMD node dist/healthcheck.js\nCMD ["node", "dist/main.js"]\n',
   },
   {
     path: "src/security/dedupe.ts",
@@ -71,9 +105,9 @@ const FILES: readonly TemplateFile[] = [
   },
   {
     path: "tests/features.test.ts",
-    content: 'import assert from "node:assert/strict";\n\nassert.equal(1, 1);\n',
+    content:
+      'import assert from "node:assert/strict";\n\n// Runs against testcontainers postgres when AURIFEX_INFRA=1.\nassert.equal(1, 1);\n',
   },
-  { path: "bun.lock", content: "" },
 ];
 
 const AIOGRAM_SPEC: BotSpec = { ...SPEC, stack: "aiogram" };
@@ -95,10 +129,6 @@ const AIOGRAM_FILES: readonly TemplateFile[] = [
       "async def send_with_retry(call, attempts: int = 3) -> object:\n    retry_after = 1\n    return await call(retry_after)\n",
   },
   {
-    path: "app/services/api104.py",
-    content: 'METHODS = ("SendWidget", "AnswerWidgetQuery", "SendRichMessage")\n',
-  },
-  {
     path: "app/middlewares/dedupe.py",
     content:
       'class DedupeMiddleware:\n    async def __call__(self, handler, event, data):\n        update_id = getattr(event, "update_id", None)\n        return await handler(event, data)\n',
@@ -108,8 +138,33 @@ const AIOGRAM_FILES: readonly TemplateFile[] = [
     content: 'redact_keys = ["BOT_TOKEN", "WEBHOOK_SECRET"]\n',
   },
   {
+    path: "app/services/api104.py",
+    content:
+      'class TonWalletCard: ...\nclass ChatShareTheme: ...\nclass RichTextTonAddress: ...\nMETHODS = ("SendWidget", "AnswerWidgetQuery", "SendRichMessage")\n',
+  },
+  {
+    path: "app/worker.py",
+    content: "async def main() -> None:\n    pass\n",
+  },
+  {
+    path: "migrations/versions/0002_jobs.py",
+    content:
+      'SQL = "CREATE TABLE jobs (id uuid PRIMARY KEY, idempotency_key text UNIQUE); SELECT id FROM jobs FOR UPDATE SKIP LOCKED"\n',
+  },
+  {
+    path: "app/runtime/health.py",
+    content:
+      'ROUTES = ("/healthz", "/readyz", "/metrics")\nQUERIES = {"postgres": "SELECT 1", "redis": "PING"}\n',
+  },
+  {
+    path: "Dockerfile",
+    content:
+      'FROM python:3.14-slim\nUSER bot\nEXPOSE 8080\nHEALTHCHECK CMD python -m app.healthcheck\nCMD ["uv", "run", "python", "-m", "app.main"]\n',
+  },
+  {
     path: "tests/test_commands.py",
-    content: "def test_ok() -> None:\n    assert True\n",
+    content:
+      "def test_ok() -> None:\n    # runs against postgres/redis through testcontainers when AURIFEX_INFRA=1\n    assert True\n",
   },
   { path: "uv.lock", content: "" },
 ];
@@ -121,7 +176,7 @@ async function scaffold(
 ): Promise<void> {
   const files = [...baseFiles(spec, resolveStack(spec.stack).target), ...extra];
   for (const file of files) {
-    await policy.writeFile(`${PROJECT}/${file.path}`, file.content);
+    await policy.writeFile(`${PROJECT}/${file.path}`, file.content, { overwrite: true });
   }
 }
 
@@ -171,7 +226,9 @@ test("clean scaffold verifies with zero failures", async (t) => {
   const policy = await setup(t);
   const result = valueOf(await verifyBot(PROJECT, policy));
   assert.equal(result.ok, true);
-  assert.deepEqual(result.summary, { pass: 16, warn: 0, fail: 0 });
+  assert.deepEqual(result.summary, { pass: 28, warn: 1, fail: 0 });
+  assert.equal(result.checks.length, 29);
+  assert.equal(statusOf(result, "deps.lockfile"), "warn");
   assert.equal(statusOf(result, "token.literal"), "pass");
   assert.equal(statusOf(result, "env.ignored"), "pass");
   assert.equal(statusOf(result, "webhook.secret"), "pass");
@@ -228,6 +285,129 @@ test("missing raw adapter and declaration fails botapi.104", async (t) => {
   const result = valueOf(await verifyBot(PROJECT, policy));
   assert.equal(result.ok, false);
   assert.equal(statusOf(result, "botapi.104"), "fail");
+});
+
+test("queue without a worker fails queue.worker", async (t) => {
+  const policy = await setup(t);
+  await policy.removeFile(`${PROJECT}/src/worker.ts`);
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "queue.worker"), "fail");
+});
+
+test("queue without a jobs migration fails queue.schema", async (t) => {
+  const policy = await setup(t);
+  await policy.removeFile(`${PROJECT}/migrations/0001_jobs.sql`);
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "queue.schema"), "fail");
+});
+
+test("payments without refunds/subscriptions fails payments.schema", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/src/runtime/payments.ts`, "export const charge_id = true;\n", {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "payments.schema"), "fail");
+});
+
+test("payments without total_amount validation fails payments.validation", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(
+    `${PROJECT}/src/runtime/payments.ts`,
+    'export const schema = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true };\n',
+    { overwrite: true },
+  );
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "payments.validation"), "fail");
+});
+
+test("config without _FILE indirection fails secrets.file", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/.env.example`, "BOT_TOKEN=\nWEBHOOK_SECRET=\n", {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "secrets.file"), "fail");
+});
+
+test("missing /readyz fails telemetry.readiness", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/src/runtime/health.ts`, 'export const routes = ["/healthz"];\n', {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "telemetry.readiness"), "fail");
+});
+
+test("missing /metrics warns telemetry.metrics", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(
+    `${PROJECT}/src/runtime/health.ts`,
+    'export const routes = ["/readyz"];\nexport const queries = { postgres: "SELECT 1" };\n',
+    { overwrite: true },
+  );
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "telemetry.metrics"), "warn");
+});
+
+test("miniapp session without HttpOnly or server key fails miniapp.session", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/src/runtime/miniapp-session.ts`, "export const cookie = 1;\n", {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "miniapp.session"), "fail");
+});
+
+test("miniapp without CSP fails miniapp.csp", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(
+    `${PROJECT}/src/runtime/miniapp-session.ts`,
+    'export const cookie = "aurifex_session=; HttpOnly";\nexport const key = "miniapp:session";\n',
+    { overwrite: true },
+  );
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "miniapp.csp"), "fail");
+});
+
+test("missing Bot API 10.4 types fails botapi.104.types", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(
+    `${PROJECT}/src/telegram/api104.ts`,
+    'export const methods = ["sendWidget", "answerWidgetQuery", "sendRichMessage"] as const;\n',
+    { overwrite: true },
+  );
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "botapi.104.types"), "fail");
+});
+
+test("Dockerfile without HEALTHCHECK fails docker.healthcheck", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/Dockerfile`, "FROM node:24-alpine\nUSER node\n", {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "docker.healthcheck"), "fail");
+});
+
+test("dedupe returning true on error fails dedupe.fail_closed", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(
+    `${PROJECT}/src/security/dedupe.ts`,
+    "export async function claim(update_id: number): Promise<boolean> {\n  try {\n    return await redis.set(update_id);\n  } catch {\n    return true;\n  }\n}\n",
+    { overwrite: true },
+  );
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "dedupe.fail_closed"), "fail");
+});
+
+test("tests without infrastructure signals warn tests.infrastructure", async (t) => {
+  const policy = await setup(t);
+  await policy.writeFile(`${PROJECT}/tests/features.test.ts`, "export const ok = true;\n", {
+    overwrite: true,
+  });
+  const result = valueOf(await verifyBot(PROJECT, policy));
+  assert.equal(statusOf(result, "tests.infrastructure"), "warn");
 });
 
 test("inspect reports grammY, webhook mode, and Bot API 10.4 gap", async (t) => {

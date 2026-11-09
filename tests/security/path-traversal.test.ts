@@ -7,17 +7,22 @@ import { test } from "node:test";
 import { createCoreOperations } from "../../src/core/operations.ts";
 import { createPathPolicy, PathPolicyError } from "../../src/core/security/path-policy.ts";
 import type { PathPolicy } from "../../src/core/security/path-policy.ts";
+import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 
 const SPEC: Record<string, unknown> = {
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "traversal_bot",
   displayName: "Traversal Bot",
   stack: "grammy",
   features: ["commands"],
   deployment: "docker",
-  storage: { postgres: false, redis: false },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  storage: { postgres: false, redis: true },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "none",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 const ESCAPE_CODES: Readonly<Record<string, true>> = {

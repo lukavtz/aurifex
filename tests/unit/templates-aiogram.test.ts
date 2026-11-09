@@ -14,12 +14,16 @@ const spec: BotSpec = {
   features: ["commands", "llm"],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: {
     webhookSecret: true,
     adminAllowlist: true,
     rateLimit: true,
     idempotency: true,
+  },
+  runtime: {
+    queue: "postgres",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
   },
 };
 
@@ -35,7 +39,7 @@ const REQUIRED_FILES = [
   ".github/workflows/ci.yml",
   "alembic.ini",
   "migrations/env.py",
-  "migrations/versions/0001_init.py",
+  "migrations/versions/0001_runtime_schema.py",
   "app/__init__.py",
   "app/config.py",
   "app/logger.py",

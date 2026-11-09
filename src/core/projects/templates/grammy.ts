@@ -1,6 +1,14 @@
 import type { BotSpec } from "../../spec/bot-spec.ts";
 import type { StackTarget } from "../../targets/catalog.ts";
 import { renderGrammyFeature } from "../features/grammy.ts";
+import { renderI18nFiles } from "./i18n.ts";
+import { renderUserSyncTs } from "./jobs.ts";
+import { QUEUE_MIGRATION_FILE, renderMigrateTs } from "./migrate.ts";
+import { renderQueueTs, renderWorkerTs } from "./queue.ts";
+import { renderDrizzleMigration, renderSchemaTs } from "./runtime-schema.ts";
+import { renderConfigTs, renderSecretsTestTs } from "./runtime-config.ts";
+import { renderSecretsTs } from "./runtime-secrets.ts";
+import { renderJobsIndexTs, renderWorkerEntryTs } from "./worker-entry.ts";
 import { assertNoTokenLiteral, baseFiles, type TemplateFile } from "./shared.ts";
 
 // Generated projects are standalone: every import below is emitted with a .js
@@ -109,6 +117,9 @@ function grammyFiles(spec: BotSpec): TemplateFile[] {
   const hasIdempotency = spec.security.idempotency;
   const hasRateLimit = spec.security.rateLimit;
   const expectedMiddleware = Number(hasIdempotency) + Number(hasRateLimit);
+  const hasPostgres = spec.storage.postgres;
+  const hasQueue = spec.runtime.queue === "postgres";
+  const needsDb = hasPostgres || hasQueue;
   return [
     {
       path: "drizzle.config.ts",
@@ -123,62 +134,16 @@ export default defineConfig({
 `,
     },
     {
+      path: "src/runtime/secrets.ts",
+      content: renderSecretsTs(),
+    },
+    {
       path: "src/config.ts",
-      content: `import { z } from "zod";
-
-const tokenSchema = z
-  .string()
-  .regex(/^\\d{6,}:[A-Za-z0-9_-]{30,}$/, "BOT_TOKEN must be a Telegram bot token");
-const secretSchema = z
-  .string()
-  .regex(/^[A-Za-z0-9_-]{1,256}$/, "WEBHOOK_SECRET must be 1-256 characters of A-Z, a-z, 0-9, _ or -");
-
-const envSchema = z.object({
-  BOT_TOKEN: tokenSchema,
-  WEBHOOK_SECRET: secretSchema,
-  WEBHOOK_URL: z
-    .string()
-    .default("")
-    .refine(
-      (value) => value === "" || /^https:\\/\\/[^\\s]+$/.test(value),
-      "WEBHOOK_URL must be an https URL or empty",
-    ),
-  BOT_MODE: z.enum(["webhook", "polling"]).default("polling"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(8080),
-  ADMIN_IDS: z
-    .string()
-    .default("")
-    .transform((value) =>
-      value === ""
-        ? []
-        : value
-            .split(",")
-            .map((part) => Number(part.trim()))
-            .filter((id) => Number.isSafeInteger(id) && id > 0),
-    ),
-  DATABASE_URL: z.string().default(""),
-  REDIS_URL: z.string().default(""),
-  LLM_BASE_URL: z.string().default(""),
-  LLM_MODEL: z.string().default(""),
-  LLM_API_KEY: z.string().default(""),
-  LOG_LEVEL: z.string().default("info"),
-});
-
-export type Config = z.infer<typeof envSchema>;
-
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return envSchema.parse(env);
-}
-
-let cached: Config | undefined;
-
-export function getConfig(): Config {
-  if (cached === undefined) {
-    cached = loadConfig();
-  }
-  return cached;
-}
-`,
+      content: renderConfigTs(spec),
+    },
+    {
+      path: "tests/secrets.test.ts",
+      content: renderSecretsTestTs(spec),
     },
     {
       path: "src/logger.ts",
@@ -228,9 +193,8 @@ ${hasIdempotency ? "  security.push(dedupeMiddleware(config.REDIS_URL));\n" : ""
 import { getConfig } from "./config.js";
 import { registerFeatures } from "./features/index.js";
 import { logger } from "./logger.js";
-import { createServer } from "./server.js";
-import { closeDb } from "./storage/db.js";
-
+${hasQueue ? 'import { createQueue } from "./runtime/queue.js";\n' : ""}${hasPostgres ? 'import { userSyncMiddleware } from "./security/user-sync.js";\n' : ""}import { createServer } from "./server.js";
+${needsDb ? 'import { closeDb, getDb } from "./storage/db.js";\n' : ""}
 const ALLOWED_UPDATES = [
   "message",
   "edited_message",
@@ -245,7 +209,23 @@ const ALLOWED_UPDATES = [
 async function main(): Promise<void> {
   const config = getConfig();
   const bot = createBot();
-  await registerFeatures(bot);
+${needsDb ? `  const database = getDb(config.DATABASE_URL);
+  if (database === null) {
+    throw new Error(${JSON.stringify(
+      hasQueue
+        ? "DATABASE_URL is required when runtime.queue is postgres"
+        : "DATABASE_URL is required when storage.postgres is enabled",
+    )});
+  }
+` : ""}${hasPostgres && needsDb ? "  bot.use(userSyncMiddleware(database.client));\n" : ""}${hasQueue ? `  const queue = createQueue(database.client, {
+    visibilityTimeoutSeconds: config.QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+  });
+` : ""}  await registerFeatures({
+    bot,
+    sql: ${needsDb ? "database.client" : "null"},
+    queue: ${hasQueue ? "queue" : "null"},
+    config,
+  });
   await bot.api.setMyCommands([
     { command: "start", description: "Start the bot" },
     { command: "help", description: "Show available commands" },
@@ -266,8 +246,7 @@ async function main(): Promise<void> {
       await promise;
     }
     await bot.stop();
-    await closeDb();
-  };
+${needsDb ? "    await closeDb();\n" : ""}  };
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
@@ -575,34 +554,47 @@ export async function sendWithRetry<T>(send: () => Promise<T>): Promise<T> {
 }
 `,
     },
-    {
+{
       path: "src/features/index.ts",
       content: `import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Bot } from "grammy";
+import type { Redis } from "ioredis";
+${needsDb ? 'import type { Sql } from "postgres";\n' : ""}import type { Config } from "../config.js";
 import { logger } from "../logger.js";
+${hasQueue ? 'import type { Queue } from "../runtime/queue.js";\n' : ""}
+export interface FeatureDeps {
+  readonly bot: Bot;
+  readonly sql: ${needsDb ? "Sql" : "null"};
+  readonly queue: ${hasQueue ? "Queue" : "null"};
+  readonly config: Config;
+  readonly redis?: Redis;
+}
 
 export interface FeatureModule {
-  register(bot: Bot): void | Promise<void>;
+  register(bot: Bot, deps: FeatureDeps): void | Promise<void>;
 }
 
 const FEATURE_FILE_RE = /^[a-z][a-z0-9_-]*\\.(?:js|ts)$/;
-const SKIPPED = new Set(["index.js", "index.ts"]);
+const SKIPPED: Record<string, true> = { "index.js": true, "index.ts": true };
 
-export async function registerFeatures(bot: Bot): Promise<void> {
+export async function registerFeatures(deps: FeatureDeps): Promise<void> {
   const directory = dirname(fileURLToPath(import.meta.url));
   const entries = (await readdir(directory)).filter(
-    (entry) => FEATURE_FILE_RE.test(entry) && !SKIPPED.has(entry) && !entry.endsWith(".d.ts"),
+    (entry) => FEATURE_FILE_RE.test(entry) && SKIPPED[entry] === undefined && !entry.endsWith(".d.ts"),
   );
   entries.sort();
   for (const entry of entries) {
+    // Feature modules are a runtime registry, so the specifier is selected at run time.
     const loaded = (await import(pathToFileURL(join(directory, entry)).href)) as Partial<FeatureModule>;
     if (typeof loaded.register !== "function") {
       logger.warn({ entry }, "feature module has no register export");
       continue;
     }
-    await loaded.register(bot);
+    // Most features take the full deps object; the LLM module only needs the queue.
+    const register = loaded.register as (bot: Bot, argument: unknown) => void | Promise<void>;
+    await register(deps.bot, entry === "llm.js" || entry === "llm.ts" ? deps.queue : deps);
   }
 }
 `,
@@ -610,10 +602,11 @@ export async function registerFeatures(bot: Bot): Promise<void> {
     {
       path: "src/features/start.ts",
       content: `import type { Bot } from "grammy";
+import { t } from "../i18n/index.js";
 
 export function register(bot: Bot): void {
   bot.command("start", async (ctx) => {
-    await ctx.reply("Welcome to " + ${displayName} + ". Use /help to see available commands.");
+    await ctx.reply(t(ctx.from?.language_code, "start.welcome", { bot: ${displayName} }));
   });
 }
 `,
@@ -621,10 +614,12 @@ export function register(bot: Bot): void {
     {
       path: "src/features/help.ts",
       content: `import type { Bot } from "grammy";
+import { t } from "../i18n/index.js";
 
 export function register(bot: Bot): void {
   bot.command("help", async (ctx) => {
-    await ctx.reply("Commands:\\n/start - start the bot\\n/help - show this list\\n/admin - admin area");
+    const locale = ctx.from?.language_code;
+    await ctx.reply(t(locale, "help.title") + "\\n" + t(locale, "help.commands"));
   });
 }
 `,
@@ -795,30 +790,7 @@ export async function closeDb(): Promise<void> {
     },
     {
       path: "src/storage/schema.ts",
-      content: `import { bigint, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
-
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
-  username: text("username"),
-  firstName: text("first_name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const payments = pgTable(
-  "payments",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
-    chargeId: text("charge_id").notNull().unique(),
-    currency: text("currency").notNull(),
-    amount: bigint("amount", { mode: "number" }).notNull(),
-    payload: text("payload").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("payments_telegram_id_idx").on(table.telegramId)],
-);
-`,
+      content: renderSchemaTs(spec),
     },
     {
       path: "tests/features.test.ts",
@@ -828,6 +800,8 @@ import { loadConfig } from "../src/config.js";
 const baseEnv = {
   BOT_TOKEN: "123456:" + "a".repeat(30),
   WEBHOOK_SECRET: "test_secret_value",
+  DATABASE_URL: "postgres://user:pass@localhost:5432/bot",
+  REDIS_URL: "redis://localhost:6379/0",
 };
 
 test("rejects a malformed bot token", () => {
@@ -1020,7 +994,8 @@ const EXPECTED_SECURITY_MIDDLEWARE = ${expectedMiddleware};
 const config = loadConfig({
   BOT_TOKEN: "123456:" + "a".repeat(30),
   WEBHOOK_SECRET: "test_secret_value",
-  REDIS_URL: "",
+  DATABASE_URL: "postgres://user:pass@localhost:5432/bot",
+  REDIS_URL: "redis://localhost:6379/0",
 });
 
 test("createBot installs the configured security middleware", () => {
@@ -1363,8 +1338,59 @@ test.skipIf(!available)("rejects malformed initData with 401", async () => {
 `,
 };
 
+const QUEUE_WIRING_TEST: TemplateFile = {
+  path: "tests/queue-wiring.test.ts",
+  content: `import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+const read = (path: string): string =>
+  readFileSync(new URL(\`../\${path}\`, import.meta.url), "utf8");
+
+test("worker entry runs jobs without starting long polling", () => {
+  const source = read("src/worker.ts");
+  expect(source).not.toContain("bot.start");
+  expect(source).toContain("SIGINT");
+  expect(source).toContain("SIGTERM");
+  expect(source).toContain("./runtime/queue.js");
+});
+`,
+};
+
+// Queue, worker, and job loader exist only for a Postgres queue: a
+// commands-only bot must not carry the runtime or its dependencies.
+function queueFiles(spec: BotSpec): TemplateFile[] {
+  if (spec.runtime.queue !== "postgres") {
+    return [];
+  }
+  return [
+    { path: "src/runtime/queue.ts", content: renderQueueTs() },
+    { path: "src/runtime/worker.ts", content: renderWorkerTs() },
+    { path: "src/worker.ts", content: renderWorkerEntryTs(spec) },
+    { path: "src/jobs/index.ts", content: renderJobsIndexTs() },
+    { path: "src/migrate.ts", content: renderMigrateTs() },
+    QUEUE_WIRING_TEST,
+  ];
+}
+
+// The full runtime schema is one migration: users, payments, jobs, broadcasts.
+function migrationFiles(spec: BotSpec): TemplateFile[] {
+  if (!spec.storage.postgres && spec.runtime.queue !== "postgres") {
+    return [];
+  }
+  return [{ path: QUEUE_MIGRATION_FILE, content: renderDrizzleMigration() }];
+}
+
 function featureFiles(spec: BotSpec): TemplateFile[] {
   const files: TemplateFile[] = [MINIAPP_SESSION_TEST];
+  if (spec.features.includes("llm")) {
+    files.push(...renderGrammyFeature("llm", "llm", spec));
+  }
+  if (spec.features.includes("broadcast")) {
+    files.push(...renderGrammyFeature("broadcast", "broadcast", spec));
+  }
+  if (spec.storage.postgres) {
+    files.push({ path: "src/security/user-sync.ts", content: renderUserSyncTs() });
+  }
   if (spec.features.includes("miniapps")) {
     files.push(...renderGrammyFeature("miniapps", "miniapp", spec));
   }
@@ -1407,7 +1433,10 @@ export function renderGrammyProject(spec: BotSpec, target: StackTarget): Templat
   }
   const files = withBunSupport([
     ...baseFiles(spec, target),
+    ...renderI18nFiles(spec),
     ...grammyFiles(spec),
+    ...migrationFiles(spec),
+    ...queueFiles(spec),
     ...featureFiles(spec),
   ]);
   assertNoTokenLiteral(files);

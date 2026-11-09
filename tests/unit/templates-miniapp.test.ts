@@ -2,22 +2,26 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderMiniApp } from "../../src/core/projects/templates/miniapp.ts";
 import { TELEGRAM_TOKEN_RE } from "../../src/core/security/secrets.ts";
-import { validateBotSpec } from "../../src/core/spec/bot-spec.ts";
+import { validateBotSpec, BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 
 const SPEC = validateBotSpec({
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "demo_bot",
   displayName: "Demo <Bot>",
   stack: "grammy",
   features: ["commands", "miniapps"],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: {
     webhookSecret: true,
     adminAllowlist: true,
     rateLimit: true,
     idempotency: true,
+  },
+  runtime: {
+    queue: "none",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
   },
 });
 

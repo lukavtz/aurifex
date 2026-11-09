@@ -221,6 +221,9 @@ v0.1.0 is accepted when:
 - A framework that trails the Bot API ships a typed raw adapter and a migration
   note; the package never claims that framework types cover the newer API.
 - Breaking tool schema changes bump `specVersion` and require a migration test.
+- `bot-spec-1.1.0` is the current document version. `bot-spec-1.0.0` documents are
+  normalized and then validated by the same rules; the normalized output carries
+  `runtime`, `i18n.zh`, and the storage the selected features require.
 
 ## 10. Delivery policy
 

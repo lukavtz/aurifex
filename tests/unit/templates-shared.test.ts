@@ -2,18 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { renderCompose, renderEnvExample } from "../../src/core/projects/templates/shared.ts";
+import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 import type { BotSpec } from "../../src/core/spec/bot-spec.ts";
 
 const SPEC: BotSpec = {
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "compose_bot",
   displayName: "Compose Bot",
   stack: "grammy",
   features: ["commands"],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "none",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 test("compose never ships fixed database passwords or publishes the bot port", () => {
@@ -30,6 +35,11 @@ test("compose never ships fixed database passwords or publishes the bot port", (
     /DATABASE_URL: postgres:\/\/\$\{POSTGRES_USER:-bot\}:\$\{POSTGRES_PASSWORD:\?/,
   );
   assert.match(compose, /REDIS_URL: redis:\/\/:\$\{REDIS_PASSWORD:\?/);
+  assert.match(compose, /^secrets:$/m);
+  assert.match(compose, /^  bot_token:\n    file: \.\/secrets\/bot_token$/m);
+  assert.match(compose, /BOT_TOKEN_FILE: \/run\/secrets\/bot_token/);
+  assert.match(compose, /DATABASE_URL_FILE: \/run\/secrets\/database_url/);
+  assert.match(compose, /REDIS_URL_FILE: \/run\/secrets\/redis_url/);
 });
 
 test("env example uses explicit placeholders, not working credentials", () => {

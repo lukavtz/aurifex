@@ -10,7 +10,12 @@ import { planDeploy, type DeployResult } from "./projects/deploy.ts";
 import { inspectBot, type InspectResult } from "./projects/inspect.ts";
 import { scaffoldBot, type ScaffoldResult } from "./projects/scaffold.ts";
 import { generateTestHarness, type HarnessResult } from "./projects/test-harness.ts";
-import { upgradePlan, type UpgradeResult } from "./projects/upgrade.ts";
+import {
+  upgradePlan,
+  upgradeProject,
+  type UpgradeApplyResult,
+  type UpgradeResult,
+} from "./projects/upgrade.ts";
 import { verifyBot, type VerifyResult } from "./projects/verify.ts";
 
 export interface CoreOperationsOptions {
@@ -44,6 +49,10 @@ export interface CoreOperations {
     overwrite?: boolean;
   }): Promise<DomainResult<HarnessResult>>;
   upgradePlan(request: { projectRoot: string }): Promise<DomainResult<UpgradeResult>>;
+  upgradeProject(request: {
+    projectRoot: string;
+    apply?: boolean;
+  }): Promise<DomainResult<UpgradeApplyResult>>;
 }
 
 function failureFrom(error: unknown): DomainResult<never> {
@@ -83,5 +92,12 @@ export async function createCoreOperations(
     planDeploy: (request) => guard(() => planDeploy(request, { policy })),
     generateTestHarness: (request) => guard(() => generateTestHarness(request, { policy })),
     upgradePlan: ({ projectRoot }) => guard(() => upgradePlan(projectRoot, policy)),
+    upgradeProject: ({ projectRoot, apply }) =>
+      guard(() =>
+        upgradeProject(projectRoot, policy, {
+          ...(apply === undefined ? {} : { apply }),
+          now,
+        }),
+      ),
   };
 }

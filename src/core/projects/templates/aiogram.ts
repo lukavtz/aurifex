@@ -1,7 +1,15 @@
 import type { BotSpec } from "../../spec/bot-spec.ts";
 import { resolveStack } from "../../targets/catalog.ts";
+import { renderAiogramFeature } from "../features/aiogram.ts";
+import { renderI18nFiles } from "./i18n.ts";
+import { renderUserSyncPy } from "./jobs.ts";
+import { renderQueuePy, renderWorkerPy } from "./queue.ts";
+import { renderConfigPy, renderSecretsTestPy } from "./runtime-config.ts";
+import { renderAlembicMigration, renderSchemaPy } from "./runtime-schema.ts";
+import { renderSecretsPy } from "./runtime-secrets.ts";
 import type { TemplateFile } from "./shared.ts";
 import { assertNoTokenLiteral, baseFiles } from "./shared.ts";
+import { renderJobsIndexPy, renderWorkerEntryPy } from "./worker-entry.ts";
 
 const ALEMBIC_INI = `[alembic]
 script_location = migrations
@@ -106,128 +114,6 @@ else:
     asyncio.run(run_migrations_online())
 `;
 
-const MIGRATION_0001 = `"""initial schema
-
-Revision ID: 0001_init
-Revises:
-Create Date: 2026-11-09
-"""
-
-from __future__ import annotations
-
-import sqlalchemy as sa
-from alembic import op
-
-revision = "0001_init"
-down_revision = None
-branch_labels = None
-depends_on = None
-
-
-def upgrade() -> None:
-    op.create_table(
-        "users",
-        sa.Column("id", sa.BigInteger(), primary_key=True),
-        sa.Column("username", sa.String(length=64), nullable=True),
-        sa.Column("display_name", sa.String(length=128), nullable=False, server_default=""),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-    )
-    op.create_table(
-        "payments",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.BigInteger(), nullable=False, index=True),
-        sa.Column("charge_id", sa.String(length=128), nullable=False, unique=True),
-        sa.Column("currency", sa.String(length=8), nullable=False),
-        sa.Column("total_amount", sa.Integer(), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-    )
-
-
-def downgrade() -> None:
-    op.drop_table("payments")
-    op.drop_table("users")
-`;
-
-const APP_CONFIG = `from __future__ import annotations
-
-import re
-from functools import lru_cache
-from typing import Literal
-
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-TOKEN_PATTERN = re.compile(r"^\\d{6,}:[A-Za-z0-9_-]{30,}$")
-SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
-HTTPS_URL_PATTERN = re.compile(r"^https://\\S+$")
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-    bot_token: str
-    webhook_secret: str = ""
-    webhook_url: str = ""
-    bot_mode: Literal["webhook", "polling"] = "polling"
-    port: int = Field(default=8080, ge=1, le=65535)
-    admin_ids: str = ""
-    database_url: str = ""
-    redis_url: str = ""
-    llm_base_url: str = ""
-    llm_model: str = ""
-    llm_api_key: str = ""
-    log_level: str = "info"
-
-    @field_validator("bot_token")
-    @classmethod
-    def _validate_bot_token(cls, value: str) -> str:
-        if not TOKEN_PATTERN.match(value):
-            raise ValueError("BOT_TOKEN must look like <bot id>:<token>")
-        return value
-
-    @field_validator("webhook_secret")
-    @classmethod
-    def _validate_webhook_secret(cls, value: str) -> str:
-        if value and not SECRET_PATTERN.match(value):
-            raise ValueError(
-                "WEBHOOK_SECRET must be 1-256 characters of A-Z, a-z, 0-9, _ or -"
-            )
-        return value
-
-    @field_validator("webhook_url")
-    @classmethod
-    def _validate_webhook_url(cls, value: str) -> str:
-        if value and not HTTPS_URL_PATTERN.match(value):
-            raise ValueError("WEBHOOK_URL must be an https:// URL or empty")
-        return value
-
-    @property
-    def admin_id_set(self) -> frozenset[int]:
-        return frozenset(
-            int(part) for part in self.admin_ids.split(",") if part.strip().isdigit()
-        )
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
-`;
-
 const APP_LOGGER = `from __future__ import annotations
 
 import logging
@@ -278,7 +164,29 @@ def configure_logging(level: str = "info") -> None:
     )
 `;
 
-const APP_BOT = `from __future__ import annotations
+function appBot(spec: BotSpec): string {
+  const postgres = spec.storage.postgres;
+  const queued = spec.runtime.queue === "postgres";
+  const middlewareImport = postgres
+    ? "from app.middlewares.user_sync import UserSyncMiddleware\n"
+    : "";
+  const queueImport = queued ? "from app.runtime.queue import Queue\n" : "";
+  const middleware = postgres
+    ? `    if session_factory is not None:
+        dispatcher.update.middleware(UserSyncMiddleware(session_factory))
+`
+    : "";
+  const queue =
+    queued
+      ? `    if session_factory is None:
+        raise RuntimeError("DATABASE_URL is required for the queue")
+    dispatcher.workflow_data["queue"] = Queue(
+        session_factory,
+        visibility_timeout_seconds=settings.queue_visibility_timeout_seconds,
+    )
+`
+      : "";
+  return `from __future__ import annotations
 
 import logging
 
@@ -294,7 +202,7 @@ from app.handlers import register_handlers
 from app.middlewares.allowlist import AllowlistMiddleware
 from app.middlewares.dedupe import DedupeMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
-from app.services.retry import is_retry_after_error, sleep_retry_after
+${middlewareImport}${queueImport}from app.services.retry import is_retry_after_error, sleep_retry_after
 
 logger = logging.getLogger(__name__)
 
@@ -325,16 +233,17 @@ def create_redis(settings: Settings) -> Redis | None:
 
 def create_dispatcher(settings: Settings, bot: Bot, redis: Redis | None) -> Dispatcher:
     dispatcher = Dispatcher()
-    dispatcher.update.middleware(DedupeMiddleware(redis))
+    session_factory = create_session_factory(settings.database_url)
+    dispatcher.workflow_data["session_factory"] = session_factory
+    dispatcher.workflow_data["settings"] = settings
+${middleware}${queue}    dispatcher.update.middleware(DedupeMiddleware(redis))
     dispatcher.message.middleware(RateLimitMiddleware(redis))
     dispatcher.message.middleware(AllowlistMiddleware(settings.admin_id_set))
-    dispatcher.workflow_data["session_factory"] = create_session_factory(
-        settings.database_url
-    )
     dispatcher.errors.register(handle_error)
     register_handlers(dispatcher, bot)
     return dispatcher
 `;
+}
 
 const APP_MAIN = `from __future__ import annotations
 
@@ -467,30 +376,37 @@ def register_handlers(dp: Dispatcher, bot: Bot) -> None:
             register(dp, bot)
 `;
 
-const HANDLERS_COMMANDS = `from __future__ import annotations
+function handlersCommands(spec: BotSpec): string {
+  return `from __future__ import annotations
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.services.i18n import t
+
 router = Router(name="commands")
+
+
+def locale_of(message: Message) -> str | None:
+    return message.from_user.language_code if message.from_user else None
 
 
 @router.message(Command("start"))
 async def start(message: Message) -> None:
-    await message.answer("Hello! Use /help to list the available commands.")
+    await message.answer(t(locale_of(message), "start.welcome", bot=${JSON.stringify(spec.displayName)}))
 
 
 @router.message(Command("help"))
 async def help_command(message: Message) -> None:
-    await message.answer(
-        "Commands:\\n/start - start the bot\\n/help - show this message"
-    )
+    locale = locale_of(message)
+    await message.answer(t(locale, "help.title") + "\\n" + t(locale, "help.commands"))
 
 
 def register(dp: Dispatcher, _bot: Bot) -> None:
     dp.include_router(router)
 `;
+}
 
 const HANDLERS_ADMIN = `from __future__ import annotations
 
@@ -698,42 +614,6 @@ def create_session_factory(database_url: str) -> SessionFactory | None:
     if engine is None:
         return None
     return async_sessionmaker(engine, expire_on_commit=False)
-`;
-
-const DB_MODELS = `from __future__ import annotations
-
-from datetime import datetime
-
-from sqlalchemy import BigInteger, DateTime, Integer, String, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    display_name: Mapped[str] = mapped_column(String(128), default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
-    charge_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    currency: Mapped[str] = mapped_column(String(8))
-    total_amount: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
 `;
 
 const TEST_COMMANDS = `from __future__ import annotations
@@ -1493,6 +1373,35 @@ seconds; rich message drafts are temporary 30-second previews and must be replac
 a final \`sendRichMessage\` call.
 `;
 
+const TEST_QUEUE_WIRING = `from __future__ import annotations
+
+from pathlib import Path
+
+APP = Path(__file__).resolve().parents[1] / "app"
+WORKER = (APP / "worker.py").read_text(encoding="utf-8")
+QUEUE = (APP / "runtime" / "queue.py").read_text(encoding="utf-8")
+JOBS = (APP / "jobs" / "__init__.py").read_text(encoding="utf-8")
+
+
+def test_worker_entrypoint_imports_queue_runtime() -> None:
+    assert "from app.runtime.queue import Queue" in WORKER
+    assert "from app.runtime.worker import run_worker" in WORKER
+    assert "from app.jobs import JobContext, load_job_handlers" in WORKER
+
+
+def test_worker_entrypoint_never_polls_or_serves_webhooks() -> None:
+    for forbidden in ("start_polling", "Dispatcher", "app.webhook"):
+        assert forbidden not in WORKER
+
+
+def test_queue_claims_skip_locked() -> None:
+    assert "FOR UPDATE SKIP LOCKED LIMIT 1" in QUEUE
+
+
+def test_jobs_package_auto_loads_handlers() -> None:
+    assert "load_job_handlers" in JOBS
+`;
+
 export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
   const target = resolveStack("aiogram").target;
   const features = new Set(spec.features.map((feature) => String(feature)));
@@ -1500,17 +1409,20 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     file.path === "README.md" ? { ...file, content: `${file.content}\n${README_104}` } : file,
   );
   files.push(
+    ...renderI18nFiles(spec),
     { path: "alembic.ini", content: ALEMBIC_INI },
     { path: "migrations/env.py", content: ALEMBIC_ENV },
-    { path: "migrations/versions/0001_init.py", content: MIGRATION_0001 },
     { path: "app/__init__.py", content: '"""Telegram bot package."""\n' },
-    { path: "app/config.py", content: APP_CONFIG },
+    { path: "app/runtime/__init__.py", content: '"""Runtime package."""\n' },
+    { path: "app/runtime/secrets.py", content: renderSecretsPy() },
+    { path: "app/config.py", content: renderConfigPy(spec) },
+    { path: "tests/test_secrets.py", content: renderSecretsTestPy(spec) },
     { path: "app/logger.py", content: APP_LOGGER },
-    { path: "app/bot.py", content: APP_BOT },
+    { path: "app/bot.py", content: appBot(spec) },
     { path: "app/main.py", content: APP_MAIN },
     { path: "app/webhook.py", content: APP_WEBHOOK },
     { path: "app/handlers/__init__.py", content: HANDLERS_INIT },
-    { path: "app/handlers/commands.py", content: HANDLERS_COMMANDS },
+    { path: "app/handlers/commands.py", content: handlersCommands(spec) },
     { path: "app/handlers/admin.py", content: HANDLERS_ADMIN },
     { path: "app/middlewares/__init__.py", content: MIDDLEWARES_INIT },
     { path: "app/middlewares/allowlist.py", content: MIDDLEWARES_ALLOWLIST },
@@ -1521,13 +1433,31 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/services/retry.py", content: RETRY_SERVICE },
     { path: "app/db/__init__.py", content: DB_INIT },
     { path: "app/db/session.py", content: DB_SESSION },
-    { path: "app/db/models.py", content: DB_MODELS },
+    { path: "app/db/models.py", content: renderSchemaPy(spec) },
     { path: "tests/test_commands.py", content: TEST_COMMANDS },
     { path: "tests/test_security.py", content: TEST_SECURITY },
     { path: "tests/test_webhook_secret.py", content: TEST_WEBHOOK_SECRET },
     { path: "tests/test_api104.py", content: TEST_API104 },
     { path: "tests/test_retry.py", content: TEST_RETRY },
   );
+  if (spec.storage.postgres) {
+    files.push(
+      {
+        path: "migrations/versions/0001_runtime_schema.py",
+        content: renderAlembicMigration(),
+      },
+      { path: "app/middlewares/user_sync.py", content: renderUserSyncPy() },
+    );
+  }
+  if (features.has("llm")) {
+    files.push(...renderAiogramFeature("llm", "llm", spec));
+  }
+  if (features.has("broadcast")) {
+    files.push(...renderAiogramFeature("broadcast", "broadcast", spec));
+  }
+  if (features.has("payments")) {
+    files.push(...renderAiogramFeature("payments", "payments", spec));
+  }
   if (features.has("widgets")) {
     files.push(
       { path: "app/handlers/widgets.py", content: HANDLERS_WIDGETS },
@@ -1536,6 +1466,15 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
   }
   if (features.has("rich")) {
     files.push({ path: "app/handlers/rich.py", content: HANDLERS_RICH });
+  }
+  if (spec.runtime.queue === "postgres") {
+    files.push(
+      { path: "app/runtime/queue.py", content: renderQueuePy() },
+      { path: "app/runtime/worker.py", content: renderWorkerPy() },
+      { path: "app/worker.py", content: renderWorkerEntryPy(spec) },
+      { path: "app/jobs/__init__.py", content: renderJobsIndexPy() },
+      { path: "tests/test_queue_wiring.py", content: TEST_QUEUE_WIRING },
+    );
   }
   assertNoTokenLiteral(files);
   return files;

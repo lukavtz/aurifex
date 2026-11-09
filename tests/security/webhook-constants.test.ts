@@ -8,17 +8,22 @@ import { createCoreOperations, type CoreOperations } from "../../src/core/operat
 import { serializeDomainResult, type DomainResult } from "../../src/core/results.ts";
 import type { VerifyResult } from "../../src/core/projects/verify.ts";
 import type { BotStack } from "../../src/core/spec/bot-spec.ts";
+import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 
 const SPEC: Record<string, unknown> = {
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "webhook_bot",
   displayName: "Webhook Bot",
   stack: "grammy",
   features: ["commands", "llm", "inline", "payments", "miniapps", "moderation", "broadcast"],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "postgres",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 const CUSTOM_COMPARE =

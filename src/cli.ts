@@ -27,6 +27,7 @@ const USAGE = `Usage:
   aurifex add <root> --feature <feature> --name <name> [--overwrite] [--json]
   aurifex deploy <root> --domain <domain> [--mode webhook|polling] [--overwrite] [--json]
   aurifex harness <root> [--overwrite] [--json]
+  aurifex upgrade <root> [--apply] [--json]
   aurifex upgrade-plan <root> [--json]
   aurifex install [--host omp|dsh|claude|all] [--profile <name>] [--scope user|project]
                   [--source <path|package>] [--dry-run] [--json] [--yes]
@@ -41,6 +42,7 @@ const OPTIONS = {
   json: { type: "boolean" },
   spec: { type: "string" },
   overwrite: { type: "boolean" },
+  apply: { type: "boolean" },
   feature: { type: "string" },
   name: { type: "string" },
   domain: { type: "string" },
@@ -61,6 +63,7 @@ type Command =
   | "add"
   | "deploy"
   | "harness"
+  | "upgrade"
   | "upgrade-plan"
   | "install";
 
@@ -74,6 +77,7 @@ const COMMANDS: Readonly<Record<string, Command>> = {
   add: "add",
   deploy: "deploy",
   harness: "harness",
+  upgrade: "upgrade",
   "upgrade-plan": "upgrade-plan",
   install: "install",
 };
@@ -86,6 +90,7 @@ interface OptionValues {
   readonly json?: string | boolean | undefined;
   readonly spec?: string | boolean | undefined;
   readonly overwrite?: string | boolean | undefined;
+  readonly apply?: string | boolean | undefined;
   readonly feature?: string | boolean | undefined;
   readonly name?: string | boolean | undefined;
   readonly domain?: string | boolean | undefined;
@@ -584,6 +589,11 @@ async function dispatch(
     }
     case "harness":
       return operations.generateTestHarness({ projectRoot: projectRoot(parsed), ...overwrite });
+    case "upgrade":
+      return operations.upgradeProject({
+        projectRoot: projectRoot(parsed),
+        apply: values.apply === true,
+      });
     case "upgrade-plan":
       return operations.upgradePlan({ projectRoot: projectRoot(parsed) });
   }
@@ -652,6 +662,15 @@ function summarize(command: Command, value: unknown): string {
       const commands = field(value, "commands");
       lines.push(
         `wrote test harness${Array.isArray(commands) && commands.length > 0 ? ` (${commands.map(String).join(", ")})` : ""}`,
+      );
+      break;
+    }
+    case "upgrade": {
+      const changed = field(value, "changed");
+      lines.push(
+        `spec ${scalar(field(value, "specVersion")) ?? "?"}: ${
+          Array.isArray(changed) ? changed.length : 0
+        } changed`,
       );
       break;
     }

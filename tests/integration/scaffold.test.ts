@@ -6,6 +6,8 @@ import { test } from "node:test";
 
 import type { DomainResult } from "../../src/core/results.ts";
 import { sha256Hex } from "../../src/core/results.ts";
+import type { AurifexManifest } from "../../src/core/projects/manifest.ts";
+import { MANIFEST_PATH, serializeManifest } from "../../src/core/projects/manifest.ts";
 import { scaffoldBot } from "../../src/core/projects/scaffold.ts";
 import type { ScaffoldResult } from "../../src/core/projects/scaffold.ts";
 import { renderAiogramProject } from "../../src/core/projects/templates/aiogram.ts";
@@ -50,7 +52,19 @@ async function stagingEntries(root: string): Promise<string[]> {
   return (await readdir(root)).filter((name) => name.includes(".aurifex-staging-"));
 }
 
-async function expectedFiles(spec: BotSpec): Promise<Array<{ path: string; sha256: string }>> {
+function expectedManifest(spec: BotSpec, generatedAt: string): AurifexManifest {
+  const rendered = expectedRendered(spec);
+  return {
+    manifestVersion: 1,
+    specVersion: spec.schemaVersion,
+    stack: spec.stack,
+    specHash: botSpecHash(spec),
+    generatedAt,
+    files: Object.fromEntries(rendered.map((file) => [file.path, file.sha256])),
+  };
+}
+
+function expectedRendered(spec: BotSpec): Array<{ path: string; sha256: string }> {
   const files =
     spec.stack === "grammy"
       ? renderGrammyProject(spec, resolveStack("grammy").target)
@@ -58,6 +72,18 @@ async function expectedFiles(spec: BotSpec): Promise<Array<{ path: string; sha25
   return files
     .map((file) => ({ path: file.path, sha256: sha256Hex(file.content) }))
     .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+function expectedFiles(
+  spec: BotSpec,
+  generatedAt = new Date(0).toISOString(),
+): Array<{ path: string; sha256: string }> {
+  const rendered = expectedRendered(spec);
+  const manifest = expectedManifest(spec, generatedAt);
+  return [
+    ...rendered,
+    { path: MANIFEST_PATH, sha256: sha256Hex(serializeManifest(manifest)) },
+  ].toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 const GRAMMY_STEPS = [
@@ -97,6 +123,7 @@ test("scaffolds a self-consistent grammY project", async () => {
       value.files.map((file) => ({ path: file.path, sha256: file.sha256 })),
       expected.map((file) => ({ path: `sample-bot/${file.path}`, sha256: file.sha256 })),
     );
+    const expectedManifestValue = expectedManifest(spec, new Date(0).toISOString());
     const paths = value.files.map((file) => file.path);
     assert.deepEqual(paths, paths.toSorted());
 
@@ -128,6 +155,26 @@ test("scaffolds a self-consistent grammY project", async () => {
     assert.match(env, /^WEBHOOK_SECRET=$/m);
     TELEGRAM_TOKEN_RE.lastIndex = 0;
     assert.equal(TELEGRAM_TOKEN_RE.test(env), false);
+
+    const manifestText = await readFile(join(root, "sample-bot", MANIFEST_PATH), "utf8");
+    const manifest = JSON.parse(manifestText) as AurifexManifest;
+    assert.deepEqual(manifest, expectedManifestValue);
+    assert.deepEqual(value.manifest, expectedManifestValue);
+    assert.equal(manifest.specHash, botSpecHash(spec));
+    assert.equal(manifest.specVersion, spec.schemaVersion);
+    assert.equal(manifest.generatedAt, new Date(0).toISOString());
+    assert.equal(Object.hasOwn(manifest.files, MANIFEST_PATH), false);
+    assert.deepEqual(
+      Object.keys(manifest.files),
+      (await expectedFiles(spec))
+        .map((file) => file.path)
+        .filter((path) => path !== MANIFEST_PATH),
+    );
+    for (const [path, hash] of Object.entries(manifest.files)) {
+      assert.equal(sha256Hex(await readFile(join(root, "sample-bot", path))), hash, path);
+    }
+    TELEGRAM_TOKEN_RE.lastIndex = 0;
+    assert.equal(TELEGRAM_TOKEN_RE.test(manifestText), false);
     assert.deepEqual(await stagingEntries(root), []);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -312,6 +359,8 @@ test("rolls back overwritten originals when a later target cannot be written", a
     assert.equal((await stat(join(destination, "tsconfig.json"))).isDirectory(), true);
     await assert.rejects(readFile(join(destination, "src/config.ts")));
     await assert.rejects(readFile(join(destination, "Dockerfile")));
+    // The manifest commits last, so a failure before it leaves no manifest behind.
+    await assert.rejects(readFile(join(destination, MANIFEST_PATH)));
     assert.deepEqual(await stagingEntries(root), []);
   } finally {
     await rm(root, { recursive: true, force: true });

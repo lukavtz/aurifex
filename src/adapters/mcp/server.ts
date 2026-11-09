@@ -158,6 +158,27 @@ export function createMcpServer(operations: CoreOperations): McpServer {
   );
 
   server.registerTool(
+    "telegram_bot_upgrade",
+    {
+      description:
+        "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
+      inputSchema: z
+        .object({
+          projectRoot: z.string().min(1),
+          apply: z.boolean().optional(),
+        })
+        .strict(),
+    },
+    async ({ projectRoot, apply }) =>
+      toolResult(
+        await operations.upgradeProject({
+          projectRoot,
+          apply: apply === true,
+        }),
+      ),
+  );
+
+  server.registerTool(
     "telegram_bot_upgrade_plan",
     {
       description: "List Bot API 10.4 upgrade actions for a bot project.",

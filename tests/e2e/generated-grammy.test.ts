@@ -57,8 +57,12 @@ const SPEC = {
   features: [...BOT_FEATURES],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: true },
+  i18n: { defaultLocale: "en", en: true, ru: true, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "postgres",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 test(
@@ -94,6 +98,8 @@ test(
         {
           BOT_TOKEN: DUMMY_TOKEN,
           WEBHOOK_SECRET: "e2e_webhook_secret",
+          DATABASE_URL: "postgres://bot:bot@127.0.0.1:5432/bot",
+          REDIS_URL: "redis://127.0.0.1:6379/0",
           BOT_MODE: "polling",
         },
       );

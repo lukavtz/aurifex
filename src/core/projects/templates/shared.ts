@@ -37,7 +37,11 @@ export function renderPackageJson(spec: BotSpec): string {
         lint: "oxlint src tests",
         "format:check": "prettier --check src tests",
         "db:generate": "drizzle-kit generate",
-        "db:migrate": "drizzle-kit migrate",
+        "db:migrate":
+          spec.runtime.queue === "postgres" ? "node dist/migrate.js" : "drizzle-kit migrate",
+        ...(spec.runtime.queue === "postgres"
+          ? { "start:worker": "node dist/worker.js" }
+          : {}),
       },
       dependencies: {
         "drizzle-orm": "0.45.4",
@@ -151,7 +155,9 @@ plugins = ["pydantic.mypy"]
 
 export function renderEnvExample(_spec: BotSpec): string {
   return `BOT_TOKEN=
+BOT_TOKEN_FILE=
 WEBHOOK_SECRET=
+WEBHOOK_SECRET_FILE=
 WEBHOOK_URL=
 BOT_MODE=polling
 PORT=8080
@@ -161,16 +167,31 @@ POSTGRES_PASSWORD=
 POSTGRES_DB=bot
 # Compose derives these from the passwords above; set them for non-compose runs.
 DATABASE_URL=
+DATABASE_URL_FILE=
 REDIS_PASSWORD=
 REDIS_URL=
+REDIS_URL_FILE=
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=
 LLM_API_KEY=
+LLM_API_KEY_FILE=
+QUEUE_POLL_MS=500
+QUEUE_BATCH=10
+QUEUE_MAX_ATTEMPTS=5
+QUEUE_VISIBILITY_TIMEOUT_SECONDS=60
+WORKER_ID=
+MINIAPP_SESSION_TTL_SECONDS=86400
+MINIAPP_ALLOWED_ORIGINS=
+OTEL_EXPORTER_OTLP_ENDPOINT=
+OTEL_SERVICE_NAME=
+SENTRY_DSN=
+METRICS_ENABLED=true
 LOG_LEVEL=info
 `;
 }
 
-export function renderDockerfile(_spec: BotSpec): string {
+export function renderDockerfile(spec: BotSpec): string {
+  const migrationCopy = spec.runtime.queue === "postgres" ? "COPY drizzle ./drizzle\n" : "";
   return `FROM oven/bun:1.4.2 AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
@@ -190,7 +211,7 @@ ENV NODE_ENV=production
 COPY package.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-USER node
+${migrationCopy}USER node
 EXPOSE 8080
 CMD ["node", "dist/main.js"]
 `;
@@ -213,14 +234,45 @@ CMD ["uv", "run", "python", "-m", "app.main"]
 `;
 }
 
+function composeSecretNames(spec: BotSpec): string[] {
+  const names = ["bot_token", "webhook_secret"];
+  if (spec.storage.postgres) names.push("database_url");
+  if (spec.storage.redis) names.push("redis_url");
+  if (spec.features.includes("llm")) names.push("llm_api_key");
+  return names;
+}
+
+function composeSecretBlocks(names: readonly string[]): {
+  list: string;
+  env: string;
+} {
+  return {
+    list: names.map((name) => `      - ${name}`).join("\n"),
+    env: names
+      .map((name) => `      ${name.toUpperCase()}_FILE: /run/secrets/${name}`)
+      .join("\n"),
+  };
+}
+
 export function renderCompose(spec: BotSpec): string {
+  const secretNames = composeSecretNames(spec);
+  const { list: secretList, env: secretFileEnv } = composeSecretBlocks(secretNames);
+  const hasQueue = spec.runtime.queue === "postgres";
   const depends: string[] = [];
   if (spec.storage.postgres) depends.push("postgres");
   if (spec.storage.redis) depends.push("redis");
-  const botDepends =
-    depends.length === 0
-      ? ""
-      : `\n    depends_on:\n${depends.map((service) => `      - ${service}`).join("\n")}`;
+  // Long form so a queued bot starts only after postgres is healthy and the
+  // one-shot migration has finished.
+  const healthDepends = (withMigrate: boolean): string => {
+    const entries = depends.map(
+      (service) => `      ${service}:\n        condition: service_healthy`,
+    );
+    if (withMigrate) {
+      entries.push("      migrate:\n        condition: service_completed_successfully");
+    }
+    return entries.length === 0 ? "" : `\n    depends_on:\n${entries.join("\n")}`;
+  };
+  const botDepends = healthDepends(hasQueue);
   const botEnvironment = [
     spec.storage.postgres
       ? `      DATABASE_URL: postgres://\${POSTGRES_USER:-bot}:\${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/\${POSTGRES_DB:-bot}`
@@ -228,17 +280,31 @@ export function renderCompose(spec: BotSpec): string {
     spec.storage.redis
       ? `      REDIS_URL: redis://:\${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0`
       : "",
+    secretFileEnv,
   ].filter(Boolean);
-  const botEnv =
-    botEnvironment.length === 0 ? "" : `\n    environment:\n${botEnvironment.join("\n")}`;
+  const botEnv = `\n    environment:\n${botEnvironment.join("\n")}`;
+  const botSecrets = `\n    secrets:\n${secretList}`;
   const services = [
     `  bot:
     build: .
     env_file: .env
     restart: unless-stopped
     expose:
-      - "8080"${botDepends}${botEnv}`,
-    `  caddy:
+      - "8080"${botDepends}${botSecrets}${botEnv}`,
+  ];
+  if (hasQueue) {
+    const workerCommand =
+      spec.stack === "grammy"
+        ? '    command: ["node", "dist/worker.js"]'
+        : '    command: ["uv", "run", "python", "-m", "app.worker"]';
+    services.push(`  worker:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+${workerCommand}${healthDepends(true)}
+    stop_grace_period: 35s${botSecrets}${botEnv}`);
+  }
+  services.push(`  caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
     ports:
@@ -249,8 +315,7 @@ export function renderCompose(spec: BotSpec): string {
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - bot`,
-  ];
+      - bot`);
   const volumes = ["  caddy-data:", "  caddy-config:"];
   if (spec.storage.postgres) {
     services.push(`  postgres:
@@ -280,8 +345,26 @@ export function renderCompose(spec: BotSpec): string {
       timeout: 3s
       retries: 10`);
   }
+  if (hasQueue) {
+    const migrateCommand =
+      spec.stack === "grammy"
+        ? '    command: ["node", "dist/migrate.js"]'
+        : '    command: ["uv", "run", "alembic", "upgrade", "head"]';
+    services.push(`  migrate:
+    build: .
+    env_file: .env
+${migrateCommand}
+    restart: "no"${healthDepends(false)}${botSecrets}${botEnv}`);
+  }
+  const secrets = secretNames
+    .map((name) => `  ${name}:\n    file: ./secrets/${name}`)
+    .join("\n");
   return `services:
 ${services.join("\n")}
+  # aurifex:services
+
+secrets:
+${secrets}
 
 volumes:
 ${volumes.join("\n")}
@@ -385,6 +468,7 @@ export function renderGitignore(spec: BotSpec): string {
   return `.env
 .env.*
 !.env.example
+secrets/
 node_modules/
 dist/
 ${spec.stack === "aiogram" ? ".venv/\n__pycache__/\n.pytest_cache/\n.ruff_cache/\n.mypy_cache/\n" : "coverage/\n"}

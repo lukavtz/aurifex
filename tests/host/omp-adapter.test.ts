@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import aurifex from "../../src/adapters/omp/index.ts";
 import type { DomainResult } from "../../src/core/results.ts";
+import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 
 interface FakeSchema {
   readonly kind: string;
@@ -114,18 +115,22 @@ function fakeContext(
 }
 
 const SPEC = {
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "demo_bot",
   displayName: "Demo Bot",
   stack: "grammy",
   features: ["commands"],
   deployment: "docker",
-  storage: { postgres: false, redis: false },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  storage: { postgres: false, redis: true },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "none",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
-test("registers eight tools and three commands without touching the filesystem", async (t) => {
+test("registers nine tools and three commands without touching the filesystem", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-omp-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -143,9 +148,10 @@ test("registers eight tools and three commands without touching the filesystem",
     ["telegram_bot_add_feature", "write"],
     ["telegram_bot_deploy_plan", "write"],
     ["telegram_bot_test_harness", "write"],
+    ["telegram_bot_upgrade", "write"],
     ["telegram_bot_upgrade_plan", "read"],
   ];
-  assert.equal(host.tools.length, 8);
+  assert.equal(host.tools.length, 9);
   for (const [name, approval] of expected) {
     const tool = host.tools.find((candidate) => candidate.name === name);
     assert.ok(tool, `missing tool ${name}`);

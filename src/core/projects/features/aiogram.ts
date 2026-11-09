@@ -1,6 +1,13 @@
 import type { BotFeature, BotSpec } from "../../spec/bot-spec.ts";
 import { pythonModuleName, slugToTitle } from "../../spec/bot-spec.ts";
+import {
+  renderBroadcastCommandPy,
+  renderBroadcastJobPy,
+  renderLlmEnqueuePy,
+  renderLlmJobPy,
+} from "../templates/jobs.ts";
 import { renderMiniApp } from "../templates/miniapp.ts";
+import { renderPaymentsPy } from "../templates/payments.ts";
 import type { TemplateFile } from "../templates/shared.ts";
 
 function file(path: string, content: string): TemplateFile {
@@ -41,114 +48,6 @@ async def test_command_replies() -> None:
     message.answer.assert_awaited_once()
 `;
 }
-
-const LLM_SERVICE = `import os
-from typing import Any
-
-import httpx
-
-TIMEOUT_SECONDS = 8.0
-MAX_TOKENS = 800
-ERROR_TEXT = "The assistant is unavailable right now. Please try again later."
-
-
-def _config() -> tuple[str, str, str] | None:
-    base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
-    model = os.getenv("LLM_MODEL", "")
-    api_key = os.getenv("LLM_API_KEY", "")
-    if not base_url or not model or not api_key:
-        return None
-    return base_url, model, api_key
-
-
-def _content(payload: Any) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return None
-    first = choices[0]
-    if not isinstance(first, dict):
-        return None
-    message = first.get("message")
-    if not isinstance(message, dict):
-        return None
-    content = message.get("content")
-    if isinstance(content, str) and content.strip():
-        return content.strip()
-    return None
-
-
-async def ask(prompt: str) -> str:
-    config = _config()
-    if config is None:
-        return ERROR_TEXT
-    base_url, model, api_key = config
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                base_url + "/chat/completions",
-                headers={"Authorization": "Bearer " + api_key},
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": MAX_TOKENS,
-                },
-            )
-            response.raise_for_status()
-            return _content(response.json()) or ERROR_TEXT
-    except Exception:
-        return ERROR_TEXT
-`;
-
-const LLM_HANDLER = `from aiogram import Bot, Dispatcher, F, Router
-from aiogram.types import Message
-
-from app.services.llm import ask
-
-COMMAND = "/llm"
-
-
-async def handle_llm(message: Message) -> None:
-    prompt = (message.text or "").partition(" ")[2].strip()
-    if not prompt:
-        await message.answer("Usage: /llm <prompt>")
-        return
-    await message.answer(await ask(prompt))
-
-
-def register(dp: Dispatcher, bot: Bot) -> None:
-    router = Router(name="llm")
-    router.message.register(handle_llm, F.text.startswith(COMMAND))
-    dp.include_router(router)
-`;
-
-const LLM_TEST = `from unittest.mock import AsyncMock, patch
-
-import pytest
-
-from app.handlers.llm import handle_llm
-from app.services.llm import ERROR_TEXT, ask
-
-
-@pytest.mark.asyncio
-async def test_llm_without_configuration_returns_static_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("LLM_BASE_URL", raising=False)
-    monkeypatch.delenv("LLM_MODEL", raising=False)
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
-    assert await ask("hello") == ERROR_TEXT
-
-
-@pytest.mark.asyncio
-async def test_llm_without_prompt_replies_usage() -> None:
-    message = AsyncMock()
-    message.text = "/llm"
-    with patch("app.handlers.llm.ask", new=AsyncMock(return_value="unused")):
-        await handle_llm(message)
-    message.answer.assert_awaited_once_with("Usage: /llm <prompt>")
-`;
 
 const INLINE_MODULE = `from aiogram import Bot, Dispatcher, Router
 from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
@@ -192,93 +91,546 @@ async def test_inline_answers_with_one_article() -> None:
     assert len(results) == 1
 `;
 
-const PAYMENTS_MODULE = `import asyncio
-import json
+const PAYMENTS_MODULE = `from __future__ import annotations
+
 import os
-from pathlib import Path
+from typing import Any, Sequence
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.types import LabeledPrice, Message, PreCheckoutQuery
+from aiogram.filters import Command, CommandObject
+from aiogram.types import LabeledPrice as TelegramLabeledPrice
+from aiogram.types import Message, PreCheckoutQuery
+from sqlalchemy import text
 
-PRICE_STARS = 1
-TITLE = "Support the bot"
+from app.runtime.payments import (
+    PRODUCTS,
+    LabeledPrice,
+    PaymentError,
+    PreCheckoutQuery as RuntimePreCheckoutQuery,
+    SuccessfulPayment,
+    cancel_subscription,
+    create_invoice,
+    record_successful_payment,
+    refund_payment,
+    validate_pre_checkout,
+)
+from app.services.i18n import t
+
+PAYSUPPORT_TEXT = os.getenv(
+    "PAYSUPPORT_TEXT",
+    "Payments are processed by Telegram Stars. Contact the bot support for help.",
+)
+USAGE_TEXT = "Usage: /buy <product_id>. Available: "
+ADMIN_ONLY_TEXT = "This command is available to administrators only."
 
 
-def store_path() -> Path:
-    return Path(os.getenv("PAYMENTS_PATH", "data/payments.jsonl"))
+class AiogramPayments:
+    def __init__(self, bot: Bot) -> None:
+        self._bot = bot
+
+    async def send_invoice(
+        self,
+        chat_id: int,
+        title: str,
+        description: str,
+        payload: str,
+        currency: str,
+        prices: Sequence[LabeledPrice],
+        subscription_period: int | None = None,
+    ) -> None:
+        await self._bot.send_invoice(
+            chat_id=chat_id,
+            title=title,
+            description=description,
+            payload=payload,
+            provider_token="",
+            currency=currency,
+            prices=[
+                TelegramLabeledPrice(label=price.label, amount=price.amount)
+                for price in prices
+            ],
+            subscription_period=subscription_period,
+        )
+
+    async def create_invoice_link(
+        self,
+        title: str,
+        description: str,
+        payload: str,
+        currency: str,
+        prices: Sequence[LabeledPrice],
+        subscription_period: int | None = None,
+    ) -> str:
+        return await self._bot.create_invoice_link(
+            title=title,
+            description=description,
+            payload=payload,
+            provider_token="",
+            currency=currency,
+            prices=[
+                TelegramLabeledPrice(label=price.label, amount=price.amount)
+                for price in prices
+            ],
+            subscription_period=subscription_period,
+        )
+
+    async def refund_star_payment(self, user_id: int, charge_id: str) -> object:
+        return await self._bot.refund_star_payment(
+            user_id=user_id, telegram_payment_charge_id=charge_id
+        )
+
+    async def edit_user_star_subscription(
+        self, user_id: int, charge_id: str, canceled: bool
+    ) -> object:
+        return await self._bot.edit_user_star_subscription(
+            user_id=user_id,
+            telegram_payment_charge_id=charge_id,
+            is_canceled=canceled,
+        )
+
+    async def get_star_transactions(
+        self, offset: int = 0, limit: int = 100
+    ) -> Sequence[Any]:
+        result = await self._bot.get_star_transactions(offset=offset, limit=limit)
+        return result.transactions
 
 
-def record_payment(charge_id: str, total_amount: int, user_id: int) -> None:
-    path = store_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"chargeId": charge_id, "totalAmount": total_amount, "userId": user_id}
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload) + "\\n")
+def locale_of(user: Any) -> str | None:
+    return getattr(user, "language_code", None) if user is not None else None
 
 
-async def handle_buy(message: Message, bot: Bot) -> None:
+async def handle_buy(message: Message, bot: Bot, command: CommandObject) -> None:
     if message.from_user is None:
         return
-    await bot.send_invoice(
-        chat_id=message.chat.id,
-        title=TITLE,
-        description="One star",
-        payload="stars:" + str(message.from_user.id),
-        provider_token="",
-        currency="XTR",
-        prices=[LabeledPrice(label=TITLE, amount=PRICE_STARS)],
+    product_id = (command.args or "").strip()
+    product = next((item for item in PRODUCTS if item.id == product_id), None)
+    if product is None:
+        await message.answer(USAGE_TEXT + ", ".join(item.id for item in PRODUCTS))
+        return
+    result = await create_invoice(
+        AiogramPayments(bot), product, message.from_user.id, chat_id=message.chat.id
     )
+    link = result.get("invoice_link")
+    if link:
+        await message.answer(link)
+
+
+async def handle_paysupport(message: Message) -> None:
+    await message.answer(PAYSUPPORT_TEXT)
 
 
 async def handle_pre_checkout(query: PreCheckoutQuery, bot: Bot) -> None:
-    await bot.answer_pre_checkout_query(query.id, ok=True)
-
-
-async def handle_payment(message: Message) -> None:
-    payment = message.successful_payment
-    if payment is None or message.from_user is None:
+    if query.from_user is None:
+        await query.answer(ok=False, error_message=t(None, "payments.precheckout_failed"))
         return
-    await asyncio.to_thread(
-        record_payment,
-        payment.telegram_payment_charge_id,
-        payment.total_amount,
-        message.from_user.id,
+    check = validate_pre_checkout(
+        RuntimePreCheckoutQuery(
+            user_id=query.from_user.id,
+            invoice_payload=query.invoice_payload,
+            currency=query.currency,
+            total_amount=query.total_amount,
+        ),
+        PRODUCTS,
     )
-    await message.answer("Payment received. Thank you!")
+    if check.ok:
+        await query.answer(ok=True)
+        return
+    await query.answer(
+        ok=False,
+        error_message=t(locale_of(query.from_user), "payments.precheckout_failed"),
+    )
 
 
-def register(dp: Dispatcher, bot: Bot) -> None:
+async def handle_successful_payment(
+    message: Message, session_factory: Any, queue: Any
+) -> None:
+    payment = message.successful_payment
+    user = message.from_user
+    if payment is None or user is None:
+        return
+    raw = payment.model_dump(mode="json") if hasattr(payment, "model_dump") else {}
+    display_name = " ".join(
+        part for part in (user.first_name, user.last_name) if isinstance(part, str)
+    )
+    try:
+        outcome = await record_successful_payment(
+            session_factory,
+            queue,
+            SuccessfulPayment(
+                user_id=user.id,
+                charge_id=payment.telegram_payment_charge_id,
+                invoice_payload=payment.invoice_payload,
+                currency=payment.currency,
+                total_amount=payment.total_amount,
+                provider_charge_id=payment.provider_payment_charge_id,
+                is_recurring=payment.is_recurring,
+                is_first_recurring=payment.is_first_recurring,
+                subscription_expiration_date=payment.subscription_expiration_date,
+                username=user.username,
+                display_name=display_name,
+                raw=raw,
+            ),
+            PRODUCTS,
+        )
+    except PaymentError:
+        await message.answer(t(locale_of(user), "errors.generic"))
+        return
+    if outcome["duplicate"]:
+        return
+    await message.answer(t(locale_of(user), "payments.thanks"))
+
+
+async def handle_refund(
+    message: Message, bot: Bot, session_factory: Any, settings: Any
+) -> None:
+    user = message.from_user
+    if user is None or user.id not in settings.admin_id_set:
+        await message.answer(ADMIN_ONLY_TEXT)
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        await message.answer("Usage: /refund <charge_id>")
+        return
+    charge_id = parts[1].strip()
+    async with session_factory() as session:
+        found = await session.execute(
+            text("SELECT user_id FROM payments WHERE charge_id = :charge_id"),
+            {"charge_id": charge_id},
+        )
+        row = found.mappings().first()
+    if row is None:
+        await message.answer("No payment found for that charge.")
+        return
+    try:
+        outcome = await refund_payment(
+            session_factory,
+            AiogramPayments(bot),
+            user_id=int(row["user_id"]),
+            charge_id=charge_id,
+        )
+    except PaymentError:
+        await message.answer("No payment found for that charge.")
+        return
+    if not outcome["refunded"]:
+        await message.answer("Refund already completed.")
+        return
+    await message.answer("Refunded " + str(outcome["amount"]) + " stars.")
+
+
+async def handle_subscriptions(message: Message, session_factory: Any) -> None:
+    user = message.from_user
+    if user is None:
+        return
+    async with session_factory() as session:
+        found = await session.execute(
+            text(
+                "SELECT charge_id, expires_at FROM subscriptions "
+                "WHERE user_id = :user_id AND canceled_at IS NULL "
+                "AND expires_at > now() ORDER BY expires_at"
+            ),
+            {"user_id": user.id},
+        )
+        rows = found.mappings().all()
+    if not rows:
+        await message.answer("No active subscriptions.")
+        return
+    locale = locale_of(user)
+    lines = [
+        str(row["charge_id"])
+        + " - "
+        + t(locale, "subscription.active")
+        + " until "
+        + str(row["expires_at"])
+        for row in rows
+    ]
+    await message.answer("\\n".join(lines))
+
+
+async def handle_subscription_cancel(
+    message: Message, bot: Bot, session_factory: Any, settings: Any
+) -> None:
+    user = message.from_user
+    if user is None or user.id not in settings.admin_id_set:
+        await message.answer(ADMIN_ONLY_TEXT)
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        await message.answer("Usage: /subscription_cancel <charge_id>")
+        return
+    charge_id = parts[1].strip()
+    async with session_factory() as session:
+        found = await session.execute(
+            text("SELECT user_id FROM subscriptions WHERE charge_id = :charge_id"),
+            {"charge_id": charge_id},
+        )
+        row = found.mappings().first()
+    if row is None:
+        await message.answer("No subscription found for that charge.")
+        return
+    try:
+        outcome = await cancel_subscription(
+            session_factory,
+            AiogramPayments(bot),
+            user_id=int(row["user_id"]),
+            charge_id=charge_id,
+        )
+    except PaymentError:
+        await message.answer("No subscription found for that charge.")
+        return
+    if not outcome["canceled"]:
+        await message.answer("Subscription is already canceled.")
+        return
+    await message.answer(t(locale_of(user), "subscription.canceled"))
+
+
+def register(dp: Dispatcher, _bot: Bot) -> None:
     router = Router(name="payments")
-    router.message.register(handle_buy, F.text == "/buy")
+    router.message.register(handle_buy, Command("buy"))
+    router.message.register(handle_paysupport, Command("paysupport"))
     router.pre_checkout_query.register(handle_pre_checkout)
-    router.message.register(handle_payment, F.successful_payment)
+    router.message.register(handle_successful_payment, F.successful_payment)
+    router.message.register(handle_refund, Command("refund"))
+    router.message.register(handle_subscriptions, Command("subscriptions"))
+    router.message.register(handle_subscription_cancel, Command("subscription_cancel"))
     dp.include_router(router)
 `;
 
-const PAYMENTS_TEST = `from pathlib import Path
+const PAYMENT_FULFILL_JOB = `from __future__ import annotations
+
+from sqlalchemy import text
+
+from app.jobs import JobContext
+from app.runtime.payments import SUBSCRIPTION_PERIOD_SECONDS
+from app.runtime.queue import ClaimedJob
+
+KIND = "payment.fulfill"
+
+ENSURE_SUBSCRIPTION_SQL = text(
+    """
+    INSERT INTO subscriptions (charge_id, user_id, period_seconds, expires_at, canceled_at)
+    SELECT p.charge_id, p.user_id, :period_seconds, p.subscription_expiration_date, NULL
+    FROM payments p
+    WHERE p.charge_id = :charge_id
+      AND p.subscription_expiration_date IS NOT NULL
+    ON CONFLICT (charge_id) DO NOTHING
+    RETURNING charge_id
+    """
+)
+
+
+async def handle(job: ClaimedJob, ctx: JobContext) -> None:
+    payload = job.payload if isinstance(job.payload, dict) else {}
+    charge_id = payload.get("chargeId")
+    if not isinstance(charge_id, str) or not charge_id:
+        raise ValueError("invalid payment.fulfill payload")
+    async with ctx.session_factory() as session:
+        async with session.begin():
+            await session.execute(
+                ENSURE_SUBSCRIPTION_SQL,
+                {"charge_id": charge_id, "period_seconds": SUBSCRIPTION_PERIOD_SECONDS},
+            )
+`;
+
+const PAYMENT_RECONCILE_JOB = `from __future__ import annotations
+
+import datetime as dt
+
+from app.handlers.payments import AiogramPayments
+from app.jobs import JobContext
+from app.runtime.payments import reconcile_payments
+from app.runtime.queue import ClaimedJob
+
+KIND = "payment.reconcile"
+INTERVAL = dt.timedelta(hours=6)
+
+
+async def handle(_job: ClaimedJob, ctx: JobContext) -> None:
+    await reconcile_payments(ctx.session_factory, AiogramPayments(ctx.bot))
+    await ctx.queue.enqueue(
+        KIND,
+        {"scheduledAt": dt.datetime.now(dt.timezone.utc).isoformat()},
+        run_at=dt.datetime.now(dt.timezone.utc) + INTERVAL,
+    )
+`;
+
+const PAYMENTS_TEST = `from __future__ import annotations
+
+import datetime as dt
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from app.handlers.payments import handle_pre_checkout, record_payment
+from app.handlers import payments as handlers
+from app.jobs import payment_reconcile
+from app.runtime.payments import (
+    PRODUCTS,
+    SUBSCRIPTION_PERIOD_SECONDS,
+    create_invoice,
+    invoice_payload,
+)
 
 
-def test_record_payment_appends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    target = tmp_path / "payments.jsonl"
-    monkeypatch.setenv("PAYMENTS_PATH", str(target))
-    record_payment("charge", 1, 7)
-    lines = target.read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 1
-    assert '"userId": 7' in lines[0]
+def _user(user_id: int = 42) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=user_id,
+        username="buyer",
+        first_name="Test",
+        last_name=None,
+        language_code="en",
+    )
+
+
+def _message(**kwargs: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {"answer": AsyncMock(), "from_user": _user()}
+    data.update(kwargs)
+    return SimpleNamespace(**data)
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.invoices: list[dict[str, Any]] = []
+        self.links: list[dict[str, Any]] = []
+        self.transactions: list[Any] = []
+
+    async def send_invoice(self, **kwargs: Any) -> None:
+        self.invoices.append(kwargs)
+
+    async def create_invoice_link(self, **kwargs: Any) -> str:
+        self.links.append(kwargs)
+        return "https://t.me/invoice"
+
+    async def refund_star_payment(self, **kwargs: Any) -> object:
+        return True
+
+    async def edit_user_star_subscription(self, **kwargs: Any) -> object:
+        return True
+
+    async def get_star_transactions(self, offset: int = 0, limit: int = 100) -> Any:
+        return SimpleNamespace(transactions=list(self.transactions))
+
+
+class FakeResult:
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self._row = row
+
+    def mappings(self) -> Any:
+        rows = [] if self._row is None else [self._row]
+        return SimpleNamespace(first=lambda: self._row, all=lambda: rows)
+
+
+class FakeSession:
+    async def __aenter__(self) -> "FakeSession":
+        return self
+
+    async def __aexit__(self, *_args: object) -> bool:
+        return False
+
+    async def execute(self, *_args: object, **_kwargs: object) -> FakeResult:
+        return FakeResult({"user_id": 42, "expires_at": "2030-01-01"})
+
+
+class FakeSessionFactory:
+    def __call__(self) -> FakeSession:
+        return FakeSession()
 
 
 @pytest.mark.asyncio
-async def test_pre_checkout_is_answered() -> None:
-    query = AsyncMock()
-    query.id = "query"
-    bot = AsyncMock()
-    await handle_pre_checkout(query, bot)
-    bot.answer_pre_checkout_query.assert_awaited_once_with("query", ok=True)
+async def test_subscription_uses_invoice_link() -> None:
+    product = next((item for item in PRODUCTS if item.subscription), None)
+    if product is None:
+        pytest.skip("no subscription product configured")
+    bot = FakeBot()
+    result = await create_invoice(handlers.AiogramPayments(bot), product, 42)  # type: ignore[arg-type]
+    assert result["invoice_link"] == "https://t.me/invoice"
+    assert bot.invoices == []
+    assert bot.links[0]["subscription_period"] == SUBSCRIPTION_PERIOD_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_precheckout_rejects_wrong_amount() -> None:
+    product = PRODUCTS[0]
+    query = SimpleNamespace(
+        from_user=_user(),
+        invoice_payload=invoice_payload(
+            product.id, 42, "123e4567-e89b-42d3-a456-426614174000"
+        ),
+        currency="XTR",
+        total_amount=product.stars + 1,
+        answer=AsyncMock(),
+    )
+    await handlers.handle_pre_checkout(query, FakeBot())  # type: ignore[arg-type]
+    query.answer.assert_awaited_once()
+    assert query.answer.await_args.kwargs["ok"] is False
+    assert query.answer.await_args.kwargs["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_payment_is_not_thanked_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = AsyncMock(return_value={"duplicate": True})
+    monkeypatch.setattr(handlers, "record_successful_payment", record)
+    payment = SimpleNamespace(
+        telegram_payment_charge_id="charge",
+        provider_payment_charge_id="provider",
+        invoice_payload="payload",
+        currency="XTR",
+        total_amount=1,
+        is_recurring=False,
+        is_first_recurring=False,
+        subscription_expiration_date=None,
+    )
+    message = _message(successful_payment=payment)
+    await handlers.handle_successful_payment(
+        message, session_factory=object(), queue=object()
+    )
+    record.assert_awaited_once()
+    message.answer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refund_uses_the_full_recorded_amount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refund = AsyncMock(
+        return_value={
+            "refunded": True,
+            "duplicate": False,
+            "amount": 100,
+            "status": "refunded",
+        }
+    )
+    monkeypatch.setattr(handlers, "refund_payment", refund)
+    message = _message(text="/refund charge-1", from_user=_user(999))
+    settings = SimpleNamespace(admin_id_set=frozenset({999}))
+    await handlers.handle_refund(
+        message, FakeBot(), FakeSessionFactory(), settings  # type: ignore[arg-type]
+    )
+    refund.assert_awaited_once()
+    assert refund.await_args.kwargs["user_id"] == 42
+    assert refund.await_args.kwargs["charge_id"] == "charge-1"
+    assert "100" in message.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_reschedules_without_granting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reconcile = AsyncMock(return_value={"inserted": 0})
+    monkeypatch.setattr(payment_reconcile, "reconcile_payments", reconcile)
+    queue = SimpleNamespace(enqueue=AsyncMock())
+    ctx = SimpleNamespace(session_factory=object(), bot=FakeBot(), queue=queue)
+    before = dt.datetime.now(dt.timezone.utc)
+    await payment_reconcile.handle(SimpleNamespace(payload={}), ctx)  # type: ignore[arg-type]
+    queue.enqueue.assert_awaited_once()
+    assert queue.enqueue.await_args.args[0] == "payment.reconcile"
+    run_at = queue.enqueue.await_args.kwargs["run_at"]
+    assert run_at >= before + dt.timedelta(hours=5)
+    assert all(
+        call.args[0] != "payment.fulfill" for call in queue.enqueue.await_args_list
+    )
 `;
 
 const MINIAPP_SERVICE = `import hashlib
@@ -458,90 +810,6 @@ def test_moderation_blocks_links() -> None:
     assert is_blocked("hello there") is False
 `;
 
-const BROADCAST_MODULE = `import asyncio
-import os
-from collections.abc import Iterable
-
-from aiogram import Bot
-
-from app.services.retry import is_retry_after_error, sleep_retry_after
-
-GLOBAL_PER_SECOND = 30
-
-
-def idempotency_key(broadcast_id: str, user_id: int) -> str:
-    return "broadcast:" + broadcast_id + ":" + str(user_id)
-
-
-class BroadcastService:
-    def __init__(self, bot: Bot) -> None:
-        self._bot = bot
-        self._locks: dict[int, asyncio.Lock] = {}
-        self._sent: set[str] = set()
-        self._next_slot = 0.0
-
-    async def _throttle(self) -> None:
-        interval = 1.0 / GLOBAL_PER_SECOND
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        slot = max(now, self._next_slot)
-        self._next_slot = slot + interval
-        if slot > now:
-            await asyncio.sleep(slot - now)
-
-    async def _send(self, chat_id: int, text: str) -> None:
-        try:
-            await self._bot.send_message(chat_id, text)
-        except Exception as error:
-            if not is_retry_after_error(error):
-                raise
-            await sleep_retry_after(error)
-            await self._bot.send_message(chat_id, text)
-
-    async def send_one(self, chat_id: int, text: str, broadcast_id: str) -> bool:
-        key = idempotency_key(broadcast_id, chat_id)
-        lock = self._locks.setdefault(chat_id, asyncio.Lock())
-        async with lock:
-            if key in self._sent:
-                return False
-            await self._throttle()
-            await self._send(chat_id, text)
-            self._sent.add(key)
-            return True
-
-    async def broadcast(self, chat_ids: Iterable[int], text: str, broadcast_id: str) -> int:
-        results = await asyncio.gather(
-            *(self.send_one(chat_id, text, broadcast_id) for chat_id in chat_ids),
-            return_exceptions=True,
-        )
-        return sum(1 for result in results if result is True)
-
-
-def admin_ids() -> tuple[int, ...]:
-    values = (value.strip() for value in os.getenv("ADMIN_IDS", "").split(","))
-    return tuple(int(value) for value in values if value.isdigit())
-`;
-
-const BROADCAST_TEST = `from unittest.mock import AsyncMock
-
-import pytest
-
-from app.services.broadcast import BroadcastService, idempotency_key
-
-
-def test_idempotency_key_is_stable() -> None:
-    assert idempotency_key("b1", 7) == "broadcast:b1:7"
-
-
-@pytest.mark.asyncio
-async def test_broadcast_skips_repeated_recipients() -> None:
-    bot = AsyncMock()
-    service = BroadcastService(bot)
-    assert await service.broadcast([1, 2], "hello", "b1") == 2
-    assert await service.broadcast([1, 2], "hello", "b1") == 0
-    assert bot.send_message.await_count == 2
-`;
-
 const WIDGETS_MODULE = `from aiogram import Bot, Dispatcher, Router
 from aiogram.types import Message
 
@@ -673,9 +941,8 @@ export function renderAiogramFeature(
     }
     case "llm":
       return [
-        file("app/services/llm.py", LLM_SERVICE),
-        file("app/handlers/llm.py", LLM_HANDLER),
-        file("tests/test_llm.py", LLM_TEST),
+        file("app/handlers/llm.py", renderLlmEnqueuePy()),
+        file("app/jobs/llm.py", renderLlmJobPy(spec)),
       ];
     case "inline":
       return [
@@ -684,7 +951,10 @@ export function renderAiogramFeature(
       ];
     case "payments":
       return [
+        file("app/runtime/payments.py", renderPaymentsPy(spec)),
         file("app/handlers/payments.py", PAYMENTS_MODULE),
+        file("app/jobs/payment_fulfill.py", PAYMENT_FULFILL_JOB),
+        file("app/jobs/payment_reconcile.py", PAYMENT_RECONCILE_JOB),
         file("tests/test_payments.py", PAYMENTS_TEST),
       ];
     case "miniapps":
@@ -700,8 +970,8 @@ export function renderAiogramFeature(
       ];
     case "broadcast":
       return [
-        file("app/services/broadcast.py", BROADCAST_MODULE),
-        file("tests/test_broadcast.py", BROADCAST_TEST),
+        file("app/handlers/broadcast.py", renderBroadcastCommandPy()),
+        file("app/jobs/broadcast.py", renderBroadcastJobPy()),
       ];
     case "widgets":
       return [

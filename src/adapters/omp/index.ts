@@ -68,13 +68,17 @@ function defaultSpec(name: string, stack: BotStack): BotSpec {
     stack,
     features: ["commands"],
     deployment: "docker",
-    storage: { postgres: false, redis: false },
-    i18n: { defaultLocale: "en", en: true, ru: false },
+    storage: { postgres: false, redis: true },
+    i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
     security: {
       webhookSecret: true,
       adminAllowlist: true,
       rateLimit: true,
       idempotency: true,
+    },
+    runtime: {
+      queue: "none",
+      telemetry: { otlp: false, prometheus: false, sentry: false },
     },
   };
 }
@@ -278,6 +282,30 @@ export default function aurifex(pi: ExtensionAPI): void {
             ? { projectRoot: params.projectRoot }
             : { projectRoot: params.projectRoot, overwrite: params.overwrite },
         ),
+      ),
+  });
+
+  pi.registerTool({
+    name: "telegram_bot_upgrade",
+    label: "Upgrade Bot Project",
+    description:
+      "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
+    parameters: z
+      .object({
+        projectRoot: z.string().describe("Project root relative to the workspace root"),
+        apply: z
+          .boolean()
+          .optional()
+          .describe("Write the migrated manifest. Defaults to false (dry run)."),
+      })
+      .strict(),
+    approval: "write",
+    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
+      runTool(ctx, signal, (operations) =>
+        operations.upgradeProject({
+          projectRoot: params.projectRoot,
+          apply: params.apply === true,
+        }),
       ),
   });
 

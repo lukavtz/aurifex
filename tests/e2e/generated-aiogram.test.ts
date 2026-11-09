@@ -54,8 +54,12 @@ const SPEC = {
   features: [...BOT_FEATURES],
   deployment: "docker",
   storage: { postgres: true, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: true },
+  i18n: { defaultLocale: "en", en: true, ru: true, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "postgres",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 const UV_ENV = { UV_PYTHON: "3.14" };

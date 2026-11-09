@@ -18,6 +18,7 @@ const EXPECTED_TOOLS = [
   "telegram_bot_add_feature",
   "telegram_bot_deploy_plan",
   "telegram_bot_test_harness",
+  "telegram_bot_upgrade",
   "telegram_bot_upgrade_plan",
 ] as const;
 

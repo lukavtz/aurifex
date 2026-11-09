@@ -158,7 +158,7 @@ test("stdio server exposes 8 tools and resolves targets", { timeout: 60_000 }, a
   const listed = await client.request("tools/list", {});
   assert.equal(listed.error, undefined);
   const tools = toolsSchema.parse(listed.result).tools;
-  assert.equal(tools.length, 8);
+  assert.equal(tools.length, 9);
   assert.deepEqual(tools.map((tool) => tool.name).toSorted(), [
     "telegram_bot_add_feature",
     "telegram_bot_deploy_plan",
@@ -166,6 +166,7 @@ test("stdio server exposes 8 tools and resolves targets", { timeout: 60_000 }, a
     "telegram_bot_scaffold",
     "telegram_bot_target_resolve",
     "telegram_bot_test_harness",
+    "telegram_bot_upgrade",
     "telegram_bot_upgrade_plan",
     "telegram_bot_verify",
   ]);

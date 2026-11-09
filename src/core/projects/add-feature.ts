@@ -136,6 +136,7 @@ async function inferSpec(
   }
   const name = normalizeName(candidate);
   const features = feature === "commands" ? (["commands"] as const) : ([feature] as const);
+  const queued = feature === "llm" || feature === "broadcast" || feature === "payments";
   return {
     schemaVersion: BOT_SPEC_VERSION,
     name,
@@ -143,13 +144,17 @@ async function inferSpec(
     stack,
     features,
     deployment: "docker",
-    storage: { postgres: true, redis: true },
-    i18n: { defaultLocale: "en", en: true, ru: true },
+    storage: { postgres: queued, redis: true },
+    i18n: { defaultLocale: "en", en: true, ru: true, zh: false },
     security: {
       webhookSecret: true,
       adminAllowlist: true,
       rateLimit: true,
       idempotency: true,
+    },
+    runtime: {
+      queue: queued ? "postgres" : "none",
+      telemetry: { otlp: false, prometheus: false, sentry: false },
     },
   };
 }

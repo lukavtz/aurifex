@@ -250,6 +250,33 @@ async function createTools(operations: CoreOperations) {
     },
   });
 
+  const upgrade = defineTool({
+    name: "telegram_bot_upgrade",
+    description:
+      "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
+    parameters: {
+      projectRoot: {
+        type: "string",
+        required: true,
+        description: "Project root relative to the configured Aurifex workspace root.",
+      },
+      apply: {
+        type: "boolean",
+        description: "Write the migrated manifest. Defaults to false (dry run).",
+      },
+    },
+    output: { schema: JSON_OUTPUT, render: renderResult },
+    execute: async (args, exec) => {
+      ensureActive(exec);
+      return toJson(
+        await operations.upgradeProject({
+          projectRoot: args.projectRoot,
+          apply: args.apply === true,
+        }),
+      );
+    },
+  });
+
   const upgradePlan = defineTool({
     name: "telegram_bot_upgrade_plan",
     description:
@@ -276,6 +303,7 @@ async function createTools(operations: CoreOperations) {
     addFeature,
     deployPlan,
     testHarness,
+    upgrade,
     upgradePlan,
   ] as const;
 }

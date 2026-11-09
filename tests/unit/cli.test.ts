@@ -6,19 +6,25 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
+
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const CLI = join(REPO, "src", "cli.ts");
 
 const SPEC = {
-  schemaVersion: "bot-spec-1.0.0",
+  schemaVersion: BOT_SPEC_VERSION,
   name: "demo_bot",
   displayName: "Demo Bot",
   stack: "grammy",
   features: ["commands"],
   deployment: "docker",
-  storage: { postgres: false, redis: false },
-  i18n: { defaultLocale: "en", en: true, ru: false },
+  storage: { postgres: false, redis: true },
+  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
   security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
+  runtime: {
+    queue: "none",
+    telemetry: { otlp: false, prometheus: false, sentry: false },
+  },
 };
 
 interface RunResult {

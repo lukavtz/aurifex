@@ -70,11 +70,11 @@ test("aiogram command feature writes handler and test", async () => {
 });
 
 const GRAMMY_FEATURES: ReadonlyArray<readonly [BotFeature, string, readonly string[]]> = [
-  ["llm", "llm", ["src/features/llm.ts", "tests/llm.test.ts"]],
+  ["llm", "llm", ["src/features/llm.ts", "src/jobs/llm.ts", "tests/llm.test.ts"]],
   ["inline", "inline", ["src/features/inline.ts", "tests/inline.test.ts"]],
   ["payments", "payments", ["src/features/payments.ts", "tests/payments.test.ts"]],
   ["moderation", "moderation", ["src/features/moderation.ts", "tests/moderation.test.ts"]],
-  ["broadcast", "broadcast", ["src/features/broadcast.ts", "tests/broadcast.test.ts"]],
+  ["broadcast", "broadcast", ["src/features/broadcast.ts", "src/jobs/broadcast.ts", "tests/broadcast.test.ts"]],
   ["widgets", "widget", ["src/features/widget.ts", "tests/widget.test.ts"]],
   ["rich", "rich", ["src/features/rich.ts", "tests/rich.test.ts"]],
 ];
@@ -88,11 +88,11 @@ for (const [feature, name, expected] of GRAMMY_FEATURES) {
 }
 
 const AIOGRAM_FEATURES: ReadonlyArray<readonly [BotFeature, string, readonly string[]]> = [
-  ["llm", "llm", ["app/services/llm.py", "app/handlers/llm.py", "tests/test_llm.py"]],
+  ["llm", "llm", ["app/handlers/llm.py", "app/jobs/llm.py"]],
   ["inline", "inline", ["app/handlers/inline.py", "tests/test_inline.py"]],
   ["payments", "payments", ["app/handlers/payments.py", "tests/test_payments.py"]],
   ["moderation", "moderation", ["app/middlewares/moderation.py", "tests/test_moderation.py"]],
-  ["broadcast", "broadcast", ["app/services/broadcast.py", "tests/test_broadcast.py"]],
+  ["broadcast", "broadcast", ["app/handlers/broadcast.py", "app/jobs/broadcast.py"]],
   ["widgets", "widget", ["app/handlers/widget.py", "tests/test_widget.py"]],
   ["rich", "rich", ["app/handlers/rich.py", "tests/test_rich.py"]],
 ];
@@ -232,7 +232,11 @@ test("nested project roots are detected and prefixed", async () => {
   const result = expectOk(
     await addFeature({ projectRoot: "bots/demo", feature: "llm", name: "llm" }, { policy }),
   );
-  assert.deepEqual(paths(result), ["bots/demo/src/features/llm.ts", "bots/demo/tests/llm.test.ts"]);
+  assert.deepEqual(paths(result), [
+    "bots/demo/src/features/llm.ts",
+    "bots/demo/src/jobs/llm.ts",
+    "bots/demo/tests/llm.test.ts",
+  ]);
 });
 
 test("grammy widgets and rich use the Bot API 10.4 adapter", async () => {
@@ -266,10 +270,7 @@ test("aiogram broadcast uses the shared retry helper", async () => {
   expectOk(
     await addFeature({ projectRoot: root, feature: "broadcast", name: "broadcast" }, { policy }),
   );
-  const broadcast = await policy.readText("app/services/broadcast.py");
-  assert.match(
-    broadcast,
-    /from app\.services\.retry import is_retry_after_error, sleep_retry_after/,
-  );
-  assert.match(broadcast, /await sleep_retry_after\(error\)/);
+  const broadcast = await policy.readText("app/jobs/broadcast.py");
+  assert.match(broadcast, /retry_after/);
+  assert.match(broadcast, /broadcast:rate:/);
 });

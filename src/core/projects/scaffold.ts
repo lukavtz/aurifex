@@ -19,6 +19,8 @@ import { PathPolicyError } from "../security/path-policy.ts";
 import type { BotSpec, BotStack } from "../spec/bot-spec.ts";
 import { BotSpecError, botSpecHash, validateBotSpec } from "../spec/bot-spec.ts";
 import { resolveStack } from "../targets/catalog.ts";
+import type { AurifexManifest } from "./manifest.ts";
+import { MANIFEST_PATH, serializeManifest } from "./manifest.ts";
 import { renderAiogramProject } from "./templates/aiogram.ts";
 import { renderGrammyProject } from "./templates/grammy.ts";
 import type { TemplateFile } from "./templates/shared.ts";
@@ -31,6 +33,7 @@ export interface ScaffoldResult {
   readonly specHash: string;
   /** Written files, relative to the path policy root (they include `root`). */
   readonly files: readonly FileRef[];
+  readonly manifest: AurifexManifest;
   readonly nextSteps: readonly string[];
 }
 
@@ -232,7 +235,21 @@ export async function scaffoldBot(
       }
     }
 
-    const files = render(spec);
+    const rendered = render(spec);
+    const specHash = botSpecHash(spec);
+    const manifest: AurifexManifest = {
+      manifestVersion: 1,
+      specVersion: spec.schemaVersion,
+      stack: spec.stack,
+      specHash,
+      generatedAt: options.now().toISOString(),
+      files: Object.fromEntries(rendered.map((file) => [file.path, sha256Hex(file.content)])),
+    };
+    // Manifest is committed last so a project never claims completeness before its files land.
+    const files: TemplateFile[] = [
+      ...rendered,
+      { path: MANIFEST_PATH, content: serializeManifest(manifest) },
+    ];
     const destinationName = basename(destination);
     staging = join(parent, `${destinationName}${STAGING_INFIX}${stagingSuffix}`);
     await mkdir(staging, { recursive: false });
@@ -261,8 +278,9 @@ export async function scaffoldBot(
     return domainSuccess<ScaffoldResult>({
       root: relative(policy.root, destination).split(sep).join("/"),
       stack: spec.stack,
-      specHash: botSpecHash(spec),
+      specHash,
       files: fileRefs.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      manifest,
       nextSteps: nextSteps(spec),
     });
   } catch (error) {
