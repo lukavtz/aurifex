@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#07080a" />
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
+
+    <title>Aurifex · production Telegram bots from one agent request</title>
+    <meta
+      name="description"
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks, four hosts."
+    />
+    <link rel="canonical" href="https://lukavtz.github.io/aurifex/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Aurifex" />
+    <meta property="og:url" content="https://lukavtz.github.io/aurifex/" />
+    <meta property="og:title" content="Aurifex · production Telegram bots from one agent request" />
+    <meta
+      property="og:description"
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks, four hosts."
+    />
+    <meta
+      property="og:image"
+      content="https://lukavtz.github.io/aurifex/assets/aurifex-banner.jpg"
+    />
+    <meta property="og:image:width" content="1536" />
+    <meta property="og:image:height" content="1024" />
+    <meta
+      property="og:image:alt"
+      content="A molten gold Telegram paper plane rising from an anvil on a dark atelier grid"
+    />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Aurifex · production Telegram bots from one agent request"
+    />
+    <meta
+      name="twitter:description"
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks."
+    />
+    <meta
+      name="twitter:image"
+      content="https://lukavtz.github.io/aurifex/assets/aurifex-banner.jpg"
+    />
+
+    <link rel="icon" type="image/png" sizes="64x64" href="assets/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="assets/aurifex-banner.webp" type="image/webp" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main" data-i18n="nav.skip">Skip to content</a>
+
+    <header class="topbar">
+      <div class="topbar__inner cd-wrap">
+        <a class="brand" href="#top" aria-label="Aurifex home" data-i18n-label="nav.home">
+          <img
+            class="brand__mark"
+            src="assets/aurifex-avatar.webp"
+            width="34"
+            height="34"
+            alt="Aurifex gold monogram"
+            data-i18n-alt="hero.markAlt"
+          />
+          <span class="brand__word">Aurifex</span>
+        </a>
+
+        <nav class="topbar__nav" aria-label="Sections">
+          <a href="#what" data-i18n="nav.what">What it does</a>
+          <a href="#architecture" data-i18n="nav.architecture">Architecture</a>
+          <a href="#security" data-i18n="nav.security">Security</a>
+          <a href="#cli" data-i18n="nav.cli">CLI</a>
+          <a href="#install" data-i18n="nav.install">Install</a>
+          <a href="#faq" data-i18n="nav.faq">FAQ</a>
+        </nav>
+
+        <div class="lang" role="group" aria-label="Language" data-i18n-label="nav.language">
+          <button type="button" class="lang__btn" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" class="lang__btn" data-lang="ru" aria-pressed="false">RU</button>
+          <button type="button" class="lang__btn" data-lang="zh" aria-pressed="false">中文</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <img
+          class="hero__art"
+          src="assets/aurifex-banner.webp"
+          width="1536"
+          height="1024"
+          alt="A molten gold Telegram paper plane rising from an anvil on a dark atelier grid, with a cool teal rim light"
+          data-i18n-alt="hero.artAlt"
+          fetchpriority="high"
+        />
+        <canvas class="hero__sparks" id="sparks" aria-hidden="true"></canvas>
+        <div class="hero__veil" aria-hidden="true"></div>
+
+        <div class="cd-wrap hero__grid">
+          <div class="hero__copy">
+            <h1 class="hero__title">
+              <span class="hero__line" data-i18n="hero.titleA">From one request</span>
+              <em class="hero__line hero__line--gilt" data-i18n="hero.titleB"
+                >to a hardened bot.</em
+              >
+            </h1>
+
+            <p class="hero__lede" data-i18n="hero.lede">
+              Aurifex gives your coding agent one path from a bot spec to a standalone Telegram
+              project, with security gates that stop a release before it ships.
+            </p>
+
+            <div class="hero__actions">
+              <a class="btn btn--primary" href="#install" data-magnetic data-i18n="hero.cta"
+                >Install Aurifex</a
+              >
+              <a class="btn btn--ghost" href="#showcase" data-i18n="hero.ctaAlt"
+                >See a generated project</a
+              >
+            </div>
+
+            <div class="plaque" aria-labelledby="install-label">
+              <p class="plaque__label" id="install-label" data-i18n="hero.installLabel">
+                One installer for macOS, Linux, and Windows
+              </p>
+              <div class="plaque__body">
+                <div class="plaque__stack">
+                  <div class="plaque__row">
+                    <span class="plaque__os" data-i18n="install.unix">macOS and Linux</span>
+                    <!-- prettier-ignore -->
+                    <div class="plaque__cmd">
+                      <code id="hero-unix">curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | sh</code>
+                      <button
+                        type="button"
+                        class="copy"
+                        data-copy-target="hero-unix"
+                        data-i18n="hero.copy"
+                        data-i18n-label="hero.copyUnix"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <div class="plaque__row">
+                    <span class="plaque__os" data-i18n="install.windows">Windows PowerShell</span>
+                    <!-- prettier-ignore -->
+                    <div class="plaque__cmd">
+                      <code id="hero-windows">powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"</code>
+                      <button
+                        type="button"
+                        class="copy"
+                        data-copy-target="hero-windows"
+                        data-i18n="hero.copy"
+                        data-i18n-label="hero.copyWindows"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="hero__hosts" data-i18n="hero.hosts">
+              OMP, DeepSeek Harness, Claude Code, MCP
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--demo" id="demo" aria-labelledby="demo-title">
+        <div class="cd-wrap demo">
+          <div class="demo__intro reveal">
+            <h2 class="h2" id="demo-title" data-i18n="demo.title">
+              The whole loop, in one terminal
+            </h2>
+            <p class="lede" data-i18n="demo.lede">
+              Scaffold, test, verify, deploy. Every command returns a stable DomainResult and
+              accepts --json.
+            </p>
+          </div>
+
+          <figure class="term reveal" data-term>
+            <figcaption class="term__bar">
+              <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="term__name">aurifex · zsh</span>
+              <button type="button" class="term__replay" data-term-replay data-i18n="demo.replay">
+                Replay the session
+              </button>
+            </figcaption>
+            <div class="term__body" aria-live="polite">
+              <p class="term__line" data-term-line="cmd">
+                node dist/cli.js new my-bot --spec bot.json
+              </p>
+              <p class="term__line term__line--out" data-term-line="out">
+                scaffold ok · grammy 1.46.0 · 23 files · bot-spec-1.0.0
+              </p>
+              <p class="term__line term__line--out" data-term-line="out">
+                next: cp .env.example .env
+              </p>
+              <p class="term__line" data-term-line="cmd">
+                cd my-bot &amp;&amp; bun install &amp;&amp; bun run typecheck &amp;&amp; bun test
+              </p>
+              <p class="term__line term__line--out" data-term-line="out">ok · 12 tests passed</p>
+              <p class="term__line" data-term-line="cmd">node ../dist/cli.js verify .</p>
+              <p class="term__line term__line--ok" data-term-line="out">
+                ok: 15 pass, 1 warn, 0 fail
+              </p>
+              <p class="term__line term__line--warn" data-term-line="out">
+                deps.lockfile · warn · no bun.lock found
+              </p>
+              <p class="term__line term__line--out" data-term-line="out">
+                gate open · release allowed
+              </p>
+            </div>
+          </figure>
+
+          <p class="note reveal" data-i18n="demo.note">
+            A fresh scaffold reports 15 passes and one warning: commit the lockfile after the first
+            install.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="what" aria-labelledby="what-title">
+        <div class="cd-wrap">
+          <header class="section__head reveal">
+            <h2 class="h2" id="what-title" data-i18n="features.title">What Aurifex does</h2>
+            <p class="lede" data-i18n="features.lede">
+              Four hosts, one implementation. Everything that touches your filesystem exists exactly
+              once.
+            </p>
+          </header>
+
+          <div class="features">
+            <article class="feature feature--5 reveal">
+              <h3 class="h3" data-i18n="features.core.title">One core, four projections</h3>
+              <p data-i18n="features.core.body">
+                The OMP extension, DSH bundle, Claude Code plugin, and MCP server only translate
+                schemas. Every write goes through the same CoreOperations and PathPolicy.
+              </p>
+            </article>
+
+            <article class="feature feature--7 reveal">
+              <h3 class="h3" data-i18n="features.standalone.title">Standalone by design</h3>
+              <p data-i18n="features.standalone.body">
+                A generated bot never imports Aurifex. It owns its source, lockfile, Dockerfile,
+                Caddyfile, and webhook registration script.
+              </p>
+            </article>
+
+            <article class="feature feature--4 reveal">
+              <h3 class="h3" data-i18n="features.botapi.title">Bot API 10.4, explicit</h3>
+              <p data-i18n="features.botapi.body">
+                grammY 1.46 and aiogram 3.31 stop at typed 10.3. Every project ships a typed raw
+                adapter for widgets, rich messages, and ephemeral replies.
+              </p>
+            </article>
+
+            <article class="feature feature--4 reveal">
+              <h3 class="h3" data-i18n="features.gate.title">Verification is a gate</h3>
+              <p data-i18n="features.gate.body">
+                Sixteen static checks run over a bounded snapshot. A token literal, a missing
+                secret, or a root container makes verify return ok: false.
+              </p>
+            </article>
+
+            <article class="feature feature--4 reveal">
+              <h3 class="h3" data-i18n="features.hosts.title">Four hosts, eight tools</h3>
+              <p data-i18n="features.hosts.body">
+                OMP, DeepSeek Harness, Claude Code through MCP, and any MCP client expose the same
+                eight telegram_bot tools.
+              </p>
+            </article>
+
+            <article class="feature feature--12 reveal">
+              <h3 class="h3" data-i18n="features.skills.title">Domain knowledge included</h3>
+              <p data-i18n="features.skills.body">
+                Skills for the Bot API, grammY, aiogram, security, testing, deploy, payments, and
+                Mini Apps, plus three review subagents.
+              </p>
+              <ul class="chips" aria-label="Skills">
+                <li>telegram-bot-api</li>
+                <li>grammy</li>
+                <li>aiogram</li>
+                <li>telegram-security</li>
+                <li>telegram-testing</li>
+                <li>telegram-deploy</li>
+                <li>telegram-payments</li>
+                <li>telegram-mini-apps</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--rail" id="architecture" aria-labelledby="arch-title">
+        <div class="cd-wrap" data-rail>
+          <header class="section__head reveal">
+            <h2 class="h2" id="arch-title" data-i18n="arch.title">One core, thin hosts</h2>
+            <p class="lede" data-i18n="arch.lede">
+              Hosts translate schemas. The core owns every path, template, and check.
+            </p>
+          </header>
+
+          <div class="diagram reveal">
+            <p class="diagram__label" data-i18n="arch.hostsLabel">Agent hosts</p>
+            <div class="diagram__row diagram__row--4">
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeOmp">OMP extension</span>
+                <code class="node__note">omp plugin link .</code>
+              </div>
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeDsh">DSH bundle</span>
+                <code class="node__note">dsh plugin --profile</code>
+              </div>
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeClaude">Claude Code</span>
+                <code class="node__note">.mcp.json</code>
+              </div>
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeMcp">MCP stdio</span>
+                <code class="node__note">aurifex-mcp</code>
+              </div>
+            </div>
+
+            <div class="wire" aria-hidden="true"><span></span></div>
+
+            <p class="diagram__label" data-i18n="arch.coreLabel">Domain core</p>
+            <div class="diagram__row diagram__row--1">
+              <div class="node node--core">
+                <span class="node__name" data-i18n="arch.nodeCore">CoreOperations</span>
+                <code class="node__note">src/core</code>
+              </div>
+            </div>
+
+            <div class="wire" aria-hidden="true"><span></span></div>
+
+            <div class="diagram__row diagram__row--3">
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodePolicy">PathPolicy</span>
+                <span class="node__note" data-i18n="arch.policyNote">authorized root</span>
+              </div>
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeTemplates">Templates</span>
+                <span class="node__note" data-i18n="arch.templatesNote">grammY, aiogram</span>
+              </div>
+              <div class="node">
+                <span class="node__name" data-i18n="arch.nodeVerify">Verify</span>
+                <span class="node__note" data-i18n="arch.verifyNote">16 checks</span>
+              </div>
+            </div>
+
+            <div class="wire" aria-hidden="true"><span></span></div>
+
+            <p class="diagram__label" data-i18n="arch.outLabel">Output</p>
+            <div class="diagram__row diagram__row--1">
+              <div class="node node--out">
+                <span class="node__name" data-i18n="arch.nodeBot">Standalone bot</span>
+                <span class="node__note" data-i18n="arch.botNote">no Aurifex import</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="note reveal" data-i18n="arch.caption">
+            No host writes files directly. PathPolicy bounds every read and write to an authorized
+            root.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="showcase" aria-labelledby="show-title">
+        <div class="cd-wrap">
+          <header class="section__head reveal">
+            <h2 class="h2" id="show-title" data-i18n="show.title">
+              What lands in your working tree
+            </h2>
+            <p class="lede" data-i18n="show.lede">
+              A scaffold is a complete project you can read, run, and ship without Aurifex.
+            </p>
+          </header>
+
+          <div class="showcase">
+            <div class="tree reveal">
+              <p class="tree__caption">my-bot/</p>
+              <pre class="tree__body"><span class="t-dir">├── src/</span>
+<span class="t-dir">│   ├── telegram/api104.ts</span>
+│   ├── config.ts
+│   ├── logger.ts
+│   ├── bot.ts
+│   ├── main.ts
+│   ├── server.ts
+<span class="t-dir">│   ├── features/</span>
+<span class="t-dir">│   ├── security/</span>
+<span class="t-dir">│   └── storage/</span>
+<span class="t-dir">├── tests/</span>
+├── .env.example
+├── Dockerfile
+├── docker-compose.yml
+├── Caddyfile
+├── package.json
+└── .github/workflows/ci.yml</pre>
+            </div>
+
+            <div class="showcase__side">
+              <div class="reveal">
+                <h3 class="h3" data-i18n="show.featuresLabel">Features, added one at a time</h3>
+                <ul class="chips chips--wide">
+                  <li data-i18n="show.f.commands">commands</li>
+                  <li data-i18n="show.f.llm">llm</li>
+                  <li data-i18n="show.f.inline">inline</li>
+                  <li data-i18n="show.f.payments">payments</li>
+                  <li data-i18n="show.f.miniapps">miniapps</li>
+                  <li data-i18n="show.f.moderation">moderation</li>
+                  <li data-i18n="show.f.broadcast">broadcast</li>
+                  <li data-i18n="show.f.widgets">widgets</li>
+                  <li data-i18n="show.f.rich">rich</li>
+                </ul>
+              </div>
+
+              <div class="reveal">
+                <h3 class="h3" data-i18n="show.verifyLabel">Verification output</h3>
+                <pre class="codeblock"><span class="c-dim">$</span> node dist/cli.js verify my-bot
+<span class="c-gold">ok: 15 pass, 1 warn, 0 fail</span>
+  deps.lockfile  <span class="c-teal">warn</span>  no bun.lock found</pre>
+              </div>
+            </div>
+          </div>
+
+          <p class="note reveal" data-i18n="show.note">
+            Deploy writes files and a setWebhook script. It never calls Telegram.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--rail" id="security" aria-labelledby="sec-title">
+        <div class="cd-wrap" data-rail>
+          <header class="section__head reveal">
+            <h2 class="h2" id="sec-title" data-i18n="sec.title">
+              Sixteen checks before anything ships
+            </h2>
+            <p class="lede" data-i18n="sec.lede">
+              The gate is static and deterministic. It never runs your project and never calls
+              Telegram.
+            </p>
+          </header>
+
+          <ul class="invariants">
+            <li class="invariant reveal">
+              <span class="invariant__id">token.literal</span>
+              <h3 class="h3" data-i18n="sec.token.title">No secrets in the tree</h3>
+              <p data-i18n="sec.token.body">
+                .env.example holds empty placeholders. Any token-shaped literal fails the build, and
+                the checker never echoes it.
+              </p>
+            </li>
+            <li class="invariant reveal">
+              <span class="invariant__id">webhook.secret</span>
+              <h3 class="h3" data-i18n="sec.webhook.title">Webhook hardening</h3>
+              <p data-i18n="sec.webhook.body">
+                A secret header, HTTPS, an allowed port, and a framework callback that compares the
+                secret. Custom equality checks fail.
+              </p>
+            </li>
+            <li class="invariant reveal">
+              <span class="invariant__id">updates.dedupe</span>
+              <h3 class="h3" data-i18n="sec.dedupe.title">One consumer, one update</h3>
+              <p data-i18n="sec.dedupe.body">
+                update_id claims a 24-hour Redis key with SET NX EX 86400, so a redelivered update
+                never runs twice.
+              </p>
+            </li>
+            <li class="invariant reveal">
+              <span class="invariant__id">retry.retry_after</span>
+              <h3 class="h3" data-i18n="sec.retry.title">Retries that respect limits</h3>
+              <p data-i18n="sec.retry.body">
+                allowed_updates is explicit and retry_after is honoured instead of hammering the
+                API.
+              </p>
+            </li>
+            <li class="invariant reveal">
+              <span class="invariant__id">container.non_root</span>
+              <h3 class="h3" data-i18n="sec.container.title">Non-root container</h3>
+              <p data-i18n="sec.container.body">
+                The Dockerfile ends on a named USER. Running as root fails verification.
+              </p>
+            </li>
+            <li class="invariant reveal">
+              <span class="invariant__id">allowlist.present</span>
+              <h3 class="h3" data-i18n="sec.admin.title">Server-side authority</h3>
+              <p data-i18n="sec.admin.body">
+                ADMIN_IDS is checked on the server. Mini App initData is validated with HMAC-SHA256
+                and an auth_date freshness limit.
+              </p>
+            </li>
+          </ul>
+
+          <div class="ids reveal">
+            <p class="ids__label" data-i18n="sec.idsLabel">Check identifiers</p>
+            <ul class="chips chips--ids">
+              <li>scan.bounded</li>
+              <li>token.literal</li>
+              <li>env.ignored</li>
+              <li>webhook.secret</li>
+              <li>webhook.https</li>
+              <li>webhook.port</li>
+              <li>webhook.constant_time</li>
+              <li>container.non_root</li>
+              <li>botapi.104</li>
+              <li>updates.allowed</li>
+              <li>updates.dedupe</li>
+              <li>retry.retry_after</li>
+              <li>tests.present</li>
+              <li>deps.lockfile</li>
+              <li>logs.redaction</li>
+              <li>allowlist.present</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="cli" aria-labelledby="cli-title">
+        <div class="cd-wrap">
+          <header class="section__head reveal">
+            <h2 class="h2" id="cli-title" data-i18n="cli.title">Nine commands, one result shape</h2>
+            <p class="lede" data-i18n="cli.lede">
+              A human summary by default, a DomainResult with --json.
+            </p>
+          </header>
+
+          <dl class="commands">
+            <div class="command reveal">
+              <dt><code>aurifex target</code></dt>
+              <dd data-i18n="cli.target">
+                Resolve the framework, runtime, Bot API, and feature support for a stack.
+              </dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex new</code></dt>
+              <dd data-i18n="cli.new">Scaffold a standalone project from a strict BotSpec.</dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex inspect</code></dt>
+              <dd data-i18n="cli.inspect">Detect stack and mode without writing anything.</dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex verify</code></dt>
+              <dd data-i18n="cli.verify">Run the static gate and return evidence per check.</dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex add</code></dt>
+              <dd data-i18n="cli.add">Add one feature module without touching unrelated files.</dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex deploy</code></dt>
+              <dd data-i18n="cli.deploy">
+                Write deploy files and a setWebhook script. No API call.
+              </dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex harness</code></dt>
+              <dd data-i18n="cli.harness">
+                Write update fixtures, a fake transport, and a tgfake compose profile.
+              </dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex upgrade-plan</code></dt>
+              <dd data-i18n="cli.upgrade">
+                List the Bot API 10.4 migration actions for a project.
+              </dd>
+            </div>
+            <div class="command reveal">
+              <dt><code>aurifex install</code></dt>
+              <dd data-i18n="cli.install">Install into OMP, DSH, and Claude Code in one pass.</dd>
+            </div>
+          </dl>
+
+          <p class="note reveal" data-i18n="cli.note">
+            Exit codes: 0 for success, 1 for a domain error, 2 for invalid usage.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--rail" id="install" aria-labelledby="install-title">
+        <div class="cd-wrap" data-rail>
+          <header class="section__head reveal">
+            <h2 class="h2" id="install-title" data-i18n="install.title">
+              Install once, reach every host
+            </h2>
+            <p class="lede" data-i18n="install.lede">
+              v0.1 ships from the repository. The npm package is not published yet.
+            </p>
+          </header>
+
+          <div class="installer">
+            <h3 class="h3 reveal" data-i18n="install.step1">Run the installer</h3>
+            <div class="installer__pair">
+              <div class="installer__item reveal">
+                <p class="plaque__os" data-i18n="install.unix">macOS and Linux</p>
+                <div class="codeblock codeblock--copy">
+                  <pre
+                    id="step-1"
+                  ><code>curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | sh</code></pre>
+                  <button
+                    type="button"
+                    class="copy"
+                    data-copy-target="step-1"
+                    data-i18n="hero.copy"
+                    data-i18n-label="hero.copyUnix"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <div class="installer__item reveal">
+                <p class="plaque__os" data-i18n="install.windows">Windows PowerShell</p>
+                <div class="codeblock codeblock--copy">
+                  <pre
+                    id="step-2"
+                  ><code>powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"</code></pre>
+                  <button
+                    type="button"
+                    class="copy"
+                    data-copy-target="step-2"
+                    data-i18n="hero.copy"
+                    data-i18n-label="hero.copyWindows"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="note reveal" data-i18n="install.note">
+            The installer detects OMP, DSH, and Claude Code, prints every command it runs, and skips
+            hosts that are not on PATH.
+          </p>
+
+          <div class="hosts">
+            <article class="host reveal">
+              <h3 class="h3" data-i18n="install.omp.title">OMP</h3>
+              <p data-i18n="install.omp.body">
+                Registers the extension declared by the omp field in package.json.
+              </p>
+              <code class="host__detail">omp.extensions</code>
+            </article>
+            <article class="host reveal">
+              <h3 class="h3" data-i18n="install.dsh.title">DeepSeek Harness</h3>
+              <p data-i18n="install.dsh.body">
+                Adds the bundle to a named profile through cordis.patch.yml.
+              </p>
+              <code class="host__detail">cordis.patch.yml</code>
+            </article>
+            <article class="host reveal">
+              <h3 class="h3" data-i18n="install.claude.title">Claude Code</h3>
+              <p data-i18n="install.claude.body">
+                Installs the plugin that points Claude Code at the bundled MCP server through
+                .mcp.json.
+              </p>
+              <code class="host__detail">.mcp.json</code>
+            </article>
+            <article class="host reveal">
+              <h3 class="h3" data-i18n="install.mcp.title">MCP client</h3>
+              <p data-i18n="install.mcp.body">
+                Any other MCP client connects to the built stdio server and receives the same eight
+                tools.
+              </p>
+              <code class="host__detail">AURIFEX_ROOT</code>
+            </article>
+          </div>
+
+          <p class="note reveal" data-i18n="install.rootNote">
+            AURIFEX_ROOT bounds every read and write. It defaults to the working directory.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="faq" aria-labelledby="faq-title">
+        <div class="cd-wrap faq">
+          <header class="section__head reveal">
+            <h2 class="h2" id="faq-title" data-i18n="faq.title">Before you install</h2>
+          </header>
+
+          <div class="faq__list">
+            <details class="reveal">
+              <summary data-i18n="faq.q1">Does a generated bot depend on Aurifex?</summary>
+              <p data-i18n="faq.a1">
+                No. A scaffolded project does not import the package or a shared runtime. It owns
+                its source, tests, container, and deploy files.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q2">Which Bot API version is supported?</summary>
+              <p data-i18n="faq.a2">
+                10.4, through a typed raw adapter. grammY 1.46 and aiogram 3.31 declarations cover
+                10.3, so Aurifex never claims native 10.4 types.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q3">Does verify run my bot?</summary>
+              <p data-i18n="faq.a3">
+                No. Verification is static over a bounded snapshot: 64 MiB total, 1 MiB per file.
+                Runtime proof comes from the generated tests and the gated E2E runs.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q4">Does deploy call Telegram?</summary>
+              <p data-i18n="faq.a4">
+                No. Deploy writes the Docker, Caddy, and setWebhook files. Registering the webhook
+                stays an explicit operator action.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q5">Is Docker required?</summary>
+              <p data-i18n="faq.a5">
+                No. Docker is not in the default gate. The tgfake compose profile and image builds
+                are optional.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q6">What is out of scope for v0.1?</summary>
+              <p data-i18n="faq.a6">
+                MTProto and userbot automation. Aurifex targets the Bot API only, and it is not a
+                sandbox: the host extension process is trusted code.
+              </p>
+            </details>
+            <details class="reveal">
+              <summary data-i18n="faq.q7">Can I install from a source checkout?</summary>
+              <p data-i18n="faq.a7">
+                Yes. Clone the repository, run pnpm install and pnpm build, then node dist/cli.js
+                install --host all. Per-host commands are listed in the README.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="cd-wrap footer__inner">
+        <div class="footer__brand">
+          <img
+            class="footer__mark"
+            src="assets/aurifex-avatar.webp"
+            width="44"
+            height="44"
+            alt="Aurifex monogram"
+            data-i18n-alt="footer.markAlt"
+            loading="lazy"
+          />
+          <div>
+            <p class="footer__word">Aurifex</p>
+            <p class="footer__tagline" data-i18n="footer.tagline">
+              Production Telegram bots from one agent request.
+            </p>
+          </div>
+        </div>
+
+        <nav class="footer__links" aria-label="Repository">
+          <a href="https://github.com/lukavtz/aurifex" data-i18n="footer.repo">Repository</a>
+          <a href="https://github.com/lukavtz/aurifex/pulls" data-i18n="footer.prs"
+            >Pull requests</a
+          >
+          <a href="https://github.com/lukavtz/aurifex/blob/main/LICENSE" data-i18n="footer.license"
+            >MIT license</a
+          >
+          <a
+            href="https://github.com/lukavtz/aurifex/blob/main/docs/SPEC.md"
+            data-i18n="footer.spec"
+            >Specification</a
+          >
+          <a
+            href="https://github.com/lukavtz/aurifex/blob/main/docs/ARCHITECTURE.md"
+            data-i18n="footer.architecture"
+            >Architecture</a
+          >
+          <a
+            href="https://github.com/lukavtz/aurifex/blob/main/docs/TEST_PLAN.md"
+            data-i18n="footer.testPlan"
+            >Test plan</a
+          >
+        </nav>
+
+        <p class="footer__built" data-i18n="footer.built">
+          Built for OMP, DeepSeek Harness, Claude Code, and MCP.
+        </p>
+        <p class="footer__rights" data-i18n="footer.rights">
+          MIT licensed. Third-party attributions are listed in the repository.
+        </p>
+      </div>
+    </footer>
+
+    <script src="i18n.js" defer></script>
+    <script src="main.js" defer></script>
+  </body>
+</html>

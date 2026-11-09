@@ -4,6 +4,8 @@
 
 <h1 align="center">Aurifex</h1>
 
+**Сайт:** https://lukavtz.github.io/aurifex/ · **GitHub:** https://github.com/lukavtz/aurifex
+
 <p align="center"><strong>Продакшен-боты Telegram по запросу агента: созданы, защищены, протестированы и готовы к деплою.</strong></p>
 
 <p align="center">

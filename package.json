@@ -114,7 +114,8 @@
     "test:e2e:live": "node --test --experimental-strip-types --test-timeout=120000 \"tests/e2e/live-telegram.test.ts\"",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "pack:check": "pnpm pack --dry-run",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:integration && pnpm test:host && pnpm check:secrets && pnpm pack:check",
-    "prepare": "npm run build"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:integration && pnpm test:host && pnpm check:site && pnpm check:secrets && pnpm pack:check",
+    "prepare": "npm run build",
+    "check:site": "node scripts/check-site.mjs"
   }
 }

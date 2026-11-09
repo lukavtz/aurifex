@@ -4,6 +4,8 @@
 
 <h1 align="center">Aurifex</h1>
 
+**Site:** https://lukavtz.github.io/aurifex/ · **GitHub:** https://github.com/lukavtz/aurifex
+
 <p align="center"><strong>Production Telegram bots from one agent request — scaffolded, secured, tested, and ready to deploy.</strong></p>
 
 <p align="center">
