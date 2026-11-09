@@ -14,7 +14,7 @@ request:
 | `workflow lint`                   | `actionlint` over every workflow                                                                        |
 
 `security.yml` adds CodeQL (`javascript-typescript`, `security-and-quality`) on pushes,
-pull requests, and a weekly schedule, plus dependency review on pull requests.
+pull requests, and a weekly schedule. Dependency review runs on every pull request.
 
 `pages.yml` deploys `site/` to <https://lukavtz.github.io/aurifex/> when site files
 change. The workflow requires Pages configured with **Source: GitHub Actions**.
