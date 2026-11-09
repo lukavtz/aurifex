@@ -97,12 +97,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - name: Run infra suite (one retry for Docker-in-Docker startup)
+      - name: Run infra suite
+        shell: bash
         run: |
-          pnpm test:infra || {
-            echo "infra failed once; retrying"
-            pnpm test:infra
-          }
+          set +e
+          pnpm test:infra 2>&1 | tee "$RUNNER_TEMP/infra.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo '### infra failure log'
+              echo '```'
+              tail -200 "$RUNNER_TEMP/infra.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
   docker:
     name: docker images
