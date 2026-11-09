@@ -1,0 +1,39 @@
+name: Live Telegram E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: live telegram (workflow_dispatch only)
+    runs-on: ubuntu-latest
+    env:
+      AURIFEX_LIVE: "1"
+      TELEGRAM_TEST_BOT_TOKEN: ${{ secrets.TELEGRAM_TEST_BOT_TOKEN }}
+      TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Require live secrets
+        shell: bash
+        run: |
+          if [ -z "${TELEGRAM_TEST_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_TEST_CHAT_ID:-}" ]; then
+            echo "::error::TELEGRAM_TEST_BOT_TOKEN and TELEGRAM_TEST_CHAT_ID are required for live E2E"
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test:e2e:live

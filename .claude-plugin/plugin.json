@@ -1,0 +1,13 @@
+{
+  "name": "aurifex",
+  "version": "0.1.0",
+  "description": "Production Telegram bot development for Claude Code: scaffold, secure, test, deploy grammY and aiogram bots with Bot API 10.4 support.",
+  "author": {
+    "name": "lukavtz"
+  },
+  "homepage": "https://github.com/lukavtz/aurifex",
+  "repository": "https://github.com/lukavtz/aurifex",
+  "license": "MIT",
+  "keywords": ["telegram", "bots", "grammy", "aiogram", "bot-api"],
+  "icon": "assets/readme/aurifex-avatar.png"
+}

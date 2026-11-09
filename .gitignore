@@ -1,0 +1,14 @@
+raw/
+node_modules/
+dist/
+coverage/
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+*.log
+tests/.tmp/
+.codebase-memory/
