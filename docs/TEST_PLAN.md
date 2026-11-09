@@ -32,15 +32,16 @@ runs package managers and therefore needs network; the live suite also needs net
 
 ## Matrix
 
-| Suite           | Command                             | Scope                                                                         | Network | Skip behavior                                                                |
-| --------------- | ----------------------------------- | ----------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------- |
-| Unit            | `pnpm test:unit`                    | `tests/unit/**/*.test.ts`                                                     | no      | never skipped                                                                |
-| Security        | `pnpm test:security`                | `tests/security/**/*.test.ts`                                                 | no      | never skipped                                                                |
-| Integration     | `pnpm test:integration`             | `tests/integration/**/*.test.ts`                                              | no      | never skipped                                                                |
-| Host            | `pnpm test:host`                    | `tests/host/**/*.test.ts`                                                     | no      | never skipped                                                                |
-| E2E (generated) | `AURIFEX_E2E=1 pnpm test:e2e`       | `tests/e2e/**/*.test.ts`                                                      | yes     | skipped unless `AURIFEX_E2E=1`                                               |
-| E2E (live)      | `AURIFEX_LIVE=1 pnpm test:e2e:live` | `tests/e2e/live-telegram.test.ts`                                             | yes     | skipped unless `AURIFEX_LIVE=1`; fails if secrets are absent while it is set |
-| Full gate       | `pnpm verify`                       | format, lint, typecheck, unit, security, integration, host, secret scan, pack | no      | never skipped                                                                |
+| Suite           | Command                             | Scope                                                                           | Network | Skip behavior                                                                |
+| --------------- | ----------------------------------- | ------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| Unit            | `pnpm test:unit`                    | `tests/unit/**/*.test.ts`                                                       | no      | never skipped                                                                |
+| Security        | `pnpm test:security`                | `tests/security/**/*.test.ts`                                                   | no      | never skipped                                                                |
+| Integration     | `pnpm test:integration`             | `tests/integration/**/*.test.ts`                                                | no      | never skipped                                                                |
+| Host            | `pnpm test:host`                    | `tests/host/**/*.test.ts`                                                       | no      | never skipped                                                                |
+| E2E (generated) | `AURIFEX_E2E=1 pnpm test:e2e`       | `tests/e2e/**/*.test.ts`                                                        | yes     | skipped unless `AURIFEX_E2E=1`                                               |
+| E2E (live)      | `AURIFEX_LIVE=1 pnpm test:e2e:live` | `tests/e2e/live-telegram.test.ts`                                               | yes     | skipped unless `AURIFEX_LIVE=1`; fails if secrets are absent while it is set |
+| Site            | `pnpm check:site`                   | trilingual key parity, local assets, no external scripts                        | no      | never skipped                                                                |
+| Full gate       | `pnpm verify`                       | format, lint, typecheck, unit, security, integration, host, site, secrets, pack | no      | never skipped                                                                |
 
 `pnpm verify` order is fixed:
 `format:check → lint → typecheck → test:unit → test:security → test:integration → test:host → check:secrets → pack:check`.
@@ -77,9 +78,13 @@ runs package managers and therefore needs network; the live suite also needs net
 - `cli.test.ts` — exit codes `0/1/2`, JSON shape, usage errors, project-relative
   scaffold paths.
 - `install.test.ts` — one-command installer: dry-run, all hosts, source resolution,
-  missing host, redaction.
+  missing host, redaction (POSIX fake-host shims).
+- `install-scripts.test.ts` — `install.sh`/`install.ps1` flow, persistent root, Node
+  version floor, idempotent re-run; PowerShell execution is Windows-only.
+- `install-windows.test.ts` — Windows-only `.cmd` host shim execution through `cmd.exe`.
 - `content.test.ts` — skill/agent/command frontmatter, name/directory agreement, body size
   under 8 KB, Bot API 10.4 skill coverage.
+- `scripts/check-site.mjs` — EN/RU/ZH key parity, every local asset, no external scripts.
 
 ### Security (`tests/security`)
 
@@ -121,6 +126,12 @@ runs package managers and therefore needs network; the live suite also needs net
 
 Unless `AURIFEX_E2E=1` is set, generated-project suites emit an explicit skip message and
 exit successfully. CI sets it for the `e2e` job.
+
+### Pages
+
+`.github/workflows/pages.yml` runs `node scripts/check-site.mjs`, uploads `site/`, and
+deploys with the official Pages actions. The live URL is
+<https://lukavtz.github.io/aurifex/>.
 
 ### Live suite
 
