@@ -93,10 +93,10 @@
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
     "@deepseek-ai/schemastery": "3.19.0",
     "@oh-my-pi/pi-coding-agent": "18.18.3",
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.6.6",
     "oxlint": "^1.93.0",
     "prettier": "^3.9.10",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   },
   "packageManager": "pnpm@12.18.0",
   "scripts": {
