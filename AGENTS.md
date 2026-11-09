@@ -14,7 +14,8 @@ owns a user's bot process.
 - Token-shaped literals are findings, not warnings.
 - Webhook mode requires a secret token, HTTPS, an allowed port, and a
   constant-time header check in generated code.
-- Long-running work never runs inside a webhook handler.
+- Long-running work never runs inside a webhook handler. The generated LLM demo is
+  bounded to 8 seconds, below the 9-second webhook timeout; real long jobs must enqueue.
 - Live Telegram tests are secret-gated and never run in the default suite.
 - Public contracts are versioned. A breaking tool schema requires a new spec
   version and a migration note.
