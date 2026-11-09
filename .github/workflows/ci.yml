@@ -52,10 +52,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: 0.12.23
           python-version: "3.14"
+          enable-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test:e2e
