@@ -219,6 +219,7 @@ async function psql(container: string, sql: string, quiet = true): Promise<strin
     container,
     "psql",
     "-X",
+    "-tA",
     ...(quiet ? ["-q"] : []),
     "-v",
     "ON_ERROR_STOP=1",
