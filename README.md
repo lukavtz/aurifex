@@ -53,6 +53,14 @@ interactive terminal the installer asks which hosts and scope to use; set
 `AURIFEX_HOSTS=omp,claude`, `AURIFEX_SCOPE=user|project`, or `AURIFEX_YES=1` for
 non-interactive runs.
 
+The installer also creates an `aurifex` launcher in `~/.local/bin`
+(`%LOCALAPPDATA%\Aurifex\bin` on Windows). If that directory is not on `PATH`,
+the printed path is the fallback:
+
+```sh
+node "$HOME/.aurifex/src/dist/cli.js" --help
+```
+
 ## What it does
 
 |              |                                                                                                                                         |

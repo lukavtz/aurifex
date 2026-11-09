@@ -118,3 +118,22 @@ if [ "$DRY_RUN" = "1" ]; then
   set -- "$@" --dry-run
 fi
 (cd "$SOURCE_DIR" && node dist/cli.js "$@") || fail "aurifex install failed."
+
+if [ "$DRY_RUN" != "1" ]; then
+  case "$SOURCE_DIR" in
+    *'"'* | *'
+'*) fail "install path contains an unsafe character for the launcher." ;;
+  esac
+  BIN_DIR="${AURIFEX_BIN_DIR:-$HOME/.local/bin}"
+  mkdir -p "$BIN_DIR" || fail "could not create $BIN_DIR."
+  cat >"$BIN_DIR/aurifex" <<EOF
+#!/bin/sh
+exec node "$SOURCE_DIR/dist/cli.js" "\$@"
+EOF
+  chmod 755 "$BIN_DIR/aurifex" || fail "could not make $BIN_DIR/aurifex executable."
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) say "Add $BIN_DIR to PATH to run 'aurifex' directly." ;;
+  esac
+  say "Installed CLI: $BIN_DIR/aurifex"
+fi

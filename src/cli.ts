@@ -776,6 +776,14 @@ function printResult(command: Command, json: boolean, result: DomainResult<unkno
 }
 
 export async function runCli(argv: readonly string[]): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(`${USAGE}\n`);
+    return 0;
+  }
+  if (argv.includes("--version")) {
+    process.stdout.write(`Aurifex ${await packageVersion()}\n`);
+    return 0;
+  }
   try {
     const parsed = parse(argv);
     if (parsed.command === "install") return await runInstall(parsed);

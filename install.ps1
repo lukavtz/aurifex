@@ -146,6 +146,28 @@ try {
     } finally {
         Pop-Location
     }
+
+    if (-not $DryRun) {
+        if ($SourceDir.Contains('"')) {
+            throw "install path contains an unsafe character for the launcher"
+        }
+        $BinDir = $env:AURIFEX_BIN_DIR
+        if (-not $BinDir) {
+            $BinDir = Join-Path $HomeDir "bin"
+        }
+        New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+        $Launcher = Join-Path $BinDir "aurifex.cmd"
+        Set-Content -Path $Launcher -Encoding ASCII -Value (
+            "@echo off`r`nnode `"$SourceDir\dist\cli.js`" %*`r`n"
+        )
+        $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if ($UserPath -notlike "*$BinDir*") {
+            [Environment]::SetEnvironmentVariable(
+                "Path", (($UserPath, $BinDir) | Where-Object { $_ }) -join ";", "User"
+            )
+        }
+        Write-Host "Installed CLI: $Launcher"
+    }
 } catch {
     $Failure = $_.Exception.Message
 } finally {

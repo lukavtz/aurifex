@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -103,6 +113,8 @@ test(
     assert.match(script, /node dist\/cli\.js/);
     assert.ok(script.includes("install --source"));
     assert.ok(script.includes("--dry-run"));
+    assert.ok(script.includes("$BIN_DIR/aurifex"));
+    assert.ok(script.includes("Installed CLI:"));
     assert.match(script, /trap cleanup EXIT/);
     assert.match(script, /rm -rf "\$TMP_DIR"/);
     assert.match(script, /NODE_MAJOR" -lt 24/);
@@ -196,6 +208,46 @@ test(
 );
 
 test(
+  "install.sh creates an aurifex launcher",
+  { skip: POSIX ? false : "requires a POSIX shell" },
+  async (t) => {
+    await ensureDist();
+    const root = await tempRoot();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const bin = join(root, "bin");
+    const pkg = join(root, "pkg");
+    const launcherDir = join(root, "launcher");
+    const log = join(root, "calls.log");
+    await mkdir(bin);
+    await mkdir(pkg);
+    await cp(join(REPO, "package.json"), join(pkg, "package.json"));
+    await symlink(join(REPO, "dist"), join(pkg, "dist"), "dir");
+    for (const host of ["omp", "dsh", "claude"]) {
+      await writeFile(join(bin, host), `#!/bin/sh\necho "${host}:$*" >> "$AURIFEX_TEST_LOG"\n`, {
+        mode: 0o755,
+      });
+    }
+    const nodeDir = join(process.execPath, "..");
+    const result = await run("/bin/sh", [INSTALL_SH], {
+      cwd: root,
+      env: {
+        PATH: `${bin}:${nodeDir}:/usr/bin:/bin`,
+        AURIFEX_SOURCE_DIR: pkg,
+        AURIFEX_BIN_DIR: launcherDir,
+        AURIFEX_TEST_LOG: log,
+        AURIFEX_YES: "1",
+      },
+    });
+    assert.equal(result.code, 0, result.stderr);
+    const launcher = join(launcherDir, "aurifex");
+    assert.ok((await stat(launcher)).isFile());
+    const version = await run(launcher, ["--version"], { cwd: root });
+    assert.equal(version.code, 0, version.stderr);
+    assert.match(version.stdout, /Aurifex 0\.2\.0/);
+  },
+);
+
+test(
   "install.sh reuses the persistent install root across runs",
   { skip: POSIX ? false : "requires a POSIX shell" },
   async (t) => {
@@ -256,6 +308,8 @@ test("install.ps1 implements the required Windows install flow", async () => {
   assert.match(script, /node "dist\/cli\.js"/);
   assert.ok(script.includes('@("install", "--source", $SourceDir)'));
   assert.ok(script.includes('"--dry-run"'));
+  assert.ok(script.includes("aurifex.cmd"));
+  assert.ok(script.includes("Installed CLI:"));
   assert.match(script, /try \{/);
   assert.match(script, /finally \{/);
   assert.match(script, /Remove-Item -Path \$ScratchDir -Recurse -Force/);
