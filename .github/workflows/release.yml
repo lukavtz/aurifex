@@ -69,8 +69,10 @@ jobs:
         run: |
           set -euo pipefail
           ls -la
-          ls -la dist
-          for file in dist/*.tgz; do
+          find dist -maxdepth 3 -type f -print
+          mapfile -t files < <(find dist -type f -name '*.tgz')
+          test "${#files[@]}" -gt 0
+          for file in "${files[@]}"; do
             cosign sign-blob --yes "$file" \
               --output-signature "${file}.sig" \
               --output-certificate "${file}.pem"
