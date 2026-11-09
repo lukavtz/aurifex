@@ -247,12 +247,10 @@ export async function startPostgres(): Promise<Postgres> {
     psql(container.name, sql, quiet);
 
   try {
-    // The entrypoint starts a temporary server for initdb. Wait for it to log
-    // completion before probing, otherwise the temporary server answers first.
-    await waitFor("postgres init", async () => {
-      const logs = await run("docker", ["logs", container.name]);
-      return logs.stdout.includes("PostgreSQL init process complete");
-    });
+    // The entrypoint starts a temporary server for initdb. Probe twice with a
+    // gap so the temporary server cannot satisfy both checks.
+    await waitFor("postgres", async () => (await query("SELECT 1")).trim() === "1");
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
     await waitFor("postgres", async () => (await query("SELECT 1")).trim() === "1");
   } catch (error) {
     await container.stop();
