@@ -72,8 +72,11 @@ Local results:
 | Claude Code                   | isolated `HOME`: marketplace add + plugin install — enabled, MCP server listed                   |
 | `pnpm audit --prod`           | no known vulnerabilities                                                                         |
 
-CI status: pending the first push. The `verify` job runs on Ubuntu, macOS, and Windows; the
-`e2e` job runs generated projects with Bun 1.4.2, uv 0.12.23, and Python 3.14.
+CI status: the first run failed before any step executed (`steps: []`, `runner_name: ""`)
+on every job. That is runner provisioning for the new private repository, not a workflow
+or test failure; local verification is green. The `verify` job targets Ubuntu, macOS, and
+Windows; the `e2e` job targets generated projects with Bun 1.4.2, uv 0.12.23, and Python
+3.14.
 
 ## Limitations
 
