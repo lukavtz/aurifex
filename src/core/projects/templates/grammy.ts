@@ -333,7 +333,10 @@ ${needsDb ? "    await closeDb();\n" : ""}    await shutdownTelemetry();
     return;
   }
 
-  await bot.api.deleteWebhook({ drop_pending_updates: false });
+  const webhook = await bot.api.getWebhookInfo();
+  if (webhook.url !== "") {
+    throw new Error("a webhook is configured; clear it explicitly before starting polling");
+  }
   await bot.start({ allowed_updates: [...ALLOWED_UPDATES] });
 }
 
