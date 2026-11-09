@@ -126,7 +126,7 @@ async function startContainer(label: string, options: StartOptions): Promise<Con
       "--name",
       name,
       "-p",
-      `127.0.0.1:${hostPort}:${options.containerPort}`,
+      `${hostPort}:${options.containerPort}`,
       ...envArgs,
       options.image,
     ]);
