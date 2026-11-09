@@ -208,7 +208,8 @@ AURIFEX_E2E=1 pnpm test:e2e
 
 `pnpm verify` запускает форматирование, линт, строгий TypeScript, unit-, security-,
 integration-, host-, site- и secret-проверки, затем сухой прогон пакета. Детали — в
-[`docs/SPEC.md`](./docs/SPEC.md) и [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+[`docs/SPEC.md`](./docs/SPEC.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) и
+[`docs/RELEASE.md`](./docs/RELEASE.md).
 
 <details>
 <summary>Ручная установка хостов и MCP</summary>

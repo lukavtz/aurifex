@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { createCoreOperations, type CoreOperations } from "./core/operations.ts";
@@ -700,6 +700,6 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 }
 
 const entry = process.argv[1];
-if (entry !== undefined && pathToFileURL(entry).href === import.meta.url) {
+if (entry !== undefined && realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exitCode = await runCli(process.argv.slice(2));
 }

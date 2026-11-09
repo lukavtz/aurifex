@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -189,4 +189,26 @@ test("add rebases feature paths to the project root", { timeout: 120_000 }, asyn
   assert.ok(payload.value.files.some((file) => file.path === "src/features/echo.ts"));
   assert.ok(payload.value.files.every((file) => !file.path.startsWith("demo/")));
   await access(join(root, "demo", "src", "features", "echo.ts"));
+});
+
+test("entry guard follows a symlinked bin", { skip: process.platform === "win32" }, async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-bin-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const link = join(root, "aurifex");
+  await symlink(CLI, link);
+  const { promise, resolve } = Promise.withResolvers<{ code: number; stdout: string }>();
+  const child = spawn(
+    process.execPath,
+    ["--experimental-strip-types", link, "target", "--stack", "grammy", "--json"],
+    {
+      cwd: REPO,
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  );
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+  child.on("close", (code) => resolve({ code: code ?? -1, stdout }));
+  const result = await promise;
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /"frameworkVersion":"1.46.0"/);
 });

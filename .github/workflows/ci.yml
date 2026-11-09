@@ -17,16 +17,17 @@ jobs:
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.18.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -36,40 +37,90 @@ jobs:
   e2e:
     name: e2e (generated projects)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       AURIFEX_E2E: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.18.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10
         with:
           version: 0.12.23
-      - run: uv python install 3.14
+          python-version: "3.14"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test:e2e
 
-  audit:
-    name: audit
+  workflows:
+    name: workflow lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - name: actionlint
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+
+  package:
+    name: package smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.18.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --prod
+      - run: pnpm build
+      - name: Pack and install the tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/app"
+          pnpm pack --pack-destination "$RUNNER_TEMP/pkg"
+          cd "$RUNNER_TEMP/app"
+          npm init -y >/dev/null
+          npm install "$RUNNER_TEMP"/pkg/*.tgz
+          npx --no-install aurifex target --stack grammy --json \
+            | grep -q '"frameworkVersion":"1.46.0"'
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+            | node node_modules/aurifex/dist/adapters/mcp/server.js \
+            | grep -q '"telegram_bot_target_resolve"'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aurifex-package
+          path: ${{ runner.temp }}/pkg/*.tgz
+          if-no-files-found: error
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
       - run: node scripts/check-no-secrets.mjs

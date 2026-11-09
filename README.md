@@ -206,7 +206,8 @@ AURIFEX_E2E=1 pnpm test:e2e
 
 `pnpm verify` runs formatting, lint, strict TypeScript, unit, security, integration, host
 contract, site, and secret checks, then the package dry-run. Design details live in
-[`docs/SPEC.md`](./docs/SPEC.md) and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+[`docs/SPEC.md`](./docs/SPEC.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), and
+[`docs/RELEASE.md`](./docs/RELEASE.md).
 
 <details>
 <summary>Manual host setup and MCP config</summary>

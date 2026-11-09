@@ -50,7 +50,8 @@
     ".claude-plugin",
     ".mcp.json",
     "THIRD_PARTY_NOTICES.md",
-    "assets"
+    "assets",
+    "docs/RELEASE.md"
   ],
   "engines": {
     "node": ">=24.9.0",
