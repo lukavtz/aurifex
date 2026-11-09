@@ -55,6 +55,7 @@ test(
     };
     assert.equal(payload.status, "ok");
     assert.equal(payload.value.hosts[0]?.status, "installed");
-    assert.match(await readFile(log, "utf8"), /omp:plugin install/);
+    const calls = await readFile(log, "utf8");
+    assert.match(calls, /omp:"plugin" "install"/);
   },
 );
