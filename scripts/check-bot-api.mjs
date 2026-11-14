@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Pins the Bot API surface Aurifex types against and watches the official docs
-// for drift. Network failures are never a pass: they exit 1 with
+// for drift. Network failures are never a pass: they exit 3 with
 // "network_unavailable" so a scheduled run cannot silently go green.
 //
 // Modes:
@@ -9,11 +9,20 @@
 //   --version  print the newest documented Bot API version
 //
 // Test flags: --changelog-file, --api-file, --contract-file, --base-url.
+//
+// Fetches are origin-pinned to --base-url (core.telegram.org by default),
+// redirects are followed by hand so a cross-origin hop is refused, bodies are
+// capped, and a page that does not parse yields no contract write.
 
 import { readFile, writeFile } from "node:fs/promises";
 
 const DEFAULT_BASE_URL = "https://core.telegram.org/bots";
 const CONTRACT_PATH = new URL("../src/core/targets/bot-api-contract.json", import.meta.url);
+
+// The docs are a few hundred KiB; anything near this cap is not the Bot API page.
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 const VERSION_RE = /\*\*Bot API (\d+)\.(\d+)\*\*/;
 const METHOD_LINK_RE = /\[([A-Za-z][A-Za-z0-9]*)\]\(\/bots\/api\/methods\/[a-z0-9_]+\.md\)/g;
@@ -72,6 +81,99 @@ function parseArgs(argv) {
   return args;
 }
 
+function sourceOrigin(baseUrl) {
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new DriftError("usage", `invalid --base-url: ${baseUrl}`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new DriftError("usage", `--base-url must be http(s): ${baseUrl}`);
+  }
+  return parsed.origin;
+}
+
+async function readCappedBody(response, label, url) {
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new DriftError(
+          "body_too_large",
+          `${label}: ${url}: response exceeds ${MAX_BODY_BYTES} bytes`,
+        );
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof DriftError) throw error;
+    throw new DriftError("network_unavailable", `${label}: ${url}: ${error.message}`);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+// The contract is derived from text fetched over the network, so the origin is
+// pinned: redirects are followed by hand and every hop must stay on the docs
+// origin that --base-url names (core.telegram.org by default).
+async function fetchDocument({ label, url, allowedOrigin }) {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    if (new URL(current).origin !== allowedOrigin) {
+      throw new DriftError(
+        "source_rejected",
+        `${label}: ${current}: origin is not ${allowedOrigin}`,
+      );
+    }
+    let response;
+    try {
+      response = await fetch(current, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (error) {
+      throw new DriftError("network_unavailable", `${label}: ${current}: ${error.message}`);
+    }
+    const finalOrigin = new URL(response.url).origin;
+    if (finalOrigin !== allowedOrigin) {
+      throw new DriftError(
+        "source_rejected",
+        `${label}: ${current}: response came from ${finalOrigin}, expected ${allowedOrigin}`,
+      );
+    }
+    if (REDIRECT_STATUSES.has(response.status)) {
+      const location = response.headers.get("location");
+      if (location === null) {
+        throw new DriftError(
+          "source_rejected",
+          `${label}: ${current}: redirect without a Location header`,
+        );
+      }
+      const next = new URL(location, current);
+      if (next.origin !== allowedOrigin) {
+        throw new DriftError(
+          "source_rejected",
+          `${label}: ${current}: redirect to a different origin is not allowed: ${next.href}`,
+        );
+      }
+      current = next.href;
+      continue;
+    }
+    if (!response.ok) {
+      throw new DriftError("network_unavailable", `${label}: ${current}: HTTP ${response.status}`);
+    }
+    return await readCappedBody(response, label, current);
+  }
+  throw new DriftError("source_rejected", `${label}: ${url}: more than ${MAX_REDIRECTS} redirects`);
+}
+
 async function loadSource({ label, file, baseUrl, path }) {
   if (file !== undefined) {
     try {
@@ -80,21 +182,11 @@ async function loadSource({ label, file, baseUrl, path }) {
       throw new DriftError("file_unavailable", `${label}: ${error.message}`);
     }
   }
-  const url = `${baseUrl}${path}`;
-  let response;
-  try {
-    response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  } catch (error) {
-    throw new DriftError("network_unavailable", `${label}: ${url}: ${error.message}`);
-  }
-  if (!response.ok) {
-    throw new DriftError("network_unavailable", `${label}: ${url}: HTTP ${response.status}`);
-  }
-  try {
-    return await response.text();
-  } catch (error) {
-    throw new DriftError("network_unavailable", `${label}: ${url}: ${error.message}`);
-  }
+  return fetchDocument({
+    label,
+    url: `${baseUrl}${path}`,
+    allowedOrigin: sourceOrigin(baseUrl),
+  });
 }
 
 function uniqueSorted(values) {
@@ -136,6 +228,12 @@ function liveSurface(changelog, apiIndex) {
     throw new DriftError(
       "parse_failed",
       "api.md: no method links; the docs response is not usable",
+    );
+  }
+  if (methods.length === 0) {
+    throw new DriftError(
+      "parse_failed",
+      `changelog: no method links in the Bot API ${version.raw} block`,
     );
   }
   return { version, date: releaseDate(changelog, match.index), methods, types, indexMethods };
@@ -297,7 +395,7 @@ async function main() {
   } catch (error) {
     const code = error instanceof DriftError ? error.code : "internal_error";
     console.error(`${code}: ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
+    process.exitCode = code === "network_unavailable" ? 3 : 1;
   }
 }
 
