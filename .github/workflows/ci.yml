@@ -105,7 +105,7 @@ jobs:
             const list = messages.find((message) => message.id === 2);
             const names = list.result.tools.map((tool) => tool.name).sort().join(",");
             if (names !== "telegram_bot_inspect,telegram_bot_target_resolve,telegram_bot_verify") {
-              console.error(`tools/list exposed: ${names}`);
+              console.error("tools/list exposed: " + names);
               process.exit(1);
             }
           ' "$RUNNER_TEMP/tools.json"

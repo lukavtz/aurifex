@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +11,25 @@ const TEXT = join(REPO, "skills/telegram-bot-api/scripts/tg_text.py");
 const PAYLOAD = join(REPO, "skills/telegram-bot-api/scripts/telegram_payload.py");
 const DOCS = join(REPO, "skills/telegram-bot-sources/scripts/tg_docs.py");
 
-function python(): string {
-  return process.env.PYTHON ?? "python3";
+// Resolve an interpreter that actually runs: PYTHON override, then python3, then
+// python (Windows installs python.exe without python3.exe). Probing costs one
+// spawn per candidate at load time and keeps a missing interpreter a skip, not
+// a spurious failure.
+function resolvePython(): string | null {
+  const candidates = [process.env.PYTHON, "python3", "python"].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+  for (const candidate of new Set(candidates)) {
+    const probe = spawnSync(candidate, ["--version"], { stdio: "ignore" });
+    if (!probe.error && probe.status === 0) return candidate;
+  }
+  return null;
 }
+
+const PYTHON = resolvePython();
+const SKIP = PYTHON
+  ? false
+  : "python interpreter not found: PYTHON, python3, and python all failed --version";
 
 function run(
   script: string,
@@ -26,7 +42,8 @@ function run(
     stdout: string;
     stderr: string;
   }>();
-  const child = spawn(python(), [script, ...args], {
+  if (PYTHON === null) throw new Error("python interpreter not found");
+  const child = spawn(PYTHON, [script, ...args], {
     cwd: REPO,
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, NO_COLOR: "1", ...extraEnv },
@@ -41,7 +58,7 @@ function run(
   return promise;
 }
 
-test("tg_text escapes HTML and measures UTF-16 length", async () => {
+test("tg_text escapes HTML and measures UTF-16 length", { skip: SKIP }, async () => {
   const escaped = await run(TEXT, ["escape-html"], "a&b <c>");
   assert.equal(escaped.code, 0, escaped.stderr);
   assert.equal(escaped.stdout.trim(), "a&amp;b &lt;c&gt;");
@@ -53,7 +70,7 @@ test("tg_text escapes HTML and measures UTF-16 length", async () => {
   assert.equal(measured.utf16_units, 2);
 });
 
-test("tg_text splits long text while keeping markup balanced", async () => {
+test("tg_text splits long text while keeping markup balanced", { skip: SKIP }, async () => {
   const input = `<b>${"word ".repeat(1200)}</b>`;
   const split = await run(TEXT, ["split", "--html", "--limit", "1000", "--json"], input);
   assert.equal(split.code, 0, split.stderr);
@@ -65,7 +82,7 @@ test("tg_text splits long text while keeping markup balanced", async () => {
   }
 });
 
-test("tg_text neutralizes HTML in model output", async () => {
+test("tg_text neutralizes HTML in model output", { skip: SKIP }, async () => {
   const neutralized = await run(TEXT, ["neutralize-markdown-html"], "**bold** <b>tag</b>");
   assert.equal(neutralized.code, 0, neutralized.stderr);
   assert.equal(neutralized.stdout.includes("<b>"), false);
@@ -87,25 +104,25 @@ async function validatePayload(method: string, body: unknown) {
   }
 }
 
-test("telegram_payload accepts a valid sendMessage request", async () => {
+test("telegram_payload accepts a valid sendMessage request", { skip: SKIP }, async () => {
   const result = await validatePayload("sendMessage", { chat_id: 1, text: "hello" });
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual(result.findings, []);
 });
 
-test("telegram_payload rejects a 4097-character message", async () => {
+test("telegram_payload rejects a 4097-character message", { skip: SKIP }, async () => {
   const result = await validatePayload("sendMessage", { chat_id: 1, text: "x".repeat(4097) });
   assert.notEqual(result.code, 0);
   assert.ok(result.findings.some((finding) => finding.severity === "error"));
 });
 
-test("telegram_payload rejects an unknown field", async () => {
+test("telegram_payload rejects an unknown field", { skip: SKIP }, async () => {
   const result = await validatePayload("sendMessage", { chat_id: 1, text: "hi", nope: true });
   assert.notEqual(result.code, 0);
   assert.ok(result.findings.some((finding) => finding.code === "unknown_field"));
 });
 
-test("tg_docs changelog works offline from a cache directory", async () => {
+test("tg_docs changelog works offline from a cache directory", { skip: SKIP }, async () => {
   const cache = await mkdtemp(join(tmpdir(), "aurifex-tg-docs-"));
   try {
     // tg_docs caches a page as its site path with slashes replaced by "__", extension kept.
