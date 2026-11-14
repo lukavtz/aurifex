@@ -4,17 +4,25 @@ import { registerFeatures } from "./features/index.js";
 import { logger } from "./logger.js";
 import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
 import { createServer } from "./server.js";
+import type { Update } from "grammy/types";
 
+// Bot API 10.4 adds the widget update kinds; grammY 1.46.0 does not type them yet.
+type AllowedUpdate = Exclude<keyof Update, "update_id">;
 const ALLOWED_UPDATES = [
-  "message",
-  "edited_message",
   "callback_query",
+  "chat_member",
+  "chosen_inline_result",
+  "edited_message",
   "inline_query",
+  "message",
+  "message_reaction",
+  "my_chat_member",
+  "poll_answer",
   "pre_checkout_query",
   "shipping_query",
-  "my_chat_member",
-  "chat_member",
-] as const;
+  "shared_widget_query",
+  "widget_query",
+] as unknown as readonly AllowedUpdate[];
 
 async function main(): Promise<void> {
   const config = getConfig();
@@ -75,7 +83,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  await bot.api.deleteWebhook({ drop_pending_updates: false });
+  const webhook = await bot.api.getWebhookInfo();
+  if (webhook.url !== "") {
+    throw new Error("a webhook is configured; clear it explicitly before starting polling");
+  }
   await bot.start({ allowed_updates: [...ALLOWED_UPDATES] });
 }
 

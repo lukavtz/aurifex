@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createReadStream, existsSync, realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
+import { ReadStream } from "node:tty";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -31,7 +33,7 @@ const USAGE = `Usage:
   aurifex upgrade <root> [--apply] [--json]
   aurifex upgrade-plan <root> [--json]
   aurifex install [--host omp|dsh|claude|all] [--profile <name>] [--scope user|project]
-                  [--source <path|package>] [--dry-run] [--json] [--yes]
+                  [--source <path>] [--dry-run] [--json] [--yes]
 
 Global options:
   --root <dir>   workspace root (default: current directory)
@@ -210,28 +212,99 @@ function installSelection(raw: string | undefined): readonly InstallHost[] {
   return INSTALL_HOSTS.filter((host) => values.includes(host));
 }
 
-function ttyStream(): ReturnType<typeof createReadStream> | null {
+function ttyStream(): ReadStream | null {
   try {
     const path = process.platform === "win32" ? "CONIN$" : "/dev/tty";
-    return createReadStream(path);
+    // tty.ReadStream can cancel a blocked read and exposes setRawMode, so
+    // readline owns the terminal instead of leaving Ctrl-C to the driver.
+    return new ReadStream(openSync(path, "r"));
   } catch {
     return null;
   }
 }
 
+export async function ask(rl: Interface, prompt: string): Promise<string> {
+  const { promise, resolve: finish, reject } = Promise.withResolvers<string>();
+  // A final answer followed by EOF must still install; only an empty cancel is a cancel.
+  let answered = false;
+  const onLine = (): void => {
+    answered = true;
+  };
+  rl.once("line", onLine);
+  const cancel = (): void => {
+    if (!answered) reject(new UsageError("install cancelled"));
+  };
+  rl.once("SIGINT", cancel);
+  rl.once("close", cancel);
+  // Backstop for a terminal that still delivers SIGINT instead of a keypress.
+  process.once("SIGINT", cancel);
+  try {
+    rl.question(prompt).then(finish, reject);
+  } catch {
+    cancel();
+  }
+  try {
+    return (await promise).trim();
+  } catch (error) {
+    if (error instanceof UsageError) throw error;
+    throw new UsageError("install cancelled");
+  } finally {
+    rl.off("line", onLine);
+    rl.off("SIGINT", cancel);
+    rl.off("close", cancel);
+    process.off("SIGINT", cancel);
+  }
+}
+
+export function parseHostAnswer(
+  answer: string,
+  hosts: readonly InstallHost[],
+): readonly InstallHost[] {
+  const value = answer.trim();
+  if (value === "" || value.toLowerCase() === "all") return hosts;
+  const tokens = value.split(/[,\s]+/).filter((token) => token.length > 0);
+  if (tokens.length === 0) throw new UsageError("no valid host selected");
+  const selected = new Set<InstallHost>();
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      const host = hosts[Number(token) - 1];
+      if (host === undefined) throw new UsageError(`unknown host: ${token}`);
+      selected.add(host);
+      continue;
+    }
+    if (token !== "omp" && token !== "dsh" && token !== "claude") {
+      throw new UsageError(`unknown host: ${token}`);
+    }
+    if (!hosts.includes(token)) throw new UsageError(`unknown host: ${token}`);
+    selected.add(token);
+  }
+  return hosts.filter((host) => selected.has(host));
+}
+
+export function parseScopeAnswer(
+  answer: string,
+  fallback: "user" | "project",
+): "user" | "project" {
+  const value = answer.trim() === "" ? fallback : answer.trim();
+  if (value !== "user" && value !== "project") throw new UsageError(`unknown scope: ${value}`);
+  return value;
+}
+
 async function chooseInstall(
   hosts: readonly InstallHost[],
-  scope: string,
+  scope: "user" | "project",
 ): Promise<{
   readonly hosts: readonly InstallHost[];
-  readonly scope: string;
+  readonly scope: "user" | "project";
 }> {
   if (!process.stdin.isTTY && !existsSync(process.platform === "win32" ? "CONIN$" : "/dev/tty")) {
     return { hosts, scope };
   }
   const input = ttyStream();
   if (input === null) return { hosts, scope };
-  const rl = createInterface({ input, output: process.stdout });
+  // terminal: true makes readline own the tty: Ctrl-C becomes a SIGINT event
+  // (handled in ask) instead of killing the process, and EOF closes cleanly.
+  const rl = createInterface({ input, output: process.stdout, terminal: true });
   try {
     process.stdout.write("\n  Aurifex installer\n");
     process.stdout.write("  Choose hosts (comma-separated) or press Enter for all detected:\n");
@@ -239,23 +312,10 @@ async function chooseInstall(
       const found = await hasCommand(host);
       process.stdout.write(`    ${index + 1}) ${HOST_LABEL[host]} ${found ? "" : "(not found)"}\n`);
     }
-    const hostAnswer = (await rl.question(`  Hosts [1-${hosts.length}/all] (all): `)).trim();
-    let selected = hosts;
-    if (hostAnswer !== "" && hostAnswer.toLowerCase() !== "all") {
-      const picked = new Set(
-        hostAnswer
-          .split(/[,\s]+/)
-          .map((value) => Number(value) - 1)
-          .filter((index) => Number.isInteger(index) && index >= 0 && index < hosts.length),
-      );
-      if (picked.size === 0) throw new UsageError("no valid host selected");
-      selected = hosts.filter((_, index) => picked.has(index));
-    }
-    const scopeAnswer = (await rl.question("  Scope [user/project] (user): ")).trim();
-    const chosenScope = scopeAnswer === "" ? scope : scopeAnswer;
-    if (chosenScope !== "user" && chosenScope !== "project") {
-      throw new UsageError(`unknown scope: ${chosenScope}`);
-    }
+    const hostAnswer = await ask(rl, `  Hosts [1-${hosts.length}/all] (all): `);
+    const selected = parseHostAnswer(hostAnswer, hosts);
+    const scopeAnswer = await ask(rl, "  Scope [user/project] (user): ");
+    const chosenScope = parseScopeAnswer(scopeAnswer, scope);
     return { hosts: selected, scope: chosenScope };
   } finally {
     rl.close();
@@ -263,15 +323,51 @@ async function chooseInstall(
   }
 }
 
+function readPackageName(root: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    if (typeof parsed !== "object" || parsed === null || !("name" in parsed)) return undefined;
+    return typeof parsed.name === "string" ? parsed.name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function assertAurifexRoot(root: string): void {
+  if (readPackageName(root) !== "aurifex") {
+    throw new UsageError(
+      `invalid install source: ${root}: expected an Aurifex checkout with package.json "name": "aurifex"`,
+    );
+  }
+}
+
 export function defaultInstallSource(
   packageRoot: string,
   pathExists: (path: string) => boolean,
 ): string {
-  return pathExists(join(packageRoot, ".git")) ? packageRoot : "aurifex";
+  if (!pathExists(join(packageRoot, "package.json"))) {
+    throw new UsageError(
+      `invalid install source: ${packageRoot}: expected an Aurifex checkout with package.json "name": "aurifex"`,
+    );
+  }
+  assertAurifexRoot(packageRoot);
+  return packageRoot;
 }
 
 function isLocalSource(source: string): boolean {
-  return isAbsolute(source) || source.startsWith(".");
+  return (
+    isAbsolute(source) ||
+    source === "." ||
+    source === ".." ||
+    source.startsWith("./") ||
+    source.startsWith("../") ||
+    source.startsWith(".\\") ||
+    source.startsWith("..\\")
+  );
+}
+
+function installCliPath(source: string): string {
+  return join(source, "dist", "cli.js");
 }
 
 function installDistPath(source: string): string {
@@ -279,13 +375,30 @@ function installDistPath(source: string): string {
 }
 
 export function needsBuild(source: string, distExists: (path: string) => boolean): boolean {
-  return isLocalSource(source) && !distExists(installDistPath(source));
+  return !distExists(installCliPath(source)) || !distExists(installDistPath(source));
+}
+
+export async function resolveInstallSource(raw: string | undefined): Promise<string> {
+  if (raw === undefined) return defaultInstallSource(PACKAGE_ROOT, existsSync);
+  if (!isLocalSource(raw)) {
+    throw new UsageError(
+      `unsupported install source: ${raw}: pass an absolute path or a ./relative path to an Aurifex checkout`,
+    );
+  }
+  const resolved = resolve(raw);
+  let source = resolved;
+  try {
+    source = await realpath(resolved);
+  } catch {
+    source = resolved;
+  }
+  assertAurifexRoot(source);
+  return source;
 }
 
 function installCommands(
   host: InstallHost,
   source: string,
-  localSource: boolean,
   scope: string,
   profile: string,
 ): readonly (readonly string[])[] {
@@ -296,7 +409,7 @@ function installCommands(
       return [["plugin", "--profile", profile, "add", source]];
     case "claude":
       return [
-        ["plugin", "marketplace", "add", localSource ? source : "lukavtz/aurifex"],
+        ["plugin", "marketplace", "add", source],
         ["plugin", "install", "aurifex@aurifex", "-s", scope],
       ];
   }
@@ -307,39 +420,62 @@ function quoteArg(value: string): string {
 }
 
 function displayCommand(bin: string, args: readonly string[]): string {
-  return [bin, ...args].map(quoteArg).join(" ");
+  const quote =
+    process.platform === "win32"
+      ? (value: string): string => `"${value.replaceAll('"', '""')}"`
+      : quoteArg;
+  return [bin, ...args].map(quote).join(" ");
 }
 
-function quoteWindowsArg(value: string): string {
-  if (/[\r\n\0"%&|<>^]/.test(value)) {
-    throw new Error("refusing unsafe Windows command argument");
-  }
-  return `"${value}"`;
+interface WindowsCommand {
+  readonly line: string;
+  readonly env: NodeJS.ProcessEnv;
 }
 
-function windowsCommand(bin: string, args: readonly string[]): string {
-  return [bin, ...args].map(quoteWindowsArg).join(" ");
+function windowsCommand(
+  bin: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): WindowsCommand {
+  const prefix = `AURIFEX_CMDARG_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  const childEnv: NodeJS.ProcessEnv = { ...env };
+  const parts = [bin, ...args].map((value, index) => {
+    const key = `${prefix}_${index}`;
+    childEnv[key] = value;
+    return `"%${key}%"`;
+  });
+  return { line: parts.join(" "), env: childEnv };
 }
 
-async function capture(bin: string, args: readonly string[], cwd?: string): Promise<Captured> {
+export async function capture(
+  bin: string,
+  args: readonly string[],
+  cwd?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Captured> {
   const { promise, resolve: finish, reject } = Promise.withResolvers<Captured>();
   const windows = process.platform === "win32";
-  const child = windows
-    ? spawn(
-        process.env.ComSpec ?? "cmd.exe",
-        ["/d", "/s", "/c", `"${windowsCommand(bin, args)}"`],
-        {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: process.env,
-          windowsVerbatimArguments: true,
-          ...(cwd === undefined ? {} : { cwd }),
-        },
-      )
-    : spawn(bin, args, {
+  const shell = windows && !/\.exe$/i.test(bin);
+  let child;
+  if (shell) {
+    const command = windowsCommand(bin, args, env);
+    child = spawn(
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/s", "/v:off", "/c", `"${command.line}"`],
+      {
         stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
+        env: command.env,
+        windowsVerbatimArguments: true,
         ...(cwd === undefined ? {} : { cwd }),
-      });
+      },
+    );
+  } else {
+    child = spawn(bin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+      ...(cwd === undefined ? {} : { cwd }),
+    });
+  }
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
@@ -349,12 +485,47 @@ async function capture(bin: string, args: readonly string[], cwd?: string): Prom
   return promise;
 }
 
-async function hasCommand(bin: string): Promise<boolean> {
-  try {
-    return (await capture(process.platform === "win32" ? "where.exe" : "which", [bin])).code === 0;
-  } catch {
-    return false;
+const EXECUTABLE_ALLOWLIST: ReadonlySet<string> = new Set(["omp", "dsh", "claude", "npm"]);
+
+function isSafeExecutablePath(candidate: string): boolean {
+  if (!isAbsolute(candidate)) return false;
+  if (candidate.includes('"') || /[\u0000-\u001f]/.test(candidate)) return false;
+  const extension = candidate.slice(candidate.lastIndexOf(".")).toLowerCase();
+  return extension === ".exe" || extension === ".cmd" || extension === ".bat";
+}
+
+export async function resolveExecutable(bin: string): Promise<string | undefined> {
+  if (!EXECUTABLE_ALLOWLIST.has(bin)) return undefined;
+  if (process.platform !== "win32") {
+    try {
+      return (await capture("which", [bin])).code === 0 ? bin : undefined;
+    } catch {
+      return undefined;
+    }
   }
+  const where = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "where.exe");
+  let captured: Captured;
+  try {
+    captured = await capture(where, [bin]);
+  } catch {
+    return undefined;
+  }
+  if (captured.code !== 0) return undefined;
+  for (const line of captured.stdout.split(/\r?\n/)) {
+    const candidate = line.trim();
+    if (candidate === "" || !isSafeExecutablePath(candidate)) continue;
+    try {
+      if (!statSync(candidate).isFile()) continue;
+    } catch {
+      continue;
+    }
+    return candidate;
+  }
+  return undefined;
+}
+
+async function hasCommand(bin: string): Promise<boolean> {
+  return (await resolveExecutable(bin)) !== undefined;
 }
 
 interface Attempt {
@@ -362,9 +533,13 @@ interface Attempt {
   readonly output: string;
 }
 
-async function tryCommand(bin: string, args: readonly string[], cwd?: string): Promise<Attempt> {
+async function tryCommand(bin: string, args: readonly string[], cwd?: string, env: NodeJS.ProcessEnv = process.env): Promise<Attempt> {
   try {
-    const captured = await capture(bin, args, cwd);
+    const executable = await resolveExecutable(bin);
+    if (executable === undefined) {
+      return { ok: false, output: `${bin} not found` };
+    }
+    const captured = await capture(executable, args, cwd, env);
     return {
       ok: captured.code === 0,
       output: redactSecrets(`${captured.stdout}${captured.stderr}`).trim(),
@@ -384,31 +559,47 @@ interface BuildOutcome {
   readonly output: string;
 }
 
+const BUILD_TOOL = "npm install --include=dev && npm run build";
+
 async function ensureBuild(source: string): Promise<BuildOutcome> {
   if (!needsBuild(source, existsSync)) return { ran: false, ok: true, tool: "", output: "" };
-  let attempt = await tryCommand("pnpm", ["build"], PACKAGE_ROOT);
-  let tool = "pnpm build";
-  if (!attempt.ok) {
-    const fallback = await tryCommand("npm", ["run", "build"], PACKAGE_ROOT);
-    if (!fallback.ok) {
-      return {
-        ran: true,
-        ok: false,
-        tool: "npm run build",
-        output: fallback.output.length > 0 ? fallback.output : attempt.output,
-      };
-    }
-    tool = "npm run build";
-  }
-  if (!existsSync(installDistPath(source))) {
+  const installed = await tryCommand(
+    "npm",
+    [
+      "install",
+      "--include=dev",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--no-progress",
+    ],
+    source,
+    { ...process.env, npm_config_package_lock: "false" },
+  );
+  if (!installed.ok) {
     return {
       ran: true,
       ok: false,
-      tool,
-      output: `${installDistPath(source)} is still missing after ${tool}`,
+      tool: "npm install --include=dev",
+      output: installed.output,
     };
   }
-  return { ran: true, ok: true, tool, output: "" };
+  const built = await tryCommand("npm", ["run", "build"], source);
+  if (!built.ok) {
+    return { ran: true, ok: false, tool: "npm run build", output: built.output };
+  }
+  const missing = [installCliPath(source), installDistPath(source)].filter(
+    (path) => !existsSync(path),
+  );
+  if (missing.length > 0) {
+    return {
+      ran: true,
+      ok: false,
+      tool: BUILD_TOOL,
+      output: `${missing.join(", ")} still missing after ${BUILD_TOOL}`,
+    };
+  }
+  return { ran: true, ok: true, tool: BUILD_TOOL, output: "" };
 }
 
 async function packageVersion(): Promise<string> {
@@ -474,12 +665,13 @@ function renderInstall(
 
 async function runInstall(parsed: Parsed): Promise<number> {
   if (parsed.positionals.length > 0) throw new UsageError("install takes no positional arguments");
-  const scope = stringValue(parsed.values.scope) ?? "user";
-  if (scope !== "user" && scope !== "project") throw new UsageError(`unknown scope: ${scope}`);
+  const scopeValue = stringValue(parsed.values.scope) ?? "user";
+  if (scopeValue !== "user" && scopeValue !== "project") {
+    throw new UsageError(`unknown scope: ${scopeValue}`);
+  }
+  const scope: "user" | "project" = scopeValue;
   const profile = stringValue(parsed.values.profile) ?? "aurifex";
-  const source =
-    stringValue(parsed.values.source) ?? defaultInstallSource(PACKAGE_ROOT, existsSync);
-  const localSource = isLocalSource(source);
+  const source = await resolveInstallSource(stringValue(parsed.values.source));
   const dryRun = parsed.values["dry-run"] === true;
   const requestedHost = stringValue(parsed.values.host);
   const interactive =
@@ -500,7 +692,7 @@ async function runInstall(parsed: Parsed): Promise<number> {
   const notes = new Map<InstallHost, string>();
 
   let buildTool: string | undefined;
-  if (localSource && !dryRun) {
+  if (!dryRun) {
     const build = await ensureBuild(source);
     if (!build.ok) {
       const detail = redactSecrets(
@@ -516,10 +708,11 @@ async function runInstall(parsed: Parsed): Promise<number> {
       return 1;
     }
     if (build.ran) buildTool = build.tool;
+    if (build.ran && !parsed.json) process.stdout.write(`  Build: ok · ${build.tool}\n`);
   }
 
   for (const host of selected) {
-    const commands = installCommands(host, source, localSource, chosenScope, profile);
+    const commands = installCommands(host, source, chosenScope, profile);
     const command = commands.map((args) => displayCommand(host, args)).join(" && ");
     if (dryRun) {
       hosts.push({ host, status: "planned", command });
@@ -536,7 +729,7 @@ async function runInstall(parsed: Parsed): Promise<number> {
     let output = "";
     for (const args of commands) {
       let attempt = await tryCommand(host, args);
-      if (!attempt.ok && localSource && host === "omp" && args[1] === "install") {
+      if (!attempt.ok && host === "omp" && args[1] === "install") {
         const fallback = await tryCommand(host, ["plugin", "link", source]);
         if (fallback.ok) attempt = fallback;
         else output += fallback.output;

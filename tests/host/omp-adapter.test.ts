@@ -186,6 +186,13 @@ test("registers nine tools and three commands without touching the filesystem", 
   assert.ok(scaffold);
   assert.match(scaffold.description ?? "", /skills\/telegram-bot-discovery/);
   assert.match(scaffold.description ?? "", /never invent/);
+  const addFeature = host.tools.find((tool) => tool.name === "telegram_bot_add_feature");
+  assert.match(addFeature?.description ?? "", /skills\/telegram-bot-discovery/);
+  assert.match(addFeature?.description ?? "", /confirm/i);
+  assert.equal(
+    host.tools.find((tool) => tool.name === "telegram_bot_verify")?.description,
+    "Run static file-content checks; no project code execution, network, or Telegram calls.",
+  );
 
   const guidance = host.eventHandlers.get("before_agent_start");
   assert.equal(guidance?.length, 1);

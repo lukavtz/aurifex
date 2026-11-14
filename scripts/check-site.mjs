@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Static checks for site/. No dependencies. Run: node scripts/check-site.mjs
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import vm from "node:vm";
@@ -89,6 +89,50 @@ const unused = enKeys.filter(
   (key) => !used.has(key) && !key.startsWith("meta.") && key !== "hero.copied",
 );
 if (unused.length) notes.push(`unused i18n keys (not rendered): ${unused.join(", ")}`);
+
+/* ------------------------------------------------------- truth assertions */
+
+const KNOWN = { checks: 29, tools: 9, commands: 10 };
+const CHECK_IDS = ["token.literal","scan.bounded","env.ignored","webhook.secret","webhook.https","webhook.port","webhook.constant_time","container.non_root","updates.allowed","updates.dedupe","retry.retry_after","tests.present","botapi.104","botapi.104.types","deps.lockfile","queue.worker","queue.schema","payments.schema","payments.validation","secrets.file","telemetry.readiness","telemetry.metrics","miniapp.session","miniapp.csp","docker.healthcheck","dedupe.fail_closed","tests.infrastructure","logs.redaction","allowlist.present"];
+const COMMANDS = ["target","new","inspect","verify","add","deploy","harness","upgrade-plan","upgrade","install"];
+const TOOLS = ["telegram_bot_target_resolve","telegram_bot_scaffold","telegram_bot_inspect","telegram_bot_verify","telegram_bot_add_feature","telegram_bot_deploy_plan","telegram_bot_test_harness","telegram_bot_upgrade_plan","telegram_bot_upgrade"];
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const schema = JSON.parse(readFileSync(join(root, "schema/bot-spec-1.1.schema.json"), "utf8"));
+const botSpecVersion = schema.properties.schemaVersion.const;
+
+function capture(pattern, label) {
+  const match = html.match(pattern);
+  if (match === null) fail("site/index.html: missing " + label);
+  return match?.[1] ?? "";
+}
+function sameSet(actual, expected, label) {
+  if (actual.length !== expected.length || new Set(actual).size !== actual.length || actual.toSorted().join(",") !== expected.toSorted().join(",")) fail(label + ": unexpected names or duplicates");
+}
+sameSet(Object.keys(dict), languages, "site locales");
+for (const [truth, key] of [["checks", "sec.title"], ["commands", "cli.title"], ["tools", "features.hosts.title"]]) {
+  const text = capture(new RegExp(String.raw`<[^>]+data-i18n="${key.replaceAll(".", "\\.")}"[^>]+data-truth="${truth}"[^>]*>([\s\S]*?)<\/h[23]>`), key + " data-truth");
+  const count = (value) => truth === "tools" ? /\b9\b/.test(value) : Number(value.match(/\d+/)?.[0]) === KNOWN[truth];
+  if (!count(text)) fail("site/index.html: wrong " + truth + " count");
+  for (const lang of languages) if (!count(dict[lang]?.[key] ?? "")) fail("site/i18n.js: wrong count for " + lang + "." + key);
+}
+const ids = capture(/<ul class="chips chips--ids">([\s\S]*?)<\/ul>/, "check IDs");
+sameSet([...ids.matchAll(/<li>([^<]+)<\/li>/g)].map((match) => match[1]), CHECK_IDS, "check IDs");
+const cli = capture(/<dl class="commands">([\s\S]*?)<\/dl>/, "commands");
+sameSet([...cli.matchAll(/<dt><code>aurifex ([a-z-]+)<\/code><\/dt>/g)].map((match) => match[1]), COMMANDS, "commands");
+const skillList = capture(/<ul class="chips" aria-label="Skills">([\s\S]*?)<\/ul>/, "skills");
+const skills = readdirSync(join(root, "skills"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(root, "skills", entry.name, "SKILL.md"))).map((entry) => entry.name);
+sameSet([...skillList.matchAll(/<li>([^<]+)<\/li>/g)].map((match) => match[1]), skills, "skills");
+const toolList = capture(/<ul class="chips chips--tools"[^>]*>([\s\S]*?)<\/ul>/, "tools");
+sameSet([...toolList.matchAll(/<li>([^<]+)<\/li>/g)].map((match) => match[1]), TOOLS, "tools");
+for (const lang of languages) {
+  for (const key of ["install.lede", "faq.q6"]) if (!dict[lang]?.[key]?.includes("v" + pkg.version)) fail(lang + "." + key + ": wrong package version");
+}
+if (!html.includes(botSpecVersion)) fail("site/index.html: missing current BotSpec version");
+for (const stale of ["v0.1", "0.1.x", "bot-spec-1.0.0"]) {
+  if (html.includes(stale) || JSON.stringify(dict).includes(stale)) fail("site: stale version " + stale);
+}
+if (capture(/<meta\s+name="description"\s+content="([^"]+)"/, "meta description") !== dict.en?.["meta.description"]) fail("site/index.html: meta description differs from English copy");
+
 
 /* ----------------------------------------------------------------- assets */
 

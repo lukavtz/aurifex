@@ -1167,7 +1167,7 @@ export function renderAiogramFeature(
     }
     case "llm":
       return [
-        file("app/handlers/llm.py", renderLlmEnqueuePy()),
+        file(`app/handlers/${pythonModuleName(name)}.py`, renderLlmEnqueuePy()),
         file("app/jobs/llm.py", renderLlmJobPy(spec)),
       ];
     case "inline":
@@ -1178,10 +1178,10 @@ export function renderAiogramFeature(
     case "payments":
       return [
         file("app/runtime/payments.py", renderPaymentsPy(spec)),
-        file("app/handlers/payments.py", PAYMENTS_MODULE),
+        file(`app/handlers/${pythonModuleName(name)}.py`, PAYMENTS_MODULE),
         file("app/jobs/payment_fulfill.py", PAYMENT_FULFILL_JOB),
-        file("app/jobs/payment_reconcile.py", PAYMENT_RECONCILE_JOB),
-        file("tests/test_payments.py", PAYMENTS_TEST),
+        file("app/jobs/payment_reconcile.py", PAYMENT_RECONCILE_JOB.replaceAll("app.handlers.payments", `app.handlers.${pythonModuleName(name)}`)),
+        file(`tests/test_${pythonModuleName(name)}.py`, PAYMENTS_TEST.replaceAll("app.handlers.payments", `app.handlers.${pythonModuleName(name)}`)),
       ];
     case "miniapps":
       return [
@@ -1193,11 +1193,19 @@ export function renderAiogramFeature(
     case "moderation":
       return [
         file("app/middlewares/moderation.py", MODERATION_MODULE),
+        file("app/handlers/moderation.py", `from aiogram import Bot, Dispatcher
+from app.middlewares.moderation import ModerationMiddleware
+
+
+def register(dp: Dispatcher, _bot: Bot) -> None:
+    # Dedupe, rate limiting, and allowlist run first. Denied users never reach moderation.
+    dp.message.middleware(ModerationMiddleware())
+`),
         file("tests/test_moderation.py", MODERATION_TEST),
       ];
     case "broadcast":
       return [
-        file("app/handlers/broadcast.py", renderBroadcastCommandPy()),
+        file(`app/handlers/${pythonModuleName(name)}.py`, renderBroadcastCommandPy()),
         file("app/jobs/broadcast.py", renderBroadcastJobPy()),
       ];
     case "widgets":

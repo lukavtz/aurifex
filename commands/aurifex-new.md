@@ -1,7 +1,7 @@
 ---
 description: Run Telegram bot discovery, then scaffold with Aurifex tools
 argument-hint: <destination> [grammy|aiogram]
-allowed-tools: telegram_bot_target_resolve, telegram_bot_scaffold
+allowed-tools: mcp__plugin_aurifex_aurifex__telegram_bot_target_resolve, mcp__plugin_aurifex_aurifex__telegram_bot_scaffold
 ---
 
 # /aurifex-new

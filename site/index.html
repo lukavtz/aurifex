@@ -12,7 +12,7 @@
     <title>Aurifex · production Telegram bots from one agent request</title>
     <meta
       name="description"
-      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks, four hosts."
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, four hosts."
     />
     <link rel="canonical" href="https://lukavtz.github.io/aurifex/" />
 
@@ -22,7 +22,7 @@
     <meta property="og:title" content="Aurifex · production Telegram bots from one agent request" />
     <meta
       property="og:description"
-      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks, four hosts."
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, four hosts."
     />
     <meta
       property="og:image"
@@ -45,7 +45,7 @@
     />
     <meta
       name="twitter:description"
-      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, 16 security checks."
+      content="Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, four hosts."
     />
     <meta
       name="twitter:image"
@@ -202,7 +202,7 @@
                 node dist/cli.js new my-bot --spec bot.json
               </p>
               <p class="term__line term__line--out" data-term-line="out">
-                scaffold ok · grammy 1.46.0 · 23 files · bot-spec-1.0.0
+                scaffold ok · grammy 1.46.0 · bot-spec-1.1.0
               </p>
               <p class="term__line term__line--out" data-term-line="out">
                 next: cp .env.example .env
@@ -225,8 +225,7 @@
           </figure>
 
           <p class="note reveal" data-i18n="demo.note">
-            A fresh scaffold reports 28 passes and one warning: commit the lockfile after the first
-            install.
+            A fresh scaffold reports one warning: commit the lockfile after the first install.
           </p>
         </div>
       </section>
@@ -269,26 +268,39 @@
             <article class="feature feature--4 reveal">
               <h3 class="h3" data-i18n="features.gate.title">Verification is a gate</h3>
               <p data-i18n="features.gate.body">
-                Sixteen static checks run over a bounded snapshot. A token literal, a missing
+                Static checks run over a bounded snapshot. A token literal, a missing
                 secret, or a root container makes verify return ok: false.
               </p>
             </article>
 
             <article class="feature feature--4 reveal">
-              <h3 class="h3" data-i18n="features.hosts.title">Four hosts, nine tools</h3>
+              <h3 class="h3" data-i18n="features.hosts.title" data-truth="tools">Four hosts, 9 tools</h3>
               <p data-i18n="features.hosts.body">
                 OMP, DeepSeek Harness, Claude Code through MCP, and any MCP client expose the same
-                eight telegram_bot tools.
+                telegram_bot tools.
               </p>
             </article>
+            <ul class="chips chips--tools" aria-label="MCP tools">
+              <li>telegram_bot_target_resolve</li>
+              <li>telegram_bot_scaffold</li>
+              <li>telegram_bot_inspect</li>
+              <li>telegram_bot_verify</li>
+              <li>telegram_bot_add_feature</li>
+              <li>telegram_bot_deploy_plan</li>
+              <li>telegram_bot_test_harness</li>
+              <li>telegram_bot_upgrade_plan</li>
+              <li>telegram_bot_upgrade</li>
+            </ul>
 
             <article class="feature feature--12 reveal">
               <h3 class="h3" data-i18n="features.skills.title">Domain knowledge included</h3>
               <p data-i18n="features.skills.body">
-                Skills for the Bot API, grammY, aiogram, security, testing, deploy, payments, and
-                Mini Apps, plus three review subagents.
+                Skills for discovery, the Bot API, grammY, aiogram, security, testing, deploy,
+                payments, and Mini Apps, plus three review subagents.
               </p>
               <ul class="chips" aria-label="Skills">
+                <li>telegram-bot-discovery</li>
+                <li>telegram-bot-api-104</li>
                 <li>telegram-bot-api</li>
                 <li>grammy</li>
                 <li>aiogram</li>
@@ -393,16 +405,31 @@
             <div class="tree reveal">
               <p class="tree__caption">my-bot/</p>
               <pre class="tree__body"><span class="t-dir">├── src/</span>
-<span class="t-dir">│   ├── telegram/api104.ts</span>
+<span class="t-dir">│   ├── telegram/</span>
+│   │   └── api104.ts
 │   ├── config.ts
 │   ├── logger.ts
 │   ├── bot.ts
 │   ├── main.ts
 │   ├── server.ts
+│   ├── worker.ts
+│   ├── migrate.ts
 <span class="t-dir">│   ├── features/</span>
 <span class="t-dir">│   ├── security/</span>
+│   │   └── callback-ack.ts
+<span class="t-dir">│   ├── runtime/</span>
+│   │   ├── queue.ts
+│   │   ├── payments.ts
+│   │   ├── telemetry.ts
+│   │   ├── secrets.ts
+│   │   └── health.ts
+<span class="t-dir">│   ├── jobs/</span>
 <span class="t-dir">│   └── storage/</span>
+│       ├── db.ts
+│       └── schema.ts
+<span class="t-dir">├── drizzle/</span>
 <span class="t-dir">├── tests/</span>
+│   └── callback-ack.test.ts
 ├── .env.example
 ├── Dockerfile
 ├── docker-compose.yml
@@ -445,12 +472,12 @@
       <section class="section section--rail" id="security" aria-labelledby="sec-title">
         <div class="cd-wrap" data-rail>
           <header class="section__head reveal">
-            <h2 class="h2" id="sec-title" data-i18n="sec.title">
-              Sixteen checks before anything ships
+            <h2 class="h2" id="sec-title" data-i18n="sec.title" data-truth="checks">
+              29 checks before anything ships
             </h2>
             <p class="lede" data-i18n="sec.lede">
-              The gate is static and deterministic. It never runs your project and never calls
-              Telegram.
+              The gate checks textual markers over a bounded snapshot. It never runs your project
+              or calls Telegram; runtime behavior needs separate tests.
             </p>
           </header>
 
@@ -507,20 +534,33 @@
           <div class="ids reveal">
             <p class="ids__label" data-i18n="sec.idsLabel">Check identifiers</p>
             <ul class="chips chips--ids">
-              <li>scan.bounded</li>
               <li>token.literal</li>
+              <li>scan.bounded</li>
               <li>env.ignored</li>
               <li>webhook.secret</li>
               <li>webhook.https</li>
               <li>webhook.port</li>
               <li>webhook.constant_time</li>
               <li>container.non_root</li>
-              <li>botapi.104</li>
               <li>updates.allowed</li>
               <li>updates.dedupe</li>
               <li>retry.retry_after</li>
               <li>tests.present</li>
+              <li>botapi.104</li>
+              <li>botapi.104.types</li>
               <li>deps.lockfile</li>
+              <li>queue.worker</li>
+              <li>queue.schema</li>
+              <li>payments.schema</li>
+              <li>payments.validation</li>
+              <li>secrets.file</li>
+              <li>telemetry.readiness</li>
+              <li>telemetry.metrics</li>
+              <li>miniapp.session</li>
+              <li>miniapp.csp</li>
+              <li>docker.healthcheck</li>
+              <li>dedupe.fail_closed</li>
+              <li>tests.infrastructure</li>
               <li>logs.redaction</li>
               <li>allowlist.present</li>
             </ul>
@@ -531,7 +571,7 @@
       <section class="section" id="cli" aria-labelledby="cli-title">
         <div class="cd-wrap">
           <header class="section__head reveal">
-            <h2 class="h2" id="cli-title" data-i18n="cli.title">Nine commands, one result shape</h2>
+            <h2 class="h2" id="cli-title" data-i18n="cli.title" data-truth="commands">10 commands, one result shape</h2>
             <p class="lede" data-i18n="cli.lede">
               A human summary by default, a DomainResult with --json.
             </p>
@@ -579,6 +619,10 @@
               </dd>
             </div>
             <div class="command reveal">
+              <dt><code>aurifex upgrade</code></dt>
+              <dd data-i18n="cli.upgradeApply">Verify the manifest; --apply bumps the manifest spec version only.</dd>
+            </div>
+            <div class="command reveal">
               <dt><code>aurifex install</code></dt>
               <dd data-i18n="cli.install">Install into OMP, DSH, and Claude Code in one pass.</dd>
             </div>
@@ -597,7 +641,7 @@
               Install once, reach every host
             </h2>
             <p class="lede" data-i18n="install.lede">
-              v0.1 ships from the repository. The npm package is not published yet.
+              v0.2.0 installs from the repository. npm publishing is optional and gated by NPM_TOKEN.
             </p>
           </header>
 
@@ -729,7 +773,7 @@
               </p>
             </details>
             <details class="reveal">
-              <summary data-i18n="faq.q6">What is out of scope for v0.1?</summary>
+              <summary data-i18n="faq.q6">What is out of scope for v0.2.0?</summary>
               <p data-i18n="faq.a6">
                 MTProto and userbot automation. Aurifex targets the Bot API only, and it is not a
                 sandbox: the host extension process is trusted code.

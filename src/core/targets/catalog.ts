@@ -3,6 +3,27 @@ import type { BotFeature, BotStack } from "../spec/bot-spec.ts";
 export const BOT_API_VERSION = "10.4" as const;
 export const BOT_API_RELEASED = "2026-11-09" as const;
 
+/**
+ * Canonical allowed_updates list for every generated project and deploy plan.
+ * One source: scaffold main.ts, setWebhook scripts, and deploy planning all
+ * consume this union. Keep the 13 update types in this order.
+ */
+export const BOT_ALLOWED_UPDATES = [
+  "callback_query",
+  "chat_member",
+  "chosen_inline_result",
+  "edited_message",
+  "inline_query",
+  "message",
+  "message_reaction",
+  "my_chat_member",
+  "poll_answer",
+  "pre_checkout_query",
+  "shipping_query",
+  "shared_widget_query",
+  "widget_query",
+] as const;
+
 export type FeatureSupport = "native" | "raw" | "unsupported";
 
 export interface StackTarget {

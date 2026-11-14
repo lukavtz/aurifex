@@ -2,11 +2,10 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.js";
+import { REQUIRED_SECRETS, loadConfig } from "../src/config.js";
 import { readSecret, requireSecrets } from "../src/runtime/secrets.js";
 
 const TOKEN = "123456:" + "a".repeat(30);
-const REQUIRED = ["BOT_TOKEN", "WEBHOOK_SECRET"];
 
 function secretFile(dir: string, name: string, value: string): string {
   const path = join(dir, name);
@@ -44,7 +43,9 @@ test("missing configuration lists names only", () => {
     loadConfig({});
     throw new Error("expected loadConfig to fail");
   } catch (error) {
-    expect((error as Error).message).toBe("missing required configuration: " + REQUIRED.join(", "));
+    expect((error as Error).message).toBe(
+      "missing required configuration: " + REQUIRED_SECRETS.join(", "),
+    );
   }
 });
 

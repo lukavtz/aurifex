@@ -34,15 +34,16 @@ test(
   "Windows installer executes .cmd host shims through cmd.exe",
   { skip: WINDOWS ? false : "Windows-only coverage" },
   async (t) => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-win-install-")));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-win-install-кириллица % & ! ^ $-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     const bin = join(root, "bin");
     const pkg = join(root, "pkg");
     const log = join(root, "calls.log");
     await mkdir(bin);
     await mkdir(join(pkg, "dist", "adapters", "mcp"), { recursive: true });
-    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.1.0"}\n');
+    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.2.0"}\n');
     await writeFile(join(pkg, "dist", "adapters", "mcp", "server.js"), "\n");
+    await writeFile(join(pkg, "dist", "cli.js"), "\n");
     await writeFile(join(bin, "omp.cmd"), '@echo off\r\necho omp:%* >> "%AURIFEX_TEST_LOG%"\r\n');
     const result = await run(["install", "--host", "omp", "--source", pkg, "--json"], {
       PATH: `${bin};${process.env.Path ?? process.env.PATH ?? ""}`,
@@ -57,5 +58,32 @@ test(
     assert.equal(payload.value.hosts[0]?.status, "installed");
     const calls = await readFile(log, "utf8");
     assert.match(calls, /omp:"plugin" "install"/);
+    assert.ok(calls.includes(pkg), "special characters must reach host unchanged");
+  },
+);
+
+test(
+  "Windows .cmd host failure is reported without losing the exit status",
+  { skip: WINDOWS ? false : "Windows-only coverage" },
+  async (t) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-win-exit-")));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const bin = join(root, "bin");
+    const pkg = join(root, "pkg");
+    await mkdir(bin);
+    await mkdir(join(pkg, "dist", "adapters", "mcp"), { recursive: true });
+    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.2.0"}\n');
+    await writeFile(join(pkg, "dist", "adapters", "mcp", "server.js"), "\n");
+    await writeFile(join(pkg, "dist", "cli.js"), "\n");
+    await writeFile(join(bin, "omp.cmd"), "@echo off\r\nexit /b 7\r\n");
+    const result = await run(["install", "--host", "omp", "--source", pkg, "--json"], {
+      PATH: `${bin};${process.env.Path ?? process.env.PATH ?? ""}`,
+    });
+    assert.equal(result.code, 1, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      status: string;
+      value: { hosts: Array<{ status: string }> };
+    };
+    assert.equal(payload.value.hosts[0]?.status, "failed");
   },
 );

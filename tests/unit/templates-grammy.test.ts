@@ -257,11 +257,18 @@ test("Bot API 10.4 adapter uses one narrow raw cast", () => {
 
 test("widgets feature answers queries within the documented contract", () => {
   const content = find("src/features/widgets.ts").content;
-  assert.ok(content.includes("widget_query"));
-  assert.ok(content.includes("shared_widget_query"));
+  // Top-level Update fields, not message fields.
+  assert.ok(content.includes("ctx.update"));
+  assert.ok(!content.includes("ctx.message"));
+  assert.ok(content.includes('for (const kind of ["widget_query", "shared_widget_query"]'));
+  assert.ok(content.includes("bot.use("));
   assert.ok(content.includes("answerWidgetQuery"));
-  assert.ok(content.includes("15 seconds"));
+  assert.ok(content.includes("widget_query_id: query.id"));
+  assert.ok(content.includes('Buffer.byteLength(query.data, "utf8") <= 1024'));
+  assert.ok(content.includes("await next()"));
   assert.ok(!content.includes("BOT_TOKEN"));
+  // The documented answer deadline belongs to the typed adapter the module calls.
+  assert.ok(find("src/telegram/api104.ts").content.includes("15 seconds"));
   const rich = find("src/features/rich.ts").content;
   assert.ok(rich.includes("sendRichMessage"));
   assert.ok(rich.includes("sendRichMessageDraft"));

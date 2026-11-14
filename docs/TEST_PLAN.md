@@ -1,14 +1,14 @@
 # Aurifex Test Plan
 
-This document is the authoritative test matrix for Aurifex v0.1. It defines what is
+This document is the authoritative test matrix for Aurifex v0.2.0. It defines what is
 checked, with which command, on which runtime, and what counts as a failure.
 
 ## Principles
 
 - Every check is deterministic tooling: `node --test`, `oxlint`, `tsc`, `prettier`,
   `ruff`, `mypy`, `pytest`, or the secret scanner. No subjective review gates.
-- Aurifex never executes generated project code during unit, security, integration, or
-  host suites. Generated projects are only executed in the gated E2E suites.
+- `verify` never executes generated code. Focused template regressions may execute
+  isolated generated modules; full project install, boot, and worker proof uses gated E2E.
 - Every operation path goes through `PathPolicy`. Any path that escapes the
   authorized root is a failure, not a warning. Scaffold staging uses `wx` plus
   `realpath` checks in the same root as a deliberate atomic-commit exception.
@@ -84,7 +84,11 @@ runs package managers and therefore needs network; the live suite also needs net
 - `install-windows.test.ts` — Windows-only `.cmd` host shim execution through `cmd.exe`.
 - `content.test.ts` — skill/agent/command frontmatter, name/directory agreement, body size
   under 8 KB, Bot API 10.4 skill coverage.
-- `scripts/check-site.mjs` — EN/RU/ZH key parity, every local asset, no external scripts.
+- `scripts/check-site.mjs` — exactly EN/RU/ZH, local assets, no external scripts,
+  designated 29/9/10 counts, exact checks/tools/commands/skills, current JSON versions.
+- `examples.test.ts` — final-byte manifest hashes, exact file set plus locks,
+  deterministic rendering, read-only parity, supported-file formatting, Docker lock wiring.
+  Frozen Bun/uv installs prove lock resolution separately in generated-project E2E.
 
 ### Security (`tests/security`)
 

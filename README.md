@@ -48,10 +48,15 @@ powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/instal
 The script keeps a persistent checkout at `~/.aurifex/src`
 (`%LOCALAPPDATA%\Aurifex\src` on Windows), builds it once, and runs
 `aurifex install --host all`. Re-running updates that checkout.
-`AURIFEX_DRY_RUN=1` prints the host commands without executing them. On an
+`AURIFEX_DRY_RUN=1` skips host integration commands. A first run still downloads and
+builds the checkout unless `AURIFEX_SOURCE_DIR` points at an existing build. On an
 interactive terminal the installer asks which hosts and scope to use; set
 `AURIFEX_HOSTS=omp,claude`, `AURIFEX_SCOPE=user|project`, or `AURIFEX_YES=1` for
-non-interactive runs.
+non-interactive runs. The script exits automatically after installation.
+
+`AURIFEX_REF` selects the repository ref (default `main`). `AURIFEX_SOURCE_DIR`
+selects a local Aurifex checkout. The CLI also accepts `install --source <path>`;
+the source must be an absolute path or a `./relative` path to an Aurifex checkout.
 
 The installer also creates an `aurifex` launcher in `~/.local/bin`
 (`%LOCALAPPDATA%\Aurifex\bin` on Windows). If that directory is not on `PATH`,
@@ -159,20 +164,28 @@ my-bot/
 ├── .env.example  .gitignore  .dockerignore
 ├── Dockerfile  docker-compose.yml  Caddyfile
 ├── package.json  tsconfig*.json          # or pyproject.toml + alembic.ini
-├── src/                                  # app/ for aiogram
+├── src/                                  # grammY; app/ for aiogram
 │   ├── config.ts  logger.ts  bot.ts  main.ts  server.ts
 │   ├── telegram/api104.ts                # app/services/api104.py
-│   ├── features/                         # start, help, admin, widgets, rich, ...
-│   ├── security/                         # allowlist, dedupe, rate-limit, retry
+│   ├── features/                         # start, help, admin, callback ack, ...
+│   ├── security/                         # allowlist, dedupe, callback-ack, rate-limit, retry
+│   ├── runtime/                          # queue, payments, telemetry, secrets, health
+│   ├── jobs/                              # queued job handlers
+│   ├── worker.ts  migrate.ts              # queue worker and schema migration entrypoints
+│   ├── drizzle/                           # Postgres schema and migrations
 │   └── storage/                          # database and schema
+├── app/                                   # aiogram handlers, middlewares, runtime
+│   ├── middlewares/callback_ack.py
+│   ├── runtime/                           # queue, payments, telemetry, secrets, health
+│   └── jobs/                              # queued job handlers
 ├── miniapp/                              # React + Vite, when enabled
-├── tests/                                # offline; no Telegram calls
+├── tests/                                # offline; includes callback-ack tests
 └── .github/workflows/ci.yml
 ```
 
 ### Security invariants
 
-| Invariant            | Enforcement                                                                            |
+| Invariant            | Static evidence checked by `verify`                                                    |
 | -------------------- | -------------------------------------------------------------------------------------- |
 | No token in source   | Generated `.env.example` is empty; `token.literal` fails the gate.                     |
 | Webhook authenticity | `X-Telegram-Bot-Api-Secret-Token`, HTTPS, allowed port, constant-time framework check. |
@@ -185,8 +198,10 @@ my-bot/
 
 ## Verification gate
 
-`verify` runs 29 deterministic checks over a bounded snapshot (64 MiB total, 1 MiB per
-file). Any `fail` makes `ok: false`; warnings remain visible.
+`verify` runs 29 static file-content checks over a bounded snapshot (64 MiB total,
+1 MiB per file). These checks match textual markers; they do not execute project code,
+access the network, call Telegram, or prove runtime behavior. Any `fail` makes
+`ok: false`; warnings remain visible.
 
 ```sh
 aurifex verify my-bot           # human summary
@@ -195,18 +210,18 @@ aurifex verify my-bot --json    # DomainResult with evidence
 
 ## CLI
 
-| Command                | What it does                                                 |
-| ---------------------- | ------------------------------------------------------------ |
-| `aurifex target`       | Resolve framework, runtime, Bot API, and feature support.    |
-| `aurifex new`          | Scaffold a standalone project from a strict `BotSpec`.       |
-| `aurifex inspect`      | Read-only detection of stack, mode, and scanned files.       |
-| `aurifex verify`       | Run the static verification gate and return evidence.        |
-| `aurifex add`          | Add one feature module without rewriting unrelated files.    |
-| `aurifex deploy`       | Write deploy files and a webhook script; no API call.        |
-| `aurifex harness`      | Write update fixtures, a fake transport, and tgfake compose. |
-| `aurifex upgrade-plan` | List the Bot API 10.4 migration actions for a project.       |
-| `aurifex upgrade`      | Verify the manifest; `--apply` migrates it to 1.1.           |
-| `aurifex install`      | Install into OMP, DSH, and Claude Code in one pass.          |
+| Command                | What it does                                                         |
+| ---------------------- | -------------------------------------------------------------------- |
+| `aurifex target`       | Resolve framework, runtime, Bot API, and feature support.            |
+| `aurifex new`          | Scaffold a standalone project from a strict `BotSpec`.               |
+| `aurifex inspect`      | Read-only detection of stack, mode, and scanned files.               |
+| `aurifex verify`       | Run the static verification gate and return evidence.                |
+| `aurifex add`          | Add one feature module without rewriting unrelated files.            |
+| `aurifex deploy`       | Write deploy files and a webhook script; no API call.                |
+| `aurifex harness`      | Write update fixtures, a fake transport, and tgfake compose.         |
+| `aurifex upgrade-plan` | List the Bot API 10.4 migration actions for a project.               |
+| `aurifex upgrade`      | Verify the manifest; `--apply` bumps the manifest spec version only. |
+| `aurifex install`      | Install into OMP, DSH, and Claude Code in one pass.                  |
 
 All commands accept `--json` and emit a stable `DomainResult`. Exit codes: `0` success,
 `1` domain error, `2` invalid usage.
@@ -253,8 +268,10 @@ claude plugin install aurifex@aurifex
 ```
 
 The Claude Code plugin already points at
-`${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js` through `.mcp.json`.
-`AURIFEX_ROOT` bounds every read and write; it defaults to the process working directory.
+`${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js` through `.mcp.json`. The server
+speaks MCP over stdio without runtime `node_modules`, so an installed plugin cache copy
+runs as-is. `AURIFEX_ROOT` bounds every read and write; it defaults to the process
+working directory.
 
 </details>
 
@@ -271,7 +288,7 @@ The Claude Code plugin already points at
   set, missing `TELEGRAM_TEST_BOT_TOKEN` or `TELEGRAM_TEST_CHAT_ID` is a failure.
 - **The plugin is not a sandbox.** It runs in the host process. Filesystem access is
   bounded by `PathPolicy`, but the host extension process itself is trusted code.
-- **Bot API only.** v0.1 does not cover MTProto or userbot automation.
+- **Bot API only.** v0.2.0 does not cover MTProto or userbot automation.
 
 ## License
 

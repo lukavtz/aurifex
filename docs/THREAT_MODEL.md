@@ -22,7 +22,7 @@ This model covers the shipped code, not future platform expansion.
 | Generated bot to Postgres/Redis | network input                              | database and cache          |
 | Generated bot to Telegram       | API responses, `retry_after`               | local queue and payments    |
 | Generated bot to LLM provider   | prompt and response                        | job worker                  |
-| Package install                 | npm registry, host plugin CLI              | local installation          |
+| Package install                 | repository archive (`AURIFEX_REF`), npm registry, host plugin CLI | local installation |
 
 ## Threats and mitigations
 
@@ -154,15 +154,18 @@ Job handlers must validate payload shape rather than trusting the producer.
   ([`package.json`](../package.json),
   [`templates/shared.ts`](../src/core/projects/templates/shared.ts)).
 - A lockfile is expected; `verify` warns when it is absent (`deps.lockfile`).
-- Release builds produce `SHA256SUMS`, an SBOM, and a keyless cosign signature;
-  npm publishing runs only when `NPM_TOKEN` exists
-  ([`release.yml`](../.github/workflows/release.yml)).
+- Release builds produce `SHA256SUMS` and an SBOM, then attempt keyless cosign signing.
+  Signing is non-blocking, so releases may ship unsigned. npm publishing runs only
+  when `NPM_TOKEN` exists ([`release.yml`](../.github/workflows/release.yml)).
+- Install scripts fetch a repository archive at `AURIFEX_REF` (default `main`) and
+  build locally. They do not verify release checksums, SBOMs, or cosign bundles;
+  installation trusts the publisher.
 - The CLI prints and executes host install commands; it does not fetch or run
   arbitrary scripts from the project.
 
-Residual risk: npm installs execute transitive lifecycle scripts. Production
-images should install with a frozen lockfile, and generated projects should use
-their checked-in lockfile. A compromised upstream package remains possible.
+Residual risk: a compromised publisher account or selected repository ref can change
+the installed code. npm installs can execute transitive lifecycle scripts. Production
+images should install from checked-in frozen lockfiles; upstream compromise remains possible.
 
 ### Admin command abuse
 
@@ -182,7 +185,10 @@ non-root container, healthcheck, readiness, metrics, Mini App session and CSP,
 Bot API 10.4 types, payment schema and amount/currency/payload checks, queue
 worker and schema, secret-file indirection, dedupe failure mode, and tests.
 
-Checks are static. They do not prove runtime behavior; generated tests and
-integration tests cover that. See
+Checks match textual markers over a bounded snapshot (64 MiB total, 1 MiB per file).
+Webhook checks detect configuration and comparison markers. Payment checks detect
+`charge_id`, `refunds`, `subscriptions`, `invoice_payload`, `currency`, and
+`total_amount`; their presence does not prove payment integrity at runtime.
+Generated tests and integration/E2E tests provide runtime evidence. See
 [`src/core/projects/verify.ts`](../src/core/projects/verify.ts) and
 [`docs/TEST_PLAN.md`](TEST_PLAN.md).

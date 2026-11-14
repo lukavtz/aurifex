@@ -212,21 +212,21 @@ export function renderI18nFiles(spec: BotSpec): TemplateFile[] {
   const defaultLocale = spec.i18n.defaultLocale as GeneratedLocale;
   const enabled = enabledLocales(spec);
   const files: TemplateFile[] = [];
-  for (const locale of GENERATED_LOCALES) {
-    files.push({ path: `src/i18n/${locale}.ts`, content: renderTsCatalog(locale) });
+  if (spec.stack === "grammy") {
+    for (const locale of GENERATED_LOCALES) {
+      files.push({ path: `src/i18n/${locale}.ts`, content: renderTsCatalog(locale) });
+    }
+    files.push({ path: "src/i18n/index.ts", content: renderTsIndex(defaultLocale, enabled) });
+    files.push({ path: "tests/i18n.test.ts", content: renderTsTest() });
+  } else {
+    for (const locale of GENERATED_LOCALES) {
+      files.push({
+        path: `app/i18n/${locale}.json`,
+        content: JSON.stringify(CATALOGS[locale], null, 2) + "\n",
+      });
+    }
+    files.push({ path: "app/services/i18n.py", content: renderPythonModule(defaultLocale, enabled) });
+    files.push({ path: "tests/test_i18n.py", content: renderPyTest() });
   }
-  files.push({ path: "src/i18n/index.ts", content: renderTsIndex(defaultLocale, enabled) });
-  for (const locale of GENERATED_LOCALES) {
-    files.push({
-      path: `app/i18n/${locale}.json`,
-      content: JSON.stringify(CATALOGS[locale], null, 2) + "\n",
-    });
-  }
-  files.push({ path: "app/services/i18n.py", content: renderPythonModule(defaultLocale, enabled) });
-  files.push(
-    spec.stack === "grammy"
-      ? { path: "tests/i18n.test.ts", content: renderTsTest() }
-      : { path: "tests/test_i18n.py", content: renderPyTest() },
-  );
   return files;
 }

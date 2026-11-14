@@ -63,6 +63,25 @@ function parseJson<T = Record<string, unknown>>(output: string): T {
   return JSON.parse(output) as T;
 }
 
+test("--help lists the ten canonical commands", async () => {
+  const result = await run(["--help"]);
+  assert.equal(result.code, 0, result.stderr);
+  const commands = [...result.stdout.matchAll(/aurifex ([a-z-]+)/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(commands)].toSorted(), [
+    "add", "deploy", "harness", "inspect", "install", "new", "target", "upgrade", "upgrade-plan", "verify",
+  ]);
+});
+
+test("install documents local sources and rejects package or git sources", async () => {
+  const help = await run(["--help"]);
+  assert.match(help.stdout, /--source <path>/);
+  for (const source of ["aurifex", "git+https://example.com/aurifex.git"]) {
+    const result = await run(["install", "--source", source, "--yes"]);
+    assert.equal(result.code, 2);
+    assert.ok(result.stderr.includes(`unsupported install source: ${source}: pass an absolute path or a ./relative path to an Aurifex checkout`), result.stderr);
+  }
+});
+
 test("target --json resolves the grammY framework version", async () => {
   const result = await run(["target", "--stack", "grammy", "--json"]);
   assert.equal(result.code, 0, result.stderr);

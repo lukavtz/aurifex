@@ -14,6 +14,7 @@ export interface JobContext {
   queue: Queue;
   config: Config;
   redis: Redis | null;
+  signal?: AbortSignal;
 }
 
 export interface JobModule {
@@ -59,7 +60,7 @@ export async function loadJobHandlers(ctx: JobContext): Promise<Record<string, J
     if (handlers[module.kind] !== undefined) {
       throw new Error("duplicate job kind: " + module.kind);
     }
-    handlers[module.kind] = (job) => module.handle(job, ctx);
+    handlers[module.kind] = (job, signal) => module.handle(job, { ...ctx, signal });
   }
   return handlers;
 }

@@ -167,7 +167,7 @@ def configure_logging(level: str = "info") -> None:
     )
 `;
 
-function appBot(spec: BotSpec): string {
+export function appBotModule(spec: BotSpec): string {
   const postgres = spec.storage.postgres;
   const queued = spec.runtime.queue === "postgres";
   const middlewareImport = postgres
@@ -1165,14 +1165,12 @@ class GetUniqueGift(TelegramMethod[dict[str, Any]]):
     __returning__ = dict
     __api_method__ = "getUniqueGift"
 
-    gift_id: str
+    name: str
 
 
 class GetChatShareThemeBackdrops(TelegramMethod[dict[str, Any]]):
     __returning__ = dict
     __api_method__ = "getChatShareThemeBackdrops"
-
-    chat_id: int | str
 
 
 class DeleteBusinessAccountGift(TelegramMethod[bool]):
@@ -1180,8 +1178,7 @@ class DeleteBusinessAccountGift(TelegramMethod[bool]):
     __api_method__ = "deleteBusinessAccountGift"
 
     business_connection_id: str
-    gift_id: str
-
+    owned_gift_id: str
 
 class VerifyUser(TelegramMethod[bool]):
     __returning__ = bool
@@ -1216,20 +1213,20 @@ def _build_rich_message(
 
 
 
-async def get_unique_gift(bot: Bot, gift_id: str) -> dict[str, Any]:
-    return await bot(GetUniqueGift(gift_id=gift_id))
+async def get_unique_gift(bot: Bot, name: str) -> dict[str, Any]:
+    return await bot(GetUniqueGift(name=name))
 
 
-async def get_chat_share_theme_backdrops(bot: Bot, chat_id: int | str) -> dict[str, Any]:
-    return await bot(GetChatShareThemeBackdrops(chat_id=chat_id))
+async def get_chat_share_theme_backdrops(bot: Bot) -> dict[str, Any]:
+    return await bot(GetChatShareThemeBackdrops())
 
 
 async def delete_business_account_gift(
-    bot: Bot, business_connection_id: str, gift_id: str
+    bot: Bot, business_connection_id: str, owned_gift_id: str
 ) -> bool:
     return await bot(
         DeleteBusinessAccountGift(
-            business_connection_id=business_connection_id, gift_id=gift_id
+            business_connection_id=business_connection_id, owned_gift_id=owned_gift_id
         )
     )
 
@@ -1563,6 +1560,35 @@ async def test_answer_widget_query_helper_calls_bot() -> None:
     method = bot.await_args.args[0]
     assert isinstance(method, api104.AnswerWidgetQuery)
     assert method.widget_query_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_gift_helpers_serialize_exact_payloads() -> None:
+    bot: Any = AsyncMock(return_value={})
+
+    await api104.get_unique_gift(bot, "gift-name")
+    unique = bot.await_args.args[0]
+    assert isinstance(unique, api104.GetUniqueGift)
+    assert unique.model_dump(exclude_none=True) == {"name": "gift-name"}
+
+    await api104.get_chat_share_theme_backdrops(bot)
+    backdrops = bot.await_args.args[0]
+    assert isinstance(backdrops, api104.GetChatShareThemeBackdrops)
+    assert api104.GetChatShareThemeBackdrops.model_fields == {}
+    assert backdrops.model_dump(exclude_none=True) == {}
+
+    bot.return_value = True
+    await api104.delete_business_account_gift(bot, "bc", "owned")
+    delete = bot.await_args.args[0]
+    assert isinstance(delete, api104.DeleteBusinessAccountGift)
+    assert set(api104.DeleteBusinessAccountGift.model_fields) == {
+        "business_connection_id",
+        "owned_gift_id",
+    }
+    assert delete.model_dump(exclude_none=True) == {
+        "business_connection_id": "bc",
+        "owned_gift_id": "owned",
+    }
 `;
 
 const TEST_WIDGETS = `from __future__ import annotations
@@ -1704,7 +1730,7 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
     { path: "app/config.py", content: renderConfigPy(spec) },
     { path: "tests/test_secrets.py", content: renderSecretsTestPy(spec) },
     { path: "app/logger.py", content: APP_LOGGER },
-    { path: "app/bot.py", content: appBot(spec) },
+    { path: "app/bot.py", content: appBotModule(spec) },
     { path: "app/main.py", content: appMain(spec) },
     { path: "app/webhook.py", content: APP_WEBHOOK },
     { path: "app/handlers/__init__.py", content: HANDLERS_INIT },
@@ -1747,6 +1773,9 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
   if (features.has("payments")) {
     files.push(...renderAiogramFeature("payments", "payments", spec));
   }
+  if (features.has("moderation")) {
+    files.push(...renderAiogramFeature("moderation", "moderation", spec));
+  }
   if (features.has("miniapps")) {
     files.push(...renderAiogramFeature("miniapps", "miniapp", spec));
   }
@@ -1773,4 +1802,21 @@ export function renderAiogramProject(spec: BotSpec): TemplateFile[] {
   }
   assertNoTokenLiteral(files);
   return files;
+}
+
+export function renderQueueInfrastructurePy(
+  spec: BotSpec,
+  options: { readonly includeMigration: boolean },
+): TemplateFile[] {
+  return [
+    { path: "app/runtime/queue.py", content: renderQueuePy() },
+    { path: "app/runtime/worker.py", content: renderWorkerPy() },
+    { path: "app/worker.py", content: renderWorkerEntryPy(spec) },
+    { path: "app/jobs/__init__.py", content: renderJobsIndexPy() },
+    { path: "app/middlewares/user_sync.py", content: renderUserSyncPy() },
+    { path: "tests/test_queue_wiring.py", content: TEST_QUEUE_WIRING },
+    ...(options.includeMigration
+      ? [{ path: "migrations/versions/0001_runtime_schema.py", content: renderAlembicMigration() }]
+      : []),
+  ];
 }

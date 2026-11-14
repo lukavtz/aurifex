@@ -56,7 +56,7 @@ test("module exports no default and the expected plugin surface", () => {
   assert.equal(typeof plugin.Config, "function");
 });
 
-test("apply registers eight tools, guidance, and disposes cleanly", async () => {
+test("apply registers nine tools, canonical guidance, and disposes cleanly", async () => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-dsh-"));
   const { fiber, tools, sections } = await mount(root);
   try {
@@ -71,7 +71,19 @@ test("apply registers eight tools, guidance, and disposes cleanly", async () => 
     assert.equal(sections[0]?.name, "aurifex");
     assert.equal(sections[0]?.order, 120);
     assert.equal(sections[0]?.interpolate, false);
-    assert.equal(sections[0]?.text.split(". ").length, 4);
+    assert.equal(
+      sections[0]?.text,
+      "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.",
+    );
+    for (const name of ["telegram_bot_scaffold", "telegram_bot_add_feature"]) {
+      const tool = tools.definitions().find((definition) => definition.name === name);
+      assert.match(tool?.description ?? "", /skills\/telegram-bot-discovery/);
+      assert.match(tool?.description ?? "", /confirm/i);
+    }
+    assert.equal(
+      tools.definitions().find((tool) => tool.name === "telegram_bot_verify")?.description,
+      "Run static file-content checks; no project code execution, network, or Telegram calls.",
+    );
   } finally {
     await fiber.dispose();
     await rm(root, { recursive: true, force: true });

@@ -161,17 +161,34 @@ test("agents have name and description frontmatter", async () => {
 });
 
 test("commands declare description, argument-hint, and telegram tool allowlist", async () => {
+  const plugin = JSON.parse(await readContent(".claude-plugin/plugin.json")) as { name: string };
+  const servers = JSON.parse(await readContent(".mcp.json")) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(servers), ["aurifex"]);
+  const namespace = `mcp__plugin_${plugin.name}_${Object.keys(servers)[0]}__`;
+  const toolNames = [
+    "telegram_bot_target_resolve",
+    "telegram_bot_scaffold",
+    "telegram_bot_inspect",
+    "telegram_bot_verify",
+    "telegram_bot_add_feature",
+    "telegram_bot_deploy_plan",
+    "telegram_bot_test_harness",
+    "telegram_bot_upgrade_plan",
+    "telegram_bot_upgrade",
+  ];
   for (const file of commandFiles) {
     const relativePath = `commands/${file}`;
     const fields = parseFrontmatter(await readContent(relativePath), relativePath);
     assert.ok(fields.description, `${relativePath}: missing description`);
     assert.ok(fields["argument-hint"], `${relativePath}: missing argument-hint`);
     assert.ok(fields["allowed-tools"], `${relativePath}: missing allowed-tools`);
-    assert.match(
-      fields["allowed-tools"],
-      /telegram_bot_[a-z_]+/,
-      `${relativePath}: allowed-tools must name a telegram_bot_* tool`,
-    );
+    for (const tool of fields["allowed-tools"].split(/,\s*/)) {
+      assert.ok(tool.startsWith(namespace), `${relativePath}: missing ${namespace} prefix`);
+      assert.ok(
+        toolNames.includes(tool.slice(namespace.length)),
+        `${relativePath}: unknown tool ${tool}`,
+      );
+    }
   }
 });
 

@@ -3,6 +3,7 @@ import { getConfig, type Config } from "./config.js";
 import { logger } from "./logger.js";
 import { dedupeMiddleware } from "./security/dedupe.js";
 import { rateLimitMiddleware } from "./security/rate-limit.js";
+import { callbackAckMiddleware } from "./security/callback-ack.js";
 import { retryAfterMs } from "./security/retry.js";
 
 export interface BotWithSecurity extends Bot {
@@ -11,6 +12,9 @@ export interface BotWithSecurity extends Bot {
 
 export function createBot(config: Config = getConfig()): BotWithSecurity {
   const bot = new Bot(config.BOT_TOKEN) as BotWithSecurity;
+  // Answers a callback query when its handler fails before replying; registered
+  // before every feature so any handler that throws still stops the spinner.
+  bot.use(callbackAckMiddleware());
   const security: MiddlewareFn<Context>[] = [];
   security.push(dedupeMiddleware(config.REDIS_URL));
   security.push(rateLimitMiddleware(config.REDIS_URL));

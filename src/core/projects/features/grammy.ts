@@ -10,6 +10,7 @@ import { renderMiniApp } from "../templates/miniapp.ts";
 import { renderMiniAppSessionTs } from "../templates/miniapp-session.ts";
 import { renderPaymentsTs } from "../templates/payments.ts";
 import type { TemplateFile } from "../templates/shared.ts";
+import { renderWidgetsModule, renderWidgetsTest } from "../templates/widgets.ts";
 
 function file(path: string, content: string): TemplateFile {
   return { path, content };
@@ -97,6 +98,12 @@ function fakeQueue(calls: EnqueueCall[]): QueueTarget {
   } as unknown as QueueTarget;
 }
 
+type RegisterDeps = Parameters<typeof register>[1];
+
+function fakeDeps(bot: BotTarget, queue: QueueTarget): RegisterDeps {
+  return { bot, sql: null, queue, config: {} } as unknown as RegisterDeps;
+}
+
 test("llm enqueues one job keyed by the update id", async () => {
   const calls: EnqueueCall[] = [];
   const id = await enqueueLlm(fakeQueue(calls), { chatId: 7, prompt: "hi", updateId: 42 });
@@ -114,7 +121,7 @@ test("llm webhook replies once without calling the model", async () => {
       handlers.set(name, handler);
     },
   } as unknown as BotTarget;
-  register(bot, fakeQueue(calls));
+  register(bot, fakeDeps(bot, fakeQueue(calls)));
   const handler = handlers.get("llm");
   assert.ok(handler);
   const replies: string[] = [];
@@ -1171,57 +1178,6 @@ test("assertMutationAuthorized accepts a same-origin request", () => {
 });
 `;
 
-const WIDGETS_MODULE = `import type { Bot } from "grammy";
-
-import { api104 } from "../telegram/api104.js";
-
-const ANSWER_TIMEOUT_MS = 15_000;
-
-export function widgetQueryId(message: unknown): string | null {
-  if (typeof message !== "object" || message === null) return null;
-  for (const field of ["widget_query", "shared_widget_query"] as const) {
-    if (!(field in message)) continue;
-    const query = (message as Record<string, unknown>)[field];
-    if (typeof query !== "object" || query === null || !("id" in query)) continue;
-    if (typeof query.id === "string" && query.id !== "") return query.id;
-  }
-  return null;
-}
-
-export function register(bot: Bot): void {
-  const api = api104(bot);
-  bot.on("message", async (ctx, next) => {
-    const queryId = widgetQueryId(ctx.message);
-    if (queryId === null) {
-      await next();
-      return;
-    }
-    const startedAt = Date.now();
-    await api.answerWidgetQuery({ widget_query_id: queryId, data: "ack" });
-    if (Date.now() - startedAt > ANSWER_TIMEOUT_MS) return;
-  });
-}
-`;
-
-function widgetsTest(name: string): string {
-  return `import assert from "node:assert/strict";
-import { test } from "node:test";
-
-import { register, widgetQueryId } from "../src/features/${name}.ts";
-
-test("widget query id is read from both update shapes", () => {
-  assert.equal(widgetQueryId({ widget_query: { id: "one" } }), "one");
-  assert.equal(widgetQueryId({ shared_widget_query: { id: "two" } }), "two");
-  assert.equal(widgetQueryId({}), null);
-  assert.equal(widgetQueryId("nope"), null);
-});
-
-test("register is exported", () => {
-  assert.equal(typeof register, "function");
-});
-`;
-}
-
 const RICH_MODULE = `import type { Bot } from "grammy";
 
 import { api104 } from "../telegram/api104.js";
@@ -1405,9 +1361,12 @@ export function renderGrammyFeature(
       ];
     case "llm":
       return [
-        file("src/features/llm.ts", renderLlmEnqueueTs()),
+        file(`src/features/${name}.ts`, renderLlmEnqueueTs()),
         file("src/jobs/llm.ts", renderLlmJobTs(spec)),
-        file("tests/llm.test.ts", LLM_TEST),
+        file(
+          `tests/${name}.test.ts`,
+          LLM_TEST.replaceAll("features/llm.ts", `features/${name}.ts`),
+        ),
       ];
     case "inline":
       return [
@@ -1417,8 +1376,11 @@ export function renderGrammyFeature(
     case "payments":
       return [
         file("src/runtime/payments.ts", renderPaymentsTs(spec)),
-        file("src/features/payments.ts", PAYMENTS_MODULE),
-        file("tests/payments.test.ts", PAYMENTS_TEST),
+        file(`src/features/${name}.ts`, PAYMENTS_MODULE),
+        file(
+          `tests/${name}.test.ts`,
+          PAYMENTS_TEST.replaceAll("features/payments.ts", `features/${name}.ts`),
+        ),
         ...renderPaymentsJobsTs(),
       ];
     case "miniapps":
@@ -1435,14 +1397,20 @@ export function renderGrammyFeature(
       ];
     case "broadcast":
       return [
-        file("src/features/broadcast.ts", renderBroadcastCommandTs()),
+        file(`src/features/${name}.ts`, renderBroadcastCommandTs()),
         file("src/jobs/broadcast.ts", renderBroadcastJobTs()),
-        file("tests/broadcast.test.ts", BROADCAST_TEST),
+        file(
+          `tests/${name}.test.ts`,
+          BROADCAST_TEST.replaceAll("features/broadcast.ts", `features/${name}.ts`),
+        ),
       ];
     case "widgets":
       return [
-        file(`src/features/${name}.ts`, WIDGETS_MODULE),
-        file(`tests/${name}.test.ts`, widgetsTest(name)),
+        file(`src/features/${name}.ts`, renderWidgetsModule()),
+        file(
+          `tests/${name}.test.ts`,
+          renderWidgetsTest().replaceAll("features/widgets.js", `features/${name}.js`),
+        ),
       ];
     case "rich":
       return [

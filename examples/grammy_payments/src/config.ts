@@ -66,7 +66,7 @@ const FILE_BACKED_SECRETS = [
   "LLM_API_KEY",
 ] as const;
 
-const REQUIRED_SECRETS: readonly string[] = [
+export const REQUIRED_SECRETS: readonly string[] = [
   "BOT_TOKEN",
   "WEBHOOK_SECRET",
   "DATABASE_URL",

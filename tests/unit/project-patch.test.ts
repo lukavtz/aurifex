@@ -206,11 +206,48 @@ test("writes template and migration files under the prefix", async () => {
     { files: {} },
   );
 
-  assert.equal(refs.length, 3);
+  assert.equal(refs.files.length, 3);
+  assert.deepEqual(refs.written, [
+    { path: "bots/x/src/jobs/llm.ts", previous: null },
+    { path: "bots/x/drizzle/0001_jobs.sql", previous: null },
+    { path: "bots/x/.env.example", previous: "A=\n" },
+  ]);
   assert.equal(
     await readFile(join(policy.root, "bots/x/src/jobs/llm.ts"), "utf8"),
     "export const kind = 'llm';\n",
   );
   assert.equal(await policy.readText("bots/x/drizzle/0001_jobs.sql"), "select 1;\n");
   assert.equal(await policy.readText("bots/x/.env.example"), "A=\nLLM_MODEL=gpt-5\n");
+});
+
+test("returns snapshots for changed outputs and skips identical writes", async () => {
+  const policy = await makeProject({ ".env.example": "A=\n", "src/main.ts": "before\n", "package.json": '{"scripts":{"start":"node main.js"}}\n' });
+  const result = await applyPatch(policy, "", patch({
+    replacements: [{ path: "src/main.ts", content: "after\n" }],
+    packageJsonScripts: { worker: "node worker.js" },
+    env: [{ key: "A", value: "" }],
+  }), { files: {} });
+  assert.deepEqual(result.files.map((file) => file.path), ["src/main.ts", "package.json"]);
+  assert.deepEqual(result.written, [
+    { path: "src/main.ts", previous: "before\n" },
+    { path: "package.json", previous: '{"scripts":{"start":"node main.js"}}\n' },
+  ]);
+});
+
+test("restores every previous byte and removes new files on an injected write failure", async () => {
+  const policy = await makeProject({ ".env.example": "A=\n", "src/main.ts": "before\n" });
+  const write = policy.writeFile.bind(policy);
+  let injected = false;
+  policy.writeFile = async (path, content, options) => {
+    if (path === ".env.example" && !injected) { injected = true; throw new Error("injected patch write failure"); }
+    return write(path, content, options);
+  };
+  await assert.rejects(applyPatch(policy, "", patch({
+    files: [{ path: "src/worker.ts", content: "worker\n" }],
+    replacements: [{ path: "src/main.ts", content: "after\n" }],
+    env: [{ key: "B", value: "" }],
+  }), { files: {} }), /injected patch write failure/);
+  assert.equal(await policy.readText("src/main.ts"), "before\n");
+  assert.equal(await policy.readText(".env.example"), "A=\n");
+  assert.deepEqual(await policy.listFiles(), [".env.example", "src/main.ts"]);
 });

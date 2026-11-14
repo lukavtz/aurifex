@@ -1,4 +1,4 @@
-# feat: Aurifex v0.1
+# feat: Aurifex v0.2.0
 
 Aurifex is an MIT-licensed capability package that lets a coding agent (OMP, DeepSeek
 Harness, Claude Code, MCP) create, harden, test, and deploy production Telegram bots.
@@ -32,59 +32,52 @@ typed raw adapter generated into every project.
   Bot API 10.4 widgets, rich messages/drafts.
 - `scaffoldBot`, `addFeature`, `inspectBot`, `verifyBot`, `planDeploy`,
   `generateTestHarness`, `upgradePlan`.
-- Public check IDs include `token.literal`, `env.ignored`, `webhook.secret`,
-  `webhook.https`, `webhook.port`, `webhook.constant_time`, `container.non_root`,
-  `updates.allowed`, `updates.dedupe`, `retry.retry_after`, `botapi.104`, `tests.present`,
-  `deps.lockfile`, `logs.redaction`, `allowlist.present`, `scan.bounded`.
+- Public verification returns 29 static check IDs, including `token.literal`,
+  `botapi.104.types`, queue and payment schema checks, Mini App checks, and
+  `allowlist.present`.
 
 ### Host projections
 
-- CLI with `target/new/inspect/verify/add/deploy/harness/upgrade-plan/install`, JSON output,
-  exit codes `0/1/2`, and one-command `install --host all` for OMP, DSH, and Claude Code.
-- OMP extension: eight `telegram_bot_*` tools, three commands.
-- DSH plugin: eight `defineTool` tools, prompt section, `cordis.patch.yml`; validated in a
-  fresh `dsh@0.2.2-rc.1` profile with `--dump-config`.
-- MCP v2 stdio server: same eight tools, structured content, 256 KiB cap.
+- CLI exposes 10 commands: `target/new/inspect/verify/add/deploy/harness/upgrade-plan/upgrade/install`.
+- OMP extension: nine `telegram_bot_*` tools and three commands.
+- DSH plugin: nine `defineTool` tools, prompt section, `cordis.patch.yml`.
+- Zero-dependency MCP stdio server: same nine tools, structured content, 256 KiB cap.
+  It ships with no runtime `node_modules` requirement, so a Claude marketplace cache
+  copy works as installed.
 - Claude Code: plugin + marketplace manifests, `.mcp.json` using
-  `${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js`; installed and enabled in an isolated
-  `HOME`.
+  `${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js`.
 
 ### Content and delivery
 
-- Nine skills, three agents, three commands, one rule file, one review prompt; adapted from
-  Apache-2.0/MIT upstreams with attribution in `THIRD_PARTY_NOTICES.md`.
+- Ten skills, three agents, three commands, one rule file, one review prompt; adapted
+  from Apache-2.0/MIT upstreams with attribution in `THIRD_PARTY_NOTICES.md`.
 - Deterministic CI, live E2E workflow, secret scanner, package dry-run.
 
 ## Verification
 
 Local results:
 
-| Command                       | Result                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| `pnpm verify`                 | pass — format, lint, typecheck, 109 unit, 11 security, 60 integration, 9 host, secret scan, pack |
-| `AURIFEX_E2E=1 pnpm test:e2e` | 2 pass, 1 skipped (live)                                                                         |
-| Generated grammY project      | `bun install`, `bun run typecheck`, `bun test` (27 pass), `bun run build`                        |
-| Generated aiogram project     | `uv lock`, `uv sync --frozen`, `ruff`, `mypy`, `pytest` (28 pass)                                |
-| Generated Mini App            | `bun run build` — Vite output at `dist/miniapp`                                                  |
-| MCP built server              | `initialize` + `tools/list` — 8 tools                                                            |
-| OMP                           | `omp plugin link .` + `omp plugin doctor` — plugin ok                                            |
-| DSH                           | fresh profile install + `--dump-config` — `aurifex` row present                                  |
-| Claude Code                   | isolated `HOME`: marketplace add + plugin install — enabled, MCP server listed                   |
-| `pnpm audit --prod`           | no known vulnerabilities                                                                         |
+| Command                       | Result                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `pnpm verify`                 | pass — format, lint, typecheck, unit, security, integration, host, secret scan, pack      |
+| `AURIFEX_E2E=1 pnpm test:e2e` | 2 pass, 1 skipped (live)                                                                  |
+| Generated grammY project      | `bun install`, `bun run typecheck`, `bun test` (27 pass), `bun run build`                 |
+| Generated aiogram project     | `uv lock`, `uv sync --frozen`, `ruff`, `mypy`, `pytest` (28 pass)                         |
+| Generated Mini App            | `bun run build` — Vite output at `dist/miniapp`                                           |
+| MCP built server              | `initialize` + `tools/list` — nine tools, runs from a bare `dist/` without `node_modules` |
+| OMP                           | `omp plugin link .` + `omp plugin doctor` — plugin ok                                     |
+| DSH                           | fresh profile install + `--dump-config` — `aurifex` row present                           |
+| Claude Code                   | isolated `HOME`: marketplace add + plugin install — enabled, MCP server listed            |
+| `pnpm audit --prod`           | no known vulnerabilities                                                                  |
 
-CI status: the first run failed before any step executed (`steps: []`, `runner_name: ""`)
-on every job. That is runner provisioning for the new private repository, not a workflow
-or test failure; local verification is green. The `verify` job targets Ubuntu, macOS, and
-Windows; the `e2e` job targets generated projects with Bun 1.4.2, uv 0.12.23, and Python
-3.14.
+Verification and host runs must be recorded from the current release candidate; do not
+reuse results from earlier releases or claim success without their artifacts.
 
 ## Limitations
 
 - Framework type declarations cover Bot API 10.3; 10.4-only calls use the generated typed
   raw adapter. Native framework bindings are not claimed.
 - Generated projects are standalone; they do not depend on `aurifex` or a shared runtime.
-- Live Telegram tests are secret-gated and were not executed without a test bot token/chat.
-- Docker image builds were not executed locally because the Docker daemon was unavailable;
-  the generated files pass file-level/static checks and the E2E project builds.
-- Interactive OMP tool execution is covered by the host contract test; `omp plugin doctor`
-  validates loading.
+- Live Telegram tests are secret-gated; they require a test bot token and chat.
+- Docker image builds require a Docker daemon; generated-file checks do not replace them.
+- Interactive host smoke tests require the pinned host binaries and isolated profiles.

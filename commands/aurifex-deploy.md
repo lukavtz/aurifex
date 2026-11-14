@@ -1,7 +1,7 @@
 ---
 description: Plan a Telegram bot deployment and webhook registration without calling Telegram
 argument-hint: <domain> [project-root] [webhook|polling]
-allowed-tools: telegram_bot_deploy_plan
+allowed-tools: mcp__plugin_aurifex_aurifex__telegram_bot_deploy_plan
 ---
 
 # /aurifex-deploy

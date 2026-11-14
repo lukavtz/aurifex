@@ -192,6 +192,21 @@ test("Bot API 10.4 raw adapter defines typed methods and bounds", () => {
   assert.match(api, /max_length=1024/);
   assert.match(api, /ge=5, le=3600/);
   assert.match(api, /draft_id must be non-zero/);
+  for (const [name, method, fields] of [
+    ["GetUniqueGift", "getUniqueGift", /^    name: str$/m],
+    ["GetChatShareThemeBackdrops", "getChatShareThemeBackdrops", null],
+    ["DeleteBusinessAccountGift", "deleteBusinessAccountGift", /^    owned_gift_id: str$/m],
+  ] as const) {
+    assert.match(api, new RegExp(`class ${name}\\(TelegramMethod\\[`));
+    assert.match(api, new RegExp(`__api_method__ = "${method}"`));
+    if (fields !== null) assert.match(api, fields);
+  }
+  assert.match(api, /^async def get_unique_gift\(bot: Bot, name: str\)/m);
+  assert.match(api, /^async def get_chat_share_theme_backdrops\(bot: Bot\)/m);
+  assert.match(api, /bot: Bot, business_connection_id: str, owned_gift_id: str\n\) -> bool:/);
+  const giftTest = contentOf("tests/test_api104.py");
+  assert.match(giftTest, /GetChatShareThemeBackdrops\.model_fields == \{\}/);
+  assert.match(giftTest, /"owned_gift_id": "owned"/);
 });
 
 test("retry service exposes retry_after handling", () => {

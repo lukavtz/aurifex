@@ -47,13 +47,14 @@ function syntacticErrors(content: string): readonly ts.Diagnostic[] {
 }
 
 test("emits all three locales regardless of enabled flags", () => {
-  const files = renderI18nFiles(specWithoutZh);
+  const grammy = renderI18nFiles(specWithoutZh);
+  const aiogram = renderI18nFiles({ ...specWithoutZh, stack: "aiogram" });
   for (const locale of ["en", "ru", "zh"]) {
-    assert.ok(files.some((file) => file.path === `src/i18n/${locale}.ts`));
-    assert.ok(files.some((file) => file.path === `app/i18n/${locale}.json`));
+    assert.ok(grammy.some((file) => file.path === `src/i18n/${locale}.ts`));
+    assert.ok(aiogram.some((file) => file.path === `app/i18n/${locale}.json`));
   }
-  assert.ok(files.some((file) => file.path === "src/i18n/index.ts"));
-  assert.ok(files.some((file) => file.path === "app/services/i18n.py"));
+  assert.ok(grammy.some((file) => file.path === "src/i18n/index.ts"));
+  assert.ok(aiogram.some((file) => file.path === "app/services/i18n.py"));
 });
 
 test("fallback configuration follows enabled flags and default locale", () => {
@@ -61,7 +62,7 @@ test("fallback configuration follows enabled flags and default locale", () => {
   assert.match(index, /export const DEFAULT_LOCALE: Locale = "ru"/);
   assert.match(index, /export const ENABLED_LOCALES: readonly Locale\[\] = \["en","ru","zh"\]/);
 
-  const restricted = find(renderI18nFiles(specWithoutZh), "app/services/i18n.py").content;
+  const restricted = find(renderI18nFiles({ ...specWithoutZh, stack: "aiogram" }), "app/services/i18n.py").content;
   assert.match(restricted, /^DEFAULT_LOCALE = "en"$/m);
   assert.match(restricted, /^ENABLED_LOCALES = \["en"\]$/m);
   assert.match(restricted, /^LOCALES = \["en","ru","zh"\]$/m);
@@ -81,7 +82,7 @@ test("emitted TypeScript has no syntax errors", () => {
 });
 
 test("emitted Python keeps escaped newlines and interpolated values", () => {
-  const python = find(renderI18nFiles(spec), "app/services/i18n.py").content;
+  const python = find(renderI18nFiles(aiogramSpec), "app/services/i18n.py").content;
   assert.doesNotMatch(python, /\$\{/);
   assert.doesNotMatch(python, /I18n Bot/);
   assert.match(python, /"i18n" \/ \(locale \+ "\.json"\)/);
@@ -107,24 +108,21 @@ test("grammy start and help render through the catalog", () => {
   }
 });
 
-test("both stacks include the i18n files", () => {
+test("i18n files stay within each generated stack", () => {
   const grammy = renderGrammyProject(spec, resolveStack("grammy").target).map((file) => file.path);
   const aiogram = renderAiogramProject(aiogramSpec).map((file) => file.path);
-  for (const path of [
-    "src/i18n/en.ts",
-    "src/i18n/ru.ts",
-    "src/i18n/zh.ts",
-    "src/i18n/index.ts",
-    "app/i18n/en.json",
-    "app/i18n/ru.json",
-    "app/i18n/zh.json",
-    "app/services/i18n.py",
-  ]) {
-    assert.ok(grammy.includes(path), `grammy missing ${path}`);
-    assert.ok(aiogram.includes(path), `aiogram missing ${path}`);
+  for (const locale of ["en", "ru", "zh"]) {
+    assert.ok(grammy.includes(`src/i18n/${locale}.ts`));
+    assert.ok(aiogram.includes(`app/i18n/${locale}.json`));
+    assert.ok(!grammy.includes(`app/i18n/${locale}.json`));
+    assert.ok(!aiogram.includes(`src/i18n/${locale}.ts`));
   }
+  assert.ok(grammy.includes("src/i18n/index.ts"));
   assert.ok(grammy.includes("tests/i18n.test.ts"));
+  assert.ok(!grammy.includes("app/services/i18n.py"));
+  assert.ok(aiogram.includes("app/services/i18n.py"));
   assert.ok(aiogram.includes("tests/test_i18n.py"));
+  assert.ok(!aiogram.includes("src/i18n/index.ts"));
 });
 
 test("env example lists the Stage 1 runtime and secrets keys", () => {

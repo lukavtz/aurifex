@@ -2,8 +2,7 @@
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push to `main`/`feat/**` and every pull
-request:
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests:
 
 | Job                               | What it proves                                                                                          |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -19,7 +18,9 @@ request:
 
 `security.yml` adds CodeQL (`javascript-typescript`, `security-and-quality`) on pushes,
 pull requests, and a weekly schedule. Dependency review runs on every pull request.
-
+pull requests, and a weekly schedule. Dependency review runs only on pull requests
+and remains advisory, including high-severity runtime findings. The CI audit job
+gates runtime high-severity vulnerabilities with `pnpm audit --prod --audit-level high`.
 `pages.yml` deploys `site/` to <https://lukavtz.github.io/aurifex/> when site files
 change. The workflow requires Pages configured with **Source: GitHub Actions**.
 
@@ -32,10 +33,11 @@ change. The workflow requires Pages configured with **Source: GitHub Actions**.
    git tag v0.2.0
    git push origin v0.2.0
    ```
-4. `.github/workflows/release.yml` verifies, packs, writes `SHA256SUMS`, generates a
-   CycloneDX SBOM, signs the tarball keyless with cosign, publishes the checked-in
-   example images to GHCR, creates a GitHub Release, and publishes to npm **only when
-   `NPM_TOKEN` is configured**.
+4. `.github/workflows/release.yml` checks that the requested tag matches `package.json`,
+   verifies, packs, writes `SHA256SUMS`, and generates a CycloneDX SBOM. It attempts
+   keyless cosign signing; signing failure does not block release. It also attempts
+   the checked-in example images, creates a GitHub Release, and publishes to npm
+   **only when `NPM_TOKEN` is configured**.
 5. Without `NPM_TOKEN`, the workflow still creates a GitHub Release. Add the secret in
    repository settings before expecting npm publication.
 6. `.github/workflows/host-matrix.yml` runs nightly against pinned OMP, DSH, and
@@ -49,6 +51,7 @@ change. The workflow requires Pages configured with **Source: GitHub Actions**.
 | `github-release` | yes                      | GitHub Release assets: tarball, `SHA256SUMS`, SBOM, plus the signature bundle when signed  |
 | `npm`            | no                       | npm publish only when `NPM_TOKEN` is set                                                   |
 | `examples`       | no (`continue-on-error`) | `ghcr.io/lukavtz/aurifex-example-<stack>:<tag>`, or an explicit skip summary               |
+| cosign signing  | no (`continue-on-error`) | signature bundle when signing succeeds |
 
 `verify` asserts the tarball, `SHA256SUMS`, and the SBOM exist before uploading the
 artifact, so a broken pack or SBOM step fails the run instead of shipping a release

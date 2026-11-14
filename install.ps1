@@ -132,25 +132,31 @@ try {
         }
     }
 
-    if (-not (Test-Path (Join-Path $SourceDir "package.json"))) {
-        throw "no package.json in $SourceDir; refusing to install"
+    $SourceDir = (Resolve-Path -LiteralPath $SourceDir).Path
+    $PackagePath = Join-Path $SourceDir "package.json"
+    if (-not (Test-Path -LiteralPath $PackagePath) -or (Get-Content -LiteralPath $PackagePath -Raw | ConvertFrom-Json).name -ne "aurifex") {
+        throw "invalid install source: ${SourceDir}: expected an Aurifex checkout with package.json `"name`": `"aurifex`""
     }
 
-    if (-not (Test-Path (Join-Path $SourceDir "dist/cli.js"))) {
+    if (-not (Test-Path -LiteralPath (Join-Path $SourceDir "dist/cli.js")) -or -not (Test-Path -LiteralPath (Join-Path $SourceDir "dist/adapters/mcp/server.js"))) {
         Write-Host "Building Aurifex..."
-        Push-Location $SourceDir
+        Push-Location -LiteralPath $SourceDir
+        $PreviousPackageLock = $env:npm_config_package_lock
         try {
-            & npm install --silent --no-audit --no-fund
-            if ($LASTEXITCODE -ne 0) {
-                throw "npm install failed in $SourceDir"
-            }
+            $env:npm_config_package_lock = "false"
+            & npm install --include=dev --ignore-scripts --no-audit --no-fund --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed in $SourceDir" }
+            & npm run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build failed in $SourceDir" }
         } finally {
+            $env:npm_config_package_lock = $PreviousPackageLock
             Pop-Location
         }
     }
-
-    if (-not (Test-Path (Join-Path $SourceDir "dist/cli.js"))) {
-        throw "the build did not produce dist/cli.js in $SourceDir"
+    foreach ($Artifact in @("dist/cli.js", "dist/adapters/mcp/server.js")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceDir $Artifact))) {
+            throw "the build did not produce $Artifact in $SourceDir"
+        }
     }
 
     $Detected = @()
@@ -194,7 +200,7 @@ try {
     }
 
     if (-not $DryRun) {
-        if ($SourceDir.Contains('"')) {
+        if ($SourceDir.Contains('"') -or $SourceDir.Contains("`n") -or $SourceDir.Contains("`r")) {
             throw "install path contains an unsafe character for the launcher"
         }
         $BinDir = $env:AURIFEX_BIN_DIR
@@ -203,9 +209,18 @@ try {
         }
         New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
         $Launcher = Join-Path $BinDir "aurifex.cmd"
-        Set-Content -Path $Launcher -Encoding ASCII -Value (
-            "@echo off`r`nnode `"$SourceDir\dist\cli.js`" %*`r`n"
-        )
+        $LauncherCli = (Join-Path $SourceDir "dist\cli.js").Replace('%', '%%')
+        $LauncherText = @(
+            '@echo off',
+            'setlocal DisableDelayedExpansion',
+            'for /f "tokens=2 delims=:" %%C in (''chcp'') do set "AURIFEX_CP=%%C"',
+            'chcp 65001 >nul',
+            ('node "' + $LauncherCli + '" %*'),
+            'set "AURIFEX_RC=%ERRORLEVEL%"',
+            'if defined AURIFEX_CP chcp %AURIFEX_CP% >nul',
+            'exit /b %AURIFEX_RC%'
+        ) -join "`r`n"
+        [IO.File]::WriteAllText($Launcher, $LauncherText + "`r`n", [Text.UTF8Encoding]::new($false))
         $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
         if ($UserPath -notlike "*$BinDir*") {
             [Environment]::SetEnvironmentVariable(

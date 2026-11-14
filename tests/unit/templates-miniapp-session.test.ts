@@ -94,9 +94,9 @@ class FakeRedis {
 }
 
 function signInitData(fields: Record<string, string>): string {
-  const entries = Object.entries(fields)
-    .map(([key, value]) => `${key}=${value}`)
-    .toSorted();
+  const entries = Object.keys(fields)
+    .sort()
+    .map((key) => `${key}=${fields[key]}`);
   const secret = createHmac("sha256", "WebAppData").update(BOT_TOKEN).digest();
   const hash = createHmac("sha256", secret).update(entries.join("\n")).digest("hex");
   return new URLSearchParams({ ...fields, hash }).toString();
@@ -104,14 +104,14 @@ function signInitData(fields: Record<string, string>): string {
 
 function initData(options: { authDate?: number; id?: number } = {}): string {
   return signInitData({
-    auth_date: String(options.authDate ?? NOW_SECONDS),
-    query_id: "AAH-test-query",
     user: JSON.stringify({
       id: options.id ?? 42,
       first_name: "Test",
       username: "tester",
       language_code: "en",
     }),
+    auth_date: String(options.authDate ?? NOW_SECONDS),
+    query_id: "AAH-test-query",
   });
 }
 

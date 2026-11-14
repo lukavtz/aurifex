@@ -47,8 +47,9 @@ the same path policy as the project. A new scaffold always writes it after the
 source files, so a partially written project has files but no manifest.
 
 The manifest is required for `aurifex upgrade` and `aurifex add`. `inspect` and
-`verify` do not read it. A missing manifest returns `project_unreadable` with the
-hint `run aurifex upgrade --apply first`.
+`verify` do not read it. A missing manifest returns `project_unreadable`: restore
+the original `.aurifex/manifest.json` from version control, or scaffold a new
+project in a different directory. Do not delete project files to recover it.
 
 ## Upgrade
 
@@ -70,6 +71,9 @@ Default is a dry run. `--apply` writes. The command:
 
 The dry run returns `actions` describing the review steps. It never writes.
 
+`--apply` bumps the manifest spec version only. It preserves the `files` hash map;
+it does not migrate the runtime or regenerate source files.
+
 ### Safe upgrade limits
 
 The original `BotSpec` is not stored in the project. Therefore `upgrade` cannot
@@ -81,10 +85,9 @@ regenerate generated source correctly, and it does not try:
 - only the manifest is touched;
 - a user-modified generated file blocks the upgrade instead of being replaced.
 
-`0.2.0` has no automatic manifest reconstruction. A project without a manifest
-cannot be upgraded by this command. Re-scaffold with `aurifex new` and port the
-custom code, or add the infrastructure manually and then create the manifest
-deliberately.
+`0.2.0` has no automatic manifest reconstruction. Restore the original manifest
+from version control, or scaffold a new project in a different directory and port
+the custom code. Restore modified generated files before upgrading an old manifest.
 
 `aurifex upgrade-plan <root>` is separate: it reads the stack and returns Bot API
 10.4 migration actions. It writes nothing and does not inspect the manifest.
@@ -95,7 +98,7 @@ deliberately.
 fills the 1.1 fields, validation runs once on the normalized document, and the
 scaffold writes a manifest with `specVersion: "bot-spec-1.1.0"`. A 1.0 document
 that violates a 1.1 coupling rule fails with `invalid_request` and the hint
-`run aurifex upgrade --apply`.
+`update the document to bot-spec-1.1.0`.
 
 A 1.1 document without `runtime` fails.
 
@@ -105,12 +108,12 @@ A 1.1 document without `runtime` fails.
 aurifex add <root> --feature <feature> --name <name>
 ```
 
-- `.aurifex/manifest.json` must exist; otherwise `project_unreadable` with the
-  upgrade hint.
+- `.aurifex/manifest.json` must exist; otherwise `project_unreadable` asks you to
+  restore the original manifest from version control or scaffold elsewhere.
 - Existing project must be detected as grammY (`package.json` dependency) or
   aiogram (`pyproject.toml` contains `aiogram`); otherwise
   `project_unreadable`.
-- `--name` must match `^[a-z][a-z0-9_]{1,31}$` and must not be reserved:
+- `--name` must match `^[a-z][a-z0-9_]{1,63}$` and must not be reserved:
   `index`, `main`, `bot`, `config`, `admin`, `start`, `help`.
 - `--feature miniapps` requires `--name miniapp`.
 - Every target file is checked first. If any exists and `--overwrite` is absent,
@@ -119,9 +122,11 @@ aurifex add <root> --feature <feature> --name <name>
 - The command infers a minimal spec from the project name. It does not read the
   original spec.
 
-Added features may require infrastructure that the inferred spec assumes. Check
-the generated `.env.example`, migrations, and Compose services, then run
-`aurifex verify <root>`.
+Adding `llm`, `broadcast`, or `payments` promotes a recognized generated project
+to Postgres queue infrastructure: bootstrap, worker, jobs, migration wiring, config,
+and Compose services change together. Existing database modules stay unchanged.
+Modified or unrecognized generated regions fail preflight without writes; a failed
+transaction restores the original bytes. Run `aurifex verify <root>` afterward.
 
 ## Upgrade procedure
 
@@ -130,7 +135,8 @@ the generated `.env.example`, migrations, and Compose services, then run
 3. Resolve every approval manually: secret files, queue, worker, telemetry,
    migrations, and dependencies.
 4. Run `aurifex upgrade <root> --apply`.
-5. Run `aurifex verify <root>`; the check count grows with the new runtime.
+5. Run `aurifex verify <root>`. Upgrade changes only the manifest; `verify` does not
+   read it, no generated files change, and the check set stays unchanged.
 6. Run the generated tests and the migrations in a copy of the database.
 7. Deploy `migrate`, then `bot` and `worker`.
 
@@ -147,7 +153,7 @@ the migration.
 ```text
 node --test --experimental-strip-types tests/unit/schema.test.ts
 node --test --experimental-strip-types tests/unit/spec-v11.test.ts
-node --test --experimental-strip-types tests/integration/upgrade.test.ts
+node --test --experimental-strip-types tests/unit/upgrade-apply.test.ts
 ```
 
 The schema is described in [BOT_SPEC.md](BOT_SPEC.md). Operational steps are in

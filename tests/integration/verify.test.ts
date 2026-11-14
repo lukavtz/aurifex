@@ -77,6 +77,10 @@ const FILES: readonly TemplateFile[] = [
       'import { createQueue } from "./runtime/queue.ts";\n\nexport const worker = createQueue;\n',
   },
   {
+    path: "src/runtime/queue.ts",
+    content: "export const queue = true;\n",
+  },
+  {
     path: "migrations/0001_jobs.sql",
     content:
       "CREATE TABLE jobs (id uuid PRIMARY KEY, idempotency_key text UNIQUE);\n-- claim: SELECT id FROM jobs FOR UPDATE SKIP LOCKED;\n",

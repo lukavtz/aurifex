@@ -1,5 +1,6 @@
 import type { BotSpec } from "../../spec/bot-spec.ts";
 import type { StackTarget } from "../../targets/catalog.ts";
+import { BOT_ALLOWED_UPDATES } from "../../targets/catalog.ts";
 import { renderGrammyFeature } from "../features/grammy.ts";
 import { renderApi104TypesTs } from "./api104-types.ts";
 import { renderI18nFiles } from "./i18n.ts";
@@ -12,6 +13,7 @@ import { renderSecretsTs } from "./runtime-secrets.ts";
 import { renderHealthTs, renderTelemetryTs } from "./telemetry.ts";
 import { renderJobsIndexTs, renderWorkerEntryTs } from "./worker-entry.ts";
 import { assertNoTokenLiteral, baseFiles, type TemplateFile } from "./shared.ts";
+import { renderWidgetsModule, renderWidgetsTest } from "./widgets.ts";
 
 // Generated projects are standalone: every import below is emitted with a .js
 // suffix because the generated tsconfig uses NodeNext module resolution.
@@ -240,10 +242,6 @@ function grammyFiles(spec: BotSpec): TemplateFile[] {
   const hasIdempotency = spec.security.idempotency;
   const hasRateLimit = spec.security.rateLimit;
   const expectedMiddleware = Number(hasIdempotency) + Number(hasRateLimit);
-  const hasPostgres = spec.storage.postgres;
-  const hasQueue = spec.runtime.queue === "postgres";
-  const hasPayments = spec.features.includes("payments");
-  const needsDb = hasPostgres || hasQueue;
   return [
     {
       path: "drizzle.config.ts",
@@ -325,121 +323,7 @@ ${hasIdempotency ? "  security.push(dedupeMiddleware(config.REDIS_URL));\n" : ""
     },
     {
       path: "src/main.ts",
-      content: `import { createBot } from "./bot.js";
-import { getConfig } from "./config.js";
-import { registerFeatures } from "./features/index.js";
-import { logger } from "./logger.js";
-${hasQueue ? 'import { createQueue } from "./runtime/queue.js";\n' : ""}import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
-${hasPostgres ? 'import { userSyncMiddleware } from "./security/user-sync.js";\n' : ""}import { createServer } from "./server.js";
-${needsDb ? 'import { closeDb, getDb } from "./storage/db.js";\n' : ""}
-const ALLOWED_UPDATES = [
-  "message",
-  "edited_message",
-  "callback_query",
-  "inline_query",
-  "pre_checkout_query",
-  "shipping_query",
-  "my_chat_member",
-  "chat_member",
-] as const;
-
-async function main(): Promise<void> {
-  const config = getConfig();
-  await initTelemetry({
-    serviceName: config.OTEL_SERVICE_NAME || ${displayName},
-    otlpEndpoint: config.OTEL_EXPORTER_OTLP_ENDPOINT,
-    sentryDsn: config.SENTRY_DSN,
-  });
-  const bot = createBot();
-${
-  needsDb
-    ? `  const database = getDb(config.DATABASE_URL);
-  if (database === null) {
-    throw new Error(${JSON.stringify(
-      hasQueue
-        ? "DATABASE_URL is required when runtime.queue is postgres"
-        : "DATABASE_URL is required when storage.postgres is enabled",
-    )});
-  }
-`
-    : ""
-}${hasPostgres && needsDb ? "  bot.use(userSyncMiddleware(database.client));\n" : ""}${
-        hasQueue
-          ? `  const queue = createQueue(database.client, {
-    visibilityTimeoutSeconds: config.QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-  });
-${
-  hasPayments
-    ? `  // One bootstrap run; the handler reschedules itself every six hours.
-  await queue.enqueue("payment.reconcile", {}, {
-    runAt: new Date(Date.now() + 60_000),
-    idempotencyKey: "reconcile:bootstrap",
-  });
-`
-    : ""
-}`
-          : ""
-      }  await registerFeatures({
-    bot,
-    sql: ${needsDb ? "database.client" : "null"},
-    queue: ${hasQueue ? "queue" : "null"},
-    config,
-  });
-  await bot.api.setMyCommands([
-    { command: "start", description: "Start the bot" },
-    { command: "help", description: "Show available commands" },
-  ]);
-
-  const server =
-    config.BOT_MODE === "webhook"
-      ? await createServer(bot, config.WEBHOOK_SECRET, config.BOT_TOKEN, {
-          config,
-          sql: ${needsDb ? "database.client" : "null"},
-        })
-      : undefined;
-  let stopping = false;
-  const shutdown = async (signal: string): Promise<void> => {
-    if (stopping) return;
-    stopping = true;
-    logger.info({ signal }, "shutting down");
-    if (server !== undefined) {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      server.close(() => resolve());
-      await promise;
-    }
-    await bot.stop();
-${needsDb ? "    await closeDb();\n" : ""}    await shutdownTelemetry();
-  };
-  process.once("SIGINT", () => void shutdown("SIGINT"));
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-
-  if (config.BOT_MODE === "webhook") {
-    if (config.WEBHOOK_URL === "") {
-      throw new Error("WEBHOOK_URL is required in webhook mode");
-    }
-    await bot.init();
-    server?.listen(config.PORT, () => logger.info({ port: config.PORT }, "webhook server listening"));
-    await bot.api.setWebhook(config.WEBHOOK_URL, {
-      secret_token: config.WEBHOOK_SECRET,
-      allowed_updates: [...ALLOWED_UPDATES],
-      max_connections: 40,
-      drop_pending_updates: false,
-    });
-    return;
-  }
-
-  const webhook = await bot.api.getWebhookInfo();
-  if (webhook.url !== "") {
-    throw new Error("a webhook is configured; clear it explicitly before starting polling");
-  }
-  await bot.start({ allowed_updates: [...ALLOWED_UPDATES] });
-}
-
-main().catch((error: unknown) => {
-  logger.error({ message: error instanceof Error ? error.message : "unknown" }, "startup failed");
-  process.exitCode = 1;
-});
-`,
+      content: renderMainTs(spec),
     },
     {
       path: "src/server.ts",
@@ -543,6 +427,12 @@ ${MINIAPP_ROUTE}    // Route handlers own the 401/403 responses; the server only
       path: "src/telegram/api104.ts",
       content: `import type { Bot } from "grammy";
 import type { Message } from "grammy/types";
+import type {
+  DeleteBusinessAccountGiftParams,
+  GetChatShareThemeBackdropsParams,
+  GetUniqueGiftParams,
+} from "./api104-types.js";
+export type { GetUniqueGiftParams, GetChatShareThemeBackdropsParams, DeleteBusinessAccountGiftParams } from "./api104-types.js";
 
 // Bot API 10.4 methods are newer than the grammY 1.46.0 types, so every call
 // goes through bot.api.raw behind one narrow cast. Native framework support is
@@ -683,13 +573,6 @@ export interface SendMessageEphemeralParams {
   reply_markup?: ReplyMarkup;
 }
 
-
-export interface GetUniqueGiftParams { gift_id: string; }
-export interface GetChatShareThemeBackdropsParams { chat_id: number | string; }
-export interface DeleteBusinessAccountGiftParams {
-  business_connection_id: string;
-  gift_id: string;
-}
 export interface VerifyUserParams {
   user_id: number;
   custom_description?: string;
@@ -729,7 +612,7 @@ export interface Api104 {
   sendRichMessageDraft(payload: SendRichMessageDraftParams): Promise<true>;
   sendMessageEphemeral(payload: SendMessageEphemeralParams): Promise<Message>;
   getUniqueGift(payload: GetUniqueGiftParams): Promise<unknown>;
-  getChatShareThemeBackdrops(payload: GetChatShareThemeBackdropsParams): Promise<unknown>;
+  getChatShareThemeBackdrops(): Promise<unknown>;
   deleteBusinessAccountGift(payload: DeleteBusinessAccountGiftParams): Promise<true>;
   verifyUser(payload: VerifyUserParams): Promise<true>;
   verifyChat(payload: VerifyChatParams): Promise<true>;
@@ -749,7 +632,7 @@ export function api104(bot: Bot): Api104 {
     // sendMessage with ephemeral_message_parameters.
     sendMessageEphemeral: (payload) => raw.sendMessage(payload),
     getUniqueGift: (payload) => raw.getUniqueGift(payload),
-    getChatShareThemeBackdrops: (payload) => raw.getChatShareThemeBackdrops(payload),
+    getChatShareThemeBackdrops: () => raw.getChatShareThemeBackdrops({}),
     deleteBusinessAccountGift: (payload) => raw.deleteBusinessAccountGift(payload),
     verifyUser: (payload) => raw.verifyUser(payload),
     verifyChat: (payload) => raw.verifyChat(payload),
@@ -794,48 +677,7 @@ export async function sendWithRetry<T>(send: () => Promise<T>): Promise<T> {
     },
     {
       path: "src/features/index.ts",
-      content: `import { readdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Bot } from "grammy";
-import type { Redis } from "ioredis";
-${needsDb ? 'import type { Sql } from "postgres";\n' : ""}import type { Config } from "../config.js";
-import { logger } from "../logger.js";
-${hasQueue ? 'import type { Queue } from "../runtime/queue.js";\n' : ""}
-export interface FeatureDeps {
-  readonly bot: Bot;
-  readonly sql: ${needsDb ? "Sql" : "null"};
-  readonly queue: ${hasQueue ? "Queue" : "null"};
-  readonly config: Config;
-  readonly redis?: Redis;
-}
-
-export interface FeatureModule {
-  register(bot: Bot, deps: FeatureDeps): void | Promise<void>;
-}
-
-const FEATURE_FILE_RE = /^[a-z][a-z0-9_-]*\\.(?:js|ts)$/;
-const SKIPPED: Record<string, true> = { "index.js": true, "index.ts": true };
-
-export async function registerFeatures(deps: FeatureDeps): Promise<void> {
-  const directory = dirname(fileURLToPath(import.meta.url));
-  const entries = (await readdir(directory)).filter(
-    (entry) => FEATURE_FILE_RE.test(entry) && SKIPPED[entry] === undefined && !entry.endsWith(".d.ts"),
-  );
-  entries.toSorted();
-  for (const entry of entries) {
-    // Feature modules are a runtime registry, so the specifier is selected at run time.
-    const loaded = (await import(pathToFileURL(join(directory, entry)).href)) as Partial<FeatureModule>;
-    if (typeof loaded.register !== "function") {
-      logger.warn({ entry }, "feature module has no register export");
-      continue;
-    }
-    // Most features take the full deps object; the LLM module only needs the queue.
-    const register = loaded.register as (bot: Bot, argument: unknown) => void | Promise<void>;
-    await register(deps.bot, entry === "llm.js" || entry === "llm.ts" ? deps.queue : deps);
-  }
-}
-`,
+      content: renderFeatureIndexTs(spec),
     },
     {
       path: "src/features/start.ts",
@@ -1192,6 +1034,19 @@ test("sendRichMessageDraft forwards the draft id", async () => {
   });
   expect(calls[0]?.payload).toMatchObject({ chat_id: 1, draft_id: 42 });
 });
+
+test("Bot API 10.4 gift methods serialize exact payloads", async () => {
+  const calls: Call[] = [];
+  const api = api104(fakeBot(calls));
+  await api.getUniqueGift({ name: "gift-name" });
+  await api.getChatShareThemeBackdrops();
+  await api.deleteBusinessAccountGift({ business_connection_id: "bc", owned_gift_id: "owned" });
+  expect(calls.slice(-3)).toEqual([
+    { method: "getUniqueGift", payload: { name: "gift-name" } },
+    { method: "getChatShareThemeBackdrops", payload: {} },
+    { method: "deleteBusinessAccountGift", payload: { business_connection_id: "bc", owned_gift_id: "owned" } },
+  ]);
+});
 `,
     },
     {
@@ -1316,145 +1171,6 @@ test("destroys the connection on a chunked body over 1 MiB", async () => {
   ];
 }
 
-const WIDGETS_FEATURE: TemplateFile = {
-  path: "src/features/widgets.ts",
-  content: `import type { Bot, Context } from "grammy";
-import { logger } from "../logger.js";
-import { api104 } from "../telegram/api104.js";
-
-interface WidgetQueryLike {
-  readonly id: string;
-  readonly data?: string;
-  readonly type?: unknown;
-}
-
-// grammY 1.46.0 predates Bot API 10.4, so widget updates are read through one
-// named boundary type instead of a per-access assertion.
-interface Api104Update {
-  readonly widget_query?: unknown;
-  readonly shared_widget_query?: unknown;
-}
-
-function isWidgetQuery(value: unknown): value is WidgetQueryLike {
-  if (typeof value !== "object" || value === null) return false;
-  const query = value as { id?: unknown };
-  return typeof query.id === "string" && query.id.length > 0;
-}
-
-// A widget query must be answered within 15 seconds.
-export function register(bot: Bot): void {
-  const api = api104(bot);
-  const answer = async (query: WidgetQueryLike, kind: string): Promise<void> => {
-    if (query.type !== undefined && (typeof query.type !== "object" || query.type === null)) {
-      logger.warn({ kind }, "unknown widget query type; not answered");
-      return;
-    }
-    const raw = query.data;
-    const safe = typeof raw === "string" && Buffer.byteLength(raw, "utf8") <= 1024;
-    try {
-      await api.answerWidgetQuery({
-        widget_query_id: query.id,
-        ...(safe ? { data: raw } : {}),
-      });
-    } catch (error) {
-      logger.error(
-        { kind, message: error instanceof Error ? error.message : "unknown" },
-        "answerWidgetQuery failed",
-      );
-    }
-  };
-  // Bot API 10.4 carries widget_query / shared_widget_query at the top level of
-  // Update. grammY 1.46.0 predates those fields, so the filter is narrowed here.
-  const onUpdate = bot.on as unknown as (
-    filter: string,
-    handler: (ctx: Context) => Promise<void>,
-  ) => void;
-  onUpdate("widget_query", async (ctx) => {
-    const update = ctx.update as unknown as Api104Update;
-    if (!isWidgetQuery(update.widget_query)) {
-      logger.warn("malformed widget_query update");
-      return;
-    }
-    await answer(update.widget_query, "widget_query");
-  });
-  onUpdate("shared_widget_query", async (ctx) => {
-    const update = ctx.update as unknown as Api104Update;
-    if (!isWidgetQuery(update.shared_widget_query)) {
-      logger.warn("malformed shared_widget_query update");
-      return;
-    }
-    await answer(update.shared_widget_query, "shared_widget_query");
-  });
-}
-`,
-};
-
-const WIDGETS_TEST: TemplateFile = {
-  path: "tests/widgets.test.ts",
-  content: `import { expect, test } from "bun:test";
-import type { Bot } from "grammy";
-import { register } from "../src/features/widgets.js";
-
-interface Registered {
-  readonly filter: string;
-  readonly handler: (ctx: unknown) => Promise<void> | void;
-}
-
-function fakeBot(answers: unknown[]): { bot: Bot; handlers: Registered[] } {
-  const handlers: Registered[] = [];
-  const raw = {
-    answerWidgetQuery: async (payload: unknown) => {
-      answers.push(payload);
-      return true;
-    },
-  };
-  const bot = {
-    api: { raw },
-    on: (filter: string, handler: (ctx: unknown) => Promise<void> | void) => {
-      handlers.push({ filter, handler });
-    },
-  } as unknown as Bot;
-  return { bot, handlers };
-}
-
-function handlerFor(handlers: Registered[], filter: string): Registered["handler"] {
-  const entry = handlers.find((candidate) => candidate.filter === filter);
-  if (entry === undefined) throw new Error("missing handler " + filter);
-  return entry.handler;
-}
-
-test("answers widget queries with the query id and data", async () => {
-  const answers: unknown[] = [];
-  const { bot, handlers } = fakeBot(answers);
-  register(bot);
-  const handler = handlerFor(handlers, "widget_query");
-  await handler({
-    update: { widget_query: { id: "q1", data: "hello", type: { type: "data" } } },
-  });
-  expect(answers).toEqual([{ widget_query_id: "q1", data: "hello" }]);
-});
-
-test("answers shared widget queries", async () => {
-  const answers: unknown[] = [];
-  const { bot, handlers } = fakeBot(answers);
-  register(bot);
-  const handler = handlerFor(handlers, "shared_widget_query");
-  await handler({ update: { shared_widget_query: { id: "q2", type: {} } } });
-  expect(answers).toEqual([{ widget_query_id: "q2" }]);
-});
-
-test("guards malformed queries and unknown types", async () => {
-  const answers: unknown[] = [];
-  const { bot, handlers } = fakeBot(answers);
-  register(bot);
-  const handler = handlerFor(handlers, "widget_query");
-  await handler({ update: { widget_query: { data: "no id" } } });
-  await handler({ update: { widget_query: { id: "q3", type: "bogus" } } });
-  expect(answers).toEqual([]);
-});
-`,
-};
-
 const RICH_FEATURE: TemplateFile = {
   path: "src/features/rich.ts",
   content: `import type { Bot } from "grammy";
@@ -1526,6 +1242,7 @@ Widgets and rich messages are enabled by the \`widgets\` and \`rich\` features.
 const MINIAPP_SESSION_TEST: TemplateFile = {
   path: "tests/miniapp-session.test.ts",
   content: `import { expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import type { Bot } from "grammy";
 import type { Sql } from "postgres";
 import { createServer, type ServerOptions } from "../src/server.js";
@@ -1563,7 +1280,7 @@ async function fetchServer(
   init: RequestInit = {},
   options: ServerOptions = serverOptions,
 ): Promise<Response> {
-  const server = await createServer(fakeBot(), "expected_secret", "", options);
+  const server = await createServer(fakeBot(), "expected_secret", ["123456", "session-test"].join(":"), options);
   const { promise, resolve } = Promise.withResolvers<void>();
   server.listen(0, "127.0.0.1", resolve);
   await promise;
@@ -1614,6 +1331,39 @@ test.skipIf(!available)("rejects malformed initData with 401 and security header
   expect(response.status).toBe(401);
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect(response.headers.get("content-security-policy")).toContain("default-src 'self'");
+});
+
+test.skipIf(!available)("accepts nonalphabetical initData and sets a session cookie", async () => {
+  const token = ["123456", "session-test"].join(":");
+  const params = new URLSearchParams({
+    user: JSON.stringify({ id: 42, first_name: "Test" }),
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    query_id: "non-alpha-route",
+  });
+  const canonical = [...params.keys()].sort().map((key) => key + "=" + params.get(key)).join("\\n");
+  const secret = createHmac("sha256", "WebAppData").update(token).digest();
+  params.set("hash", createHmac("sha256", secret).update(canonical).digest("hex"));
+  const values = new Map<string, string>();
+  const redis = {
+    get: async (key: string) => values.get(key) ?? null,
+    set: async (key: string, value: string) => {
+      if (values.has(key)) return null;
+      values.set(key, value);
+      return "OK";
+    },
+    setex: async (key: string, _seconds: number, value: string) => { values.set(key, value); return "OK"; },
+  };
+  // The optional feature is selected from the runtime registry.
+  const name = "miniapp";
+  const feature = await import("../src/features/" + name + ".js");
+  const response = await feature.createSessionHandler({
+    method: "POST", path: "/api/miniapp/session", headers: {}, secure: false,
+    body: JSON.stringify({ initData: params.toString() }),
+    botToken: token, redis, config: serverOptions.config,
+  });
+  expect(response.status).toBe(200);
+  expect(response.headers["Set-Cookie"]).toContain("aurifex_session=");
+  expect(response.headers["Set-Cookie"]).toContain("HttpOnly; SameSite=Lax");
 });
 `,
 };
@@ -1678,7 +1428,10 @@ function featureFiles(spec: BotSpec): TemplateFile[] {
     files.push(...renderGrammyFeature("miniapps", "miniapp", spec));
   }
   if (spec.features.includes("widgets")) {
-    files.push(WIDGETS_FEATURE, WIDGETS_TEST);
+    files.push(
+      { path: "src/features/widgets.ts", content: renderWidgetsModule() },
+      { path: "tests/widgets.test.ts", content: renderWidgetsTest() },
+    );
   }
   if (spec.features.includes("rich")) {
     files.push(RICH_FEATURE);
@@ -1724,4 +1477,183 @@ export function renderGrammyProject(spec: BotSpec, target: StackTarget): Templat
   ]);
   assertNoTokenLiteral(files);
   return files;
+}
+
+export function renderMainTs(spec: BotSpec): string {
+  const displayName = JSON.stringify(spec.displayName);
+  const hasPostgres = spec.storage.postgres;
+  const hasQueue = spec.runtime.queue === "postgres";
+  const hasPayments = spec.features.includes("payments");
+  const needsDb = hasPostgres || hasQueue;
+  return `import { createBot } from "./bot.js";
+import { getConfig } from "./config.js";
+import { registerFeatures } from "./features/index.js";
+import { logger } from "./logger.js";
+${hasQueue ? 'import { createQueue } from "./runtime/queue.js";\n' : ""}import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
+${hasPostgres ? 'import { userSyncMiddleware } from "./security/user-sync.js";\n' : ""}import { createServer } from "./server.js";
+${needsDb ? 'import { closeDb, getDb } from "./storage/db.js";\n' : ""}import type { Update } from "grammy/types";
+
+// Bot API 10.4 adds the widget update kinds; grammY 1.46.0 does not type them yet.
+type AllowedUpdate = Exclude<keyof Update, "update_id">;
+const ALLOWED_UPDATES = ${JSON.stringify(BOT_ALLOWED_UPDATES)} as unknown as readonly AllowedUpdate[];
+
+async function main(): Promise<void> {
+  const config = getConfig();
+  await initTelemetry({
+    serviceName: config.OTEL_SERVICE_NAME || ${displayName},
+    otlpEndpoint: config.OTEL_EXPORTER_OTLP_ENDPOINT,
+    sentryDsn: config.SENTRY_DSN,
+  });
+  const bot = createBot();
+${
+  needsDb
+    ? `  const database = getDb(config.DATABASE_URL);
+  if (database === null) {
+    throw new Error(${JSON.stringify(
+      hasQueue
+        ? "DATABASE_URL is required when runtime.queue is postgres"
+        : "DATABASE_URL is required when storage.postgres is enabled",
+    )});
+  }
+`
+    : ""
+}${hasPostgres && needsDb ? "  bot.use(userSyncMiddleware(database.client));\n" : ""}${
+    hasQueue
+      ? `  const queue = createQueue(database.client, {
+    visibilityTimeoutSeconds: config.QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+  });
+${
+  hasPayments
+    ? `  // One bootstrap run; the handler reschedules itself every six hours.
+  await queue.enqueue("payment.reconcile", {}, {
+    runAt: new Date(Date.now() + 60_000),
+    idempotencyKey: "reconcile:bootstrap",
+  });
+`
+    : ""
+}`
+      : ""
+  }  await registerFeatures({
+    bot,
+    sql: ${needsDb ? "database.client" : "null"},
+    queue: ${hasQueue ? "queue" : "null"},
+    config,
+  });
+  await bot.api.setMyCommands([
+    { command: "start", description: "Start the bot" },
+    { command: "help", description: "Show available commands" },
+  ]);
+
+  const server =
+    config.BOT_MODE === "webhook"
+      ? await createServer(bot, config.WEBHOOK_SECRET, config.BOT_TOKEN, {
+          config,
+          sql: ${needsDb ? "database.client" : "null"},
+        })
+      : undefined;
+  let stopping = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
+    logger.info({ signal }, "shutting down");
+    if (server !== undefined) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      server.close(() => resolve());
+      await promise;
+    }
+    await bot.stop();
+${needsDb ? "    await closeDb();\n" : ""}    await shutdownTelemetry();
+  };
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+  if (config.BOT_MODE === "webhook") {
+    if (config.WEBHOOK_URL === "") {
+      throw new Error("WEBHOOK_URL is required in webhook mode");
+    }
+    await bot.init();
+    server?.listen(config.PORT, () => logger.info({ port: config.PORT }, "webhook server listening"));
+    await bot.api.setWebhook(config.WEBHOOK_URL, {
+      secret_token: config.WEBHOOK_SECRET,
+      allowed_updates: [...ALLOWED_UPDATES],
+      max_connections: 40,
+      drop_pending_updates: false,
+    });
+    return;
+  }
+
+  const webhook = await bot.api.getWebhookInfo();
+  if (webhook.url !== "") {
+    throw new Error("a webhook is configured; clear it explicitly before starting polling");
+  }
+  await bot.start({ allowed_updates: [...ALLOWED_UPDATES] });
+}
+
+main().catch((error: unknown) => {
+  logger.error({ message: error instanceof Error ? error.message : "unknown" }, "startup failed");
+  process.exitCode = 1;
+});
+`;
+}
+
+export function renderFeatureIndexTs(spec: BotSpec): string {
+  const hasQueue = spec.runtime.queue === "postgres";
+  const needsDb = spec.storage.postgres || hasQueue;
+  return `import { readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { Bot } from "grammy";
+import type { Redis } from "ioredis";
+${needsDb ? 'import type { Sql } from "postgres";\n' : ""}import type { Config } from "../config.js";
+import { logger } from "../logger.js";
+${hasQueue ? 'import type { Queue } from "../runtime/queue.js";\n' : ""}
+export interface FeatureDeps {
+  readonly bot: Bot;
+  readonly sql: ${needsDb ? "Sql" : "null"};
+  readonly queue: ${hasQueue ? "Queue" : "null"};
+  readonly config: Config;
+  readonly redis?: Redis;
+}
+
+export interface FeatureModule {
+  register(bot: Bot, deps: FeatureDeps): void | Promise<void>;
+}
+
+const FEATURE_FILE_RE = /^[a-z][a-z0-9_-]*\\.(?:js|ts)$/;
+const SKIPPED: Record<string, true> = { "index.js": true, "index.ts": true };
+
+export async function registerFeatures(deps: FeatureDeps): Promise<void> {
+  const directory = dirname(fileURLToPath(import.meta.url));
+  const entries = (await readdir(directory)).filter(
+    (entry) => FEATURE_FILE_RE.test(entry) && SKIPPED[entry] === undefined && !entry.endsWith(".d.ts"),
+  );
+  for (const entry of entries.toSorted()) {
+    // Feature modules are a runtime registry, so the specifier is selected at run time.
+    const loaded = (await import(pathToFileURL(join(directory, entry)).href)) as Partial<FeatureModule>;
+    if (typeof loaded.register !== "function") {
+      logger.warn({ entry }, "feature module has no register export");
+      continue;
+    }
+    await loaded.register(deps.bot, deps);
+  }
+}
+`;
+}
+
+export function renderQueueInfrastructure(
+  spec: BotSpec,
+  options: { readonly includeMigration: boolean },
+): TemplateFile[] {
+  return [
+    { path: "src/runtime/queue.ts", content: renderQueueTs() },
+    { path: "src/runtime/worker.ts", content: renderWorkerTs() },
+    { path: "src/worker.ts", content: renderWorkerEntryTs(spec) },
+    { path: "src/jobs/index.ts", content: renderJobsIndexTs() },
+    { path: "src/migrate.ts", content: renderMigrateTs() },
+    { path: "src/security/user-sync.ts", content: renderUserSyncTs() },
+    QUEUE_WIRING_TEST,
+    ...(options.includeMigration
+      ? [{ path: QUEUE_MIGRATION_FILE, content: renderDrizzleMigration() }]
+      : []),
+  ];
 }

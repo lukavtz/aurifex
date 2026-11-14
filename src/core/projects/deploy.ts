@@ -5,6 +5,7 @@ import type { DomainResult, FileRef } from "../results.ts";
 import { domainFailure, domainSuccess } from "../results.ts";
 import { PathPolicyError, readOptionalFile, type PathPolicy } from "../security/path-policy.ts";
 import { WEBHOOK_SECRET_RE } from "../security/secrets.ts";
+import { BOT_ALLOWED_UPDATES } from "../targets/catalog.ts";
 import { assertNoTokenLiteral, renderCaddyfile, type TemplateFile } from "./templates/shared.ts";
 
 export interface StorageProfile {
@@ -34,18 +35,7 @@ export interface DeployRequest {
 
 export const DEPLOY_WEBHOOK_PATH = "/telegram/webhook";
 
-export const DEPLOY_ALLOWED_UPDATES: readonly string[] = [
-  "message",
-  "edited_message",
-  "callback_query",
-  "inline_query",
-  "chosen_inline_result",
-  "pre_checkout_query",
-  "shipping_query",
-  "poll_answer",
-  "chat_member",
-  "message_reaction",
-];
+export const DEPLOY_ALLOWED_UPDATES = BOT_ALLOWED_UPDATES;
 
 const ALLOWED_WEBHOOK_PORTS: readonly string[] = ["", "443", "80", "88", "8443"];
 const DOMAIN_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

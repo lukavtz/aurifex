@@ -49,7 +49,23 @@ powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/instal
 Скрипт хранит постоянный checkout в `~/.aurifex/src`
 (`%LOCALAPPDATA%\Aurifex\src` в Windows), один раз собирает его и запускает
 `aurifex install --host all`. Повторный запуск обновляет checkout.
-`AURIFEX_DRY_RUN=1` печатает команды без выполнения.
+`AURIFEX_DRY_RUN=1` пропускает команды интеграции с хостами. Первый запуск всё равно
+скачивает и собирает checkout, если `AURIFEX_SOURCE_DIR` не указывает на готовую сборку.
+В интерактивном терминале установщик спрашивает хосты и область установки. Для запуска
+без диалога задайте `AURIFEX_HOSTS=omp,claude`, `AURIFEX_SCOPE=user|project` или
+`AURIFEX_YES=1`. После завершения скрипт выходит автоматически.
+
+`AURIFEX_REF` выбирает ref репозитория (по умолчанию `main`), а `AURIFEX_SOURCE_DIR` —
+локальный checkout Aurifex. CLI принимает `install --source <path>`: абсолютный путь
+или путь `./relative` к checkout Aurifex.
+
+Установщик создаёт лаунчер `aurifex` в `~/.local/bin`
+(`%LOCALAPPDATA%\Aurifex\bin` в Windows). Если каталог не входит в `PATH`, используйте
+напечатанный полный путь или запустите CLI напрямую:
+
+```sh
+node "$HOME/.aurifex/src/dist/cli.js" --help
+```
 
 ## Что делает
 
@@ -150,20 +166,28 @@ my-bot/
 ├── .env.example  .gitignore  .dockerignore
 ├── Dockerfile  docker-compose.yml  Caddyfile
 ├── package.json  tsconfig*.json          # или pyproject.toml + alembic.ini
-├── src/                                  # app/ для aiogram
+├── src/                                  # grammY; app/ для aiogram
 │   ├── config.ts  logger.ts  bot.ts  main.ts  server.ts
 │   ├── telegram/api104.ts                # app/services/api104.py
-│   ├── features/                         # start, help, admin, widgets, rich, ...
-│   ├── security/                         # allowlist, dedupe, rate-limit, retry
+│   ├── features/                         # start, help, admin, callback ack, ...
+│   ├── security/                         # allowlist, dedupe, callback-ack, rate-limit, retry
+│   ├── runtime/                          # queue, payments, telemetry, secrets, health
+│   ├── jobs/                              # обработчики фоновых задач
+│   ├── worker.ts  migrate.ts              # воркер и миграции схемы
+│   ├── drizzle/                           # схема Postgres и миграции
 │   └── storage/                          # база данных и схема
-├── miniapp/                              # React + Vite, если включено
-├── tests/                                # офлайн; без вызовов Telegram
+├── app/                                   # обработчики, middleware и runtime aiogram
+│   ├── middlewares/callback_ack.py
+│   ├── runtime/                           # очередь, payments, telemetry, secrets, health
+│   └── jobs/                              # обработчики фоновых задач
+├── miniapp/                               # React + Vite, если включено
+├── tests/                                 # офлайн; включая callback-ack
 └── .github/workflows/ci.yml
 ```
 
 ### Инварианты безопасности
 
-| Инвариант               | Исполнение                                                                                     |
+| Инвариант               | Статические данные `verify`                                                                    |
 | ----------------------- | ---------------------------------------------------------------------------------------------- |
 | Нет токена в исходниках | `.env.example` пустой; `token.literal` валит проверку.                                         |
 | Подлинность webhook     | `X-Telegram-Bot-Api-Secret-Token`, HTTPS, разрешённый порт, constant-time проверка фреймворка. |
@@ -176,8 +200,10 @@ my-bot/
 
 ## Проверочный шлюз
 
-`verify` выполняет 29 детерминированных проверок по ограниченному снимку (64 МиБ всего,
-1 МиБ на файл). Любой `fail` делает `ok: false`; предупреждения остаются видимыми.
+`verify` выполняет 29 статических проверок содержимого по ограниченному снимку
+(64 МиБ всего, 1 МиБ на файл). Это поиск текстовых маркеров: код проекта не исполняется,
+сеть и Telegram не используются. Поведение во время работы проверяют отдельные тесты.
+Любой `fail` делает `ok: false`; предупреждения остаются видимыми.
 
 ```sh
 aurifex verify my-bot           # краткий итог
@@ -186,18 +212,18 @@ aurifex verify my-bot --json    # DomainResult с доказательствам
 
 ## CLI
 
-| Команда                | Что делает                                                  |
-| ---------------------- | ----------------------------------------------------------- |
-| `aurifex target`       | Определяет фреймворк, runtime, Bot API и поддержку функций. |
-| `aurifex new`          | Создаёт самостоятельный проект по строгой `BotSpec`.        |
-| `aurifex inspect`      | Только чтение: стек, режим и просканированные файлы.        |
-| `aurifex verify`       | Запускает статический шлюз и возвращает доказательства.     |
-| `aurifex add`          | Добавляет один модуль функции, не переписывая остальные.    |
-| `aurifex deploy`       | Пишет файлы деплоя и скрипт webhook; API не вызывает.       |
-| `aurifex harness`      | Пишет фикстуры, фейковый транспорт и tgfake compose.        |
-| `aurifex upgrade-plan` | Перечисляет действия миграции на Bot API 10.4.              |
-| `aurifex upgrade`      | Проверяет manifest; `--apply` переводит его на 1.1.         |
-| `aurifex install`      | Устанавливает в OMP, DSH и Claude Code за один проход.      |
+| Команда                | Что делает                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `aurifex target`       | Определяет фреймворк, runtime, Bot API и поддержку функций.                    |
+| `aurifex new`          | Создаёт самостоятельный проект по строгой `BotSpec`.                           |
+| `aurifex inspect`      | Только чтение: стек, режим и просканированные файлы.                           |
+| `aurifex verify`       | Запускает статический шлюз и возвращает доказательства.                        |
+| `aurifex add`          | Добавляет один модуль функции, не переписывая остальные.                       |
+| `aurifex deploy`       | Пишет файлы деплоя и скрипт webhook; API не вызывает.                          |
+| `aurifex harness`      | Пишет фикстуры, фейковый транспорт и tgfake compose.                           |
+| `aurifex upgrade-plan` | Перечисляет действия миграции на Bot API 10.4.                                 |
+| `aurifex upgrade`      | Проверяет manifest; `--apply` обновляет только версию спецификации в manifest. |
+| `aurifex install`      | Устанавливает в OMP, DSH и Claude Code за один проход.                         |
 
 Все команды принимают `--json` и выводят стабильный `DomainResult`. Коды выхода: `0` —
 успех, `1` — доменная ошибка, `2` — неверное использование.
@@ -244,8 +270,10 @@ claude plugin install aurifex@aurifex
 ```
 
 Плагин Claude Code уже указывает на
-`${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js` через `.mcp.json`.
-`AURIFEX_ROOT` ограничивает чтение и запись; по умолчанию — рабочий каталог процесса.
+`${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js` через `.mcp.json`. Сервер говорит
+по MCP через stdio без runtime `node_modules`, поэтому установленная копия плагина
+работает как есть. `AURIFEX_ROOT` ограничивает чтение и запись; по умолчанию — рабочий
+каталог процесса.
 
 </details>
 
@@ -261,7 +289,7 @@ claude plugin install aurifex@aurifex
   задана, отсутствие `TELEGRAM_TEST_BOT_TOKEN` или `TELEGRAM_TEST_CHAT_ID` — ошибка.
 - **Плагин не песочница.** Он работает в процессе хоста. Доступ к файлам ограничен
   `PathPolicy`, но процесс расширения считается доверенным кодом.
-- **Только Bot API.** v0.1 не покрывает MTProto и юзерботов.
+- **Только Bot API.** v0.2.0 не покрывает MTProto и юзерботов.
 
 ## Лицензия
 

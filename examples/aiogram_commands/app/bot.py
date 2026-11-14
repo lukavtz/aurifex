@@ -12,6 +12,7 @@ from app.config import Settings
 from app.db.session import create_session_factory
 from app.handlers import register_handlers
 from app.middlewares.allowlist import AllowlistMiddleware
+from app.middlewares.callback_ack import CallbackAckMiddleware
 from app.middlewares.dedupe import DedupeMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
 from app.services.retry import is_retry_after_error, sleep_retry_after
@@ -48,6 +49,8 @@ def create_dispatcher(settings: Settings, bot: Bot, redis: Redis | None) -> Disp
     session_factory = create_session_factory(settings.database_url)
     dispatcher.workflow_data["session_factory"] = session_factory
     dispatcher.workflow_data["settings"] = settings
+    # Registered before handlers so a failing callback handler still stops the spinner.
+    dispatcher.callback_query.middleware(CallbackAckMiddleware())
     dispatcher.update.middleware(DedupeMiddleware(redis))
     dispatcher.message.middleware(RateLimitMiddleware(redis))
     dispatcher.message.middleware(AllowlistMiddleware(settings.admin_id_set))

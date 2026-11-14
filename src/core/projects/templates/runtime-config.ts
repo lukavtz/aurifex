@@ -88,7 +88,7 @@ const FILE_BACKED_SECRETS = [
   "LLM_API_KEY",
 ] as const;
 
-const REQUIRED_SECRETS: readonly string[] = [
+export const REQUIRED_SECRETS: readonly string[] = [
 ${required.map((name) => `  "${name}",`).join("\n")}
 ];
 
@@ -236,17 +236,15 @@ def get_settings() -> Settings:
 `;
 }
 
-export function renderSecretsTestTs(spec: BotSpec): string {
-  const required = requiredSecretNames(spec);
+export function renderSecretsTestTs(_spec: BotSpec): string {
   return `import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.js";
+import { REQUIRED_SECRETS, loadConfig } from "../src/config.js";
 import { readSecret, requireSecrets } from "../src/runtime/secrets.js";
 
 const TOKEN = "123456:" + "a".repeat(30);
-const REQUIRED = ${JSON.stringify(required)};
 
 function secretFile(dir: string, name: string, value: string): string {
   const path = join(dir, name);
@@ -287,7 +285,7 @@ test("missing configuration lists names only", () => {
     throw new Error("expected loadConfig to fail");
   } catch (error) {
     expect((error as Error).message).toBe(
-      "missing required configuration: " + REQUIRED.join(", "),
+      "missing required configuration: " + REQUIRED_SECRETS.join(", "),
     );
   }
 });
@@ -300,19 +298,17 @@ test("requireSecrets reports every missing name once", () => {
 `;
 }
 
-export function renderSecretsTestPy(spec: BotSpec): string {
-  const required = requiredSecretNames(spec);
+export function renderSecretsTestPy(_spec: BotSpec): string {
   return `from __future__ import annotations
 
 import json
 
 import pytest
 
-from app.config import load_settings
+from app.config import REQUIRED_SECRETS, load_settings
 from app.runtime.secrets import read_secret, require_secrets
 
 VALID_TOKEN = "123456:" + "A" * 30
-REQUIRED = ${JSON.stringify(required)}
 
 
 def secret_file(tmp_path, name: str, value: str):
@@ -352,7 +348,7 @@ def test_settings_resolve_files_before_validation(tmp_path) -> None:
 def test_missing_configuration_lists_names_only() -> None:
     with pytest.raises(RuntimeError) as excinfo:
         load_settings({})
-    assert str(excinfo.value) == "missing required configuration: " + ", ".join(REQUIRED)
+    assert str(excinfo.value) == "missing required configuration: " + ", ".join(REQUIRED_SECRETS)
 
 
 def test_require_secrets_reports_every_missing_name() -> None:

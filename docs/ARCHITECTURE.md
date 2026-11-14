@@ -190,8 +190,9 @@ raw transport. Verification check `botapi.104` fails when the adapter is removed
 
 ## 6. Verification model
 
-`verifyBot` performs static checks only. It does not execute the generated project.
-Checks are pure functions over a bounded file snapshot:
+`verifyBot` checks static file-content markers in a bounded snapshot (64 MiB total,
+1 MiB per file). It never executes project code, uses the network, or calls Telegram.
+Markers do not prove runtime behavior. Checks are pure functions over that snapshot:
 
 ```ts
 interface Check {
@@ -233,15 +234,21 @@ live E2E suite.
 - `.claude-plugin/marketplace.json` exposes the repo as a marketplace.
 - `.mcp.json` registers the same stdio server.
 - `skills/`, `agents/`, `commands/` are auto-discovered.
+- `rules/telegram-security.md` and `prompts/review-bot.md` ship as reference pointers
+  and OMP content surfaces. Claude Code and DSH do not auto-load these directories.
+  The review prompt retains its adapted text; the security skill and reviewer agent
+  provide the canonical long-form rules and review workflow.
 - `aurifex install --host claude` runs marketplace add + install.
 
 ### MCP
 
-- `McpServer` with `@modelcontextprotocol/server` 2.4.0.
-- Strict Zod v4 input schemas.
+- Zero-dependency stdio server in `dist/adapters/mcp/server.js`: JSON-RPC 2.0 over
+  stdin/stdout, no runtime `node_modules` needed. This is what makes a Claude
+  marketplace install runnable from its cache copy.
+- Strict JSON Schema input validation for every tool; unknown fields are rejected.
 - Results are `structuredContent` plus serialized text, capped at 256 KiB.
 - Stdout is reserved for JSON-RPC; diagnostics go to stderr.
-- `serveStdio` owns transport lifecycle.
+- The server owns transport lifecycle (`initialize`, `tools/list`, `tools/call`, `ping`).
 
 ## 8. Trust boundaries
 
@@ -279,10 +286,12 @@ live E2E suite.
 
 ## 11. Dependencies
 
-Runtime: `@modelcontextprotocol/server`, `zod`.
+Runtime: none (Node.js built-ins only). The MCP server and CLI ship dependency-free
+so a host plugin cache copy works without `node_modules`.
 Peers (DSH only): `@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`,
 `@deepseek-ai/schemastery`.
-Dev: TypeScript, Node types, OMP types, Prettier, oxlint.
+Dev: TypeScript, Node types, OMP types, Prettier, oxlint, `@modelcontextprotocol/server`
+(type-checking only), `zod` (host tests and generated projects).
 
 No template engine, no ORM, no Telegram client in the plugin itself.
 

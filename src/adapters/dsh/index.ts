@@ -9,6 +9,7 @@ import schema from "@deepseek-ai/schemastery";
 import { createCoreOperations, type CoreOperations } from "../../core/operations.ts";
 import { serializeDomainResult, type DomainResult } from "../../core/results.ts";
 import { BOT_FEATURES, type BotFeature, type BotStack } from "../../core/spec/bot-spec.ts";
+import { DISCOVERY_GUIDANCE } from "../shared.ts";
 
 /** Cordis plugin name; keep this stable after publishing. */
 export const name = "aurifex";
@@ -26,10 +27,6 @@ export interface AurifexConfig {
 export const Config: schema<AurifexConfig> = schema.object({
   root: schema.string().default("."),
 });
-
-/** Four-sentence operating guidance appended to the host system prompt. */
-export const AURIFEX_GUIDANCE =
-  "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions from skills/telegram-bot-discovery — goal, name, stack, features, storage, locales, admins, payments, broadcast, LLM, Mini App, deployment, existing project — and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Use telegram_bot_scaffold to create a project before writing files by hand. Run telegram_bot_verify after changing a generated bot, and prefer telegram_bot_deploy_plan over ad-hoc Docker or Caddy edits.";
 
 const JSON_OUTPUT = { type: "json" as const } as const;
 
@@ -129,7 +126,7 @@ async function createTools(operations: CoreOperations) {
   const verify = defineTool({
     name: "telegram_bot_verify",
     description:
-      "Run the security and production verification gate on a bot project. Returns per-check pass, warn, and fail statuses; no network and no project execution.",
+      "Run static file-content checks; no project code execution, network, or Telegram calls.",
     parameters: {
       projectRoot: {
         type: "string",
@@ -147,7 +144,7 @@ async function createTools(operations: CoreOperations) {
   const addFeature = defineTool({
     name: "telegram_bot_add_feature",
     description:
-      "Add one feature module (commands, llm, inline, payments, miniapps, moderation, broadcast) to an existing bot project for its detected stack. Refuses to replace existing files unless overwrite is true.",
+      "Add one feature module (commands, llm, inline, payments, miniapps, moderation, broadcast, widgets, rich) to an existing bot project for its detected stack. First ask the discovery questions from skills/telegram-bot-discovery and confirm the proposed BotSpec; never invent stack, feature, storage, locale, or payment values. Products are configured at scaffold via spec.payments.products. Refuses to replace existing files unless overwrite is true.",
     parameters: {
       projectRoot: {
         type: "string",
@@ -327,7 +324,7 @@ export async function apply(ctx: Context, config: AurifexConfig): Promise<void> 
     ctx.systemPrompt.section({
       name: "aurifex",
       order: 120,
-      text: AURIFEX_GUIDANCE,
+      text: DISCOVERY_GUIDANCE,
       interpolate: false,
     }),
   );

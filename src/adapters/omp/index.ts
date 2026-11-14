@@ -9,7 +9,7 @@ import type {
 import type { CoreOperations } from "../../core/operations.ts";
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
 import { BOT_FEATURES } from "../../core/spec/bot-spec.ts";
-import { createHostCoreOperations } from "../shared.ts";
+import { createHostCoreOperations, DISCOVERY_GUIDANCE } from "../shared.ts";
 
 interface ToolOutput {
   readonly content: [{ readonly type: "text"; readonly text: string }];
@@ -41,9 +41,6 @@ async function runTool(
     details: result,
   };
 }
-
-const DISCOVERY_GUIDANCE =
-  "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.";
 
 const NEW_COMMAND_PROMPT = [
   "Start a new Aurifex Telegram bot project.",
@@ -153,7 +150,8 @@ export default function aurifex(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "telegram_bot_verify",
     label: "Verify Telegram Bot",
-    description: "Run the security and production-readiness verification gate for a bot project.",
+    description:
+      "Run static file-content checks; no project code execution, network, or Telegram calls.",
     parameters: z
       .object({
         projectRoot: z.string().describe("Project root relative to the workspace root"),
@@ -169,7 +167,8 @@ export default function aurifex(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "telegram_bot_add_feature",
     label: "Add Bot Feature",
-    description: "Generate a feature module and tests for an existing bot project.",
+    description:
+      "Generate a feature module and tests for an existing bot project. First ask the discovery questions from skills/telegram-bot-discovery and confirm the proposed BotSpec; never invent stack, feature, storage, locale, or payment values. Products are configured at scaffold via spec.payments.products.",
     parameters: z
       .object({
         projectRoot: z.string().describe("Project root relative to the workspace root"),

@@ -98,3 +98,5 @@ fix. End with:
   services.
 
 Never print a secret. Redact evidence as `<redacted>`.
+
+Canonical review workflow: [`agents/bot-security-reviewer.md`](../agents/bot-security-reviewer.md).

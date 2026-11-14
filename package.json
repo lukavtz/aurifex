@@ -84,15 +84,13 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "@modelcontextprotocol/server": "2.4.0",
-    "zod": "^4.6.7"
-  },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
     "@deepseek-ai/schemastery": "3.19.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@oh-my-pi/pi-coding-agent": "18.18.3",
+    "zod": "^4.6.7",
     "@types/node": "^24.10.0",
     "ajv": "8.20.0",
     "autocannon": "9.0.0",
@@ -120,11 +118,12 @@
     "test:load": "node --test --experimental-strip-types --test-timeout=180000 \"tests/e2e/load.test.ts\"",
     "test:host:matrix": "node --test --experimental-strip-types \"tests/host/**/*.test.ts\"",
     "test:e2e": "node --test --experimental-strip-types --test-timeout=600000 \"tests/e2e/**/*.test.ts\"",
-    "test:e2e:live": "node --test --experimental-strip-types --test-timeout=120000 \"tests/e2e/live-telegram.test.ts\"",
+    "test:host:smoke": "node --experimental-strip-types scripts/smoke-hosts.ts",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "examples:generate": "node --experimental-strip-types scripts/generate-examples.ts",
+    "examples:check": "node --experimental-strip-types scripts/generate-examples.ts --check",
     "pack:check": "pnpm pack --dry-run",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:fuzz && pnpm test:integration && pnpm test:host && pnpm check:site && pnpm check:secrets && pnpm pack:check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:fuzz && pnpm test:integration && pnpm test:host && pnpm examples:check && pnpm check:site && pnpm check:secrets && pnpm pack:check",
     "prepare": "npm run build",
     "check:site": "node scripts/check-site.mjs"
   }

@@ -59,3 +59,19 @@ test("sendRichMessageDraft forwards the draft id", async () => {
   });
   expect(calls[0]?.payload).toMatchObject({ chat_id: 1, draft_id: 42 });
 });
+
+test("Bot API 10.4 gift methods serialize exact payloads", async () => {
+  const calls: Call[] = [];
+  const api = api104(fakeBot(calls));
+  await api.getUniqueGift({ name: "gift-name" });
+  await api.getChatShareThemeBackdrops();
+  await api.deleteBusinessAccountGift({ business_connection_id: "bc", owned_gift_id: "owned" });
+  expect(calls.slice(-3)).toEqual([
+    { method: "getUniqueGift", payload: { name: "gift-name" } },
+    { method: "getChatShareThemeBackdrops", payload: {} },
+    {
+      method: "deleteBusinessAccountGift",
+      payload: { business_connection_id: "bc", owned_gift_id: "owned" },
+    },
+  ]);
+});

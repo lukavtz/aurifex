@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
@@ -62,7 +64,11 @@ test("upgradeProject refuses a project without a manifest", async (t) => {
   assert.equal(result.status, "error");
   if (result.status === "error") {
     assert.equal(result.error.code, "project_unreadable");
-    assert.equal(result.error.detail, "run aurifex upgrade --apply first");
+    assert.equal(
+      result.error.detail,
+      "no .aurifex/manifest.json found; restore the original .aurifex/manifest.json from version control, or scaffold a new project in a different directory",
+    );
+    assert.deepEqual(result.error.details, { path: `bot/${MANIFEST_PATH}` });
   }
 });
 
@@ -75,6 +81,10 @@ test("upgradeProject refuses a hash mismatch and writes nothing", async (t) => {
   assert.equal(result.status, "error");
   if (result.status === "error") {
     assert.equal(result.error.code, "project_unreadable");
+    assert.equal(
+      result.error.detail,
+      "generated files differ from the manifest; restore the original generated files from version control, or scaffold a new project in a different directory",
+    );
     const details = result.error.details;
     assert.ok(typeof details === "object" && details !== null && "paths" in details);
     assert.deepEqual(details.paths, ["bot/src/bot.ts"]);
@@ -132,7 +142,14 @@ test("upgradeProject rejects an unreadable manifest", async (t) => {
 
   const result = await upgradeProject("bot", policy);
   assert.equal(result.status, "error");
-  if (result.status === "error") assert.equal(result.error.code, "project_unreadable");
+  if (result.status === "error") {
+    assert.equal(result.error.code, "project_unreadable");
+    assert.equal(
+      result.error.detail,
+      "invalid .aurifex/manifest.json; restore the original manifest file from version control (do not delete project files)",
+    );
+    assert.deepEqual(result.error.details, { path: `bot/${MANIFEST_PATH}` });
+  }
 });
 
 test("upgradeProject reports manual migration actions with the project root", async (t) => {
@@ -140,4 +157,37 @@ test("upgradeProject reports manual migration actions with the project root", as
   const result = valueOf(await upgradeProject("bot", policy));
   assert.ok(result.actions.some((action) => action.includes("aurifex add bot")));
   assert.ok(result.actions.some((action) => action.includes(BOT_SPEC_VERSION)));
+});
+
+test("upgrade CLI returns JSON and exit 1 for missing, invalid, and mismatched manifests", async (t) => {
+  for (const state of ["missing", "invalid", "mismatch"] as const) {
+    const { policy } = await fixture(t, "bot-spec-1.0.0");
+    if (state === "missing") await policy.removeFile(`bot/${MANIFEST_PATH}`);
+    if (state === "invalid") {
+      await policy.writeFile(`bot/${MANIFEST_PATH}`, "{not json\n", { overwrite: true });
+    }
+    if (state === "mismatch") {
+      await policy.writeFile("bot/src/bot.ts", "export const bot = 2;\n", { overwrite: true });
+    }
+    const expected = await upgradeProject(policy.resolve("bot"), policy, { apply: true });
+    assert.equal(expected.status, "error");
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        fileURLToPath(new URL("../../src/cli.ts", import.meta.url)),
+        "upgrade",
+        "bot",
+        "--apply",
+        "--root",
+        policy.root,
+        "--json",
+      ],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+    assert.notEqual(result.stdout.trim(), "", result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), expected);
+  }
 });

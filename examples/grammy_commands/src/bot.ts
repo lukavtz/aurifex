@@ -1,6 +1,7 @@
 import { Bot, type Context, type MiddlewareFn } from "grammy";
 import { getConfig, type Config } from "./config.js";
 import { logger } from "./logger.js";
+import { callbackAckMiddleware } from "./security/callback-ack.js";
 import { retryAfterMs } from "./security/retry.js";
 
 export interface BotWithSecurity extends Bot {
@@ -9,6 +10,9 @@ export interface BotWithSecurity extends Bot {
 
 export function createBot(config: Config = getConfig()): BotWithSecurity {
   const bot = new Bot(config.BOT_TOKEN) as BotWithSecurity;
+  // Answers a callback query when its handler fails before replying; registered
+  // before every feature so any handler that throws still stops the spinner.
+  bot.use(callbackAckMiddleware());
   const security: MiddlewareFn<Context>[] = [];
   for (const middleware of security) {
     bot.use(middleware);

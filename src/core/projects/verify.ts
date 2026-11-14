@@ -453,11 +453,9 @@ function findModule(
 }
 
 function checkQueueWorker(files: readonly ProjectFile[]): Check {
-  const configured = files.some(
-    (file) =>
-      findModule([file], QUEUE_MODULES) !== undefined ||
-      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
-  );
+  const configured =
+    findModule(files, QUEUE_MODULES) !== undefined ||
+    findModule(files, WORKER_MODULES) !== undefined;
   if (!configured) return make("queue.worker", "pass", "no queue configured");
   const worker = findModule(files, WORKER_MODULES);
   return worker === undefined
@@ -471,11 +469,9 @@ function checkQueueWorker(files: readonly ProjectFile[]): Check {
 }
 
 function checkQueueSchema(files: readonly ProjectFile[]): Check {
-  const configured = files.some(
-    (file) =>
-      findModule([file], QUEUE_MODULES) !== undefined ||
-      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
-  );
+  const configured =
+    findModule(files, QUEUE_MODULES) !== undefined ||
+    findModule(files, WORKER_MODULES) !== undefined;
   if (!configured) return make("queue.schema", "pass", "no queue configured");
   const text = files.map((file) => file.content).join("\n");
   const missing = [

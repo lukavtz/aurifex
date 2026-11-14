@@ -37,3 +37,5 @@ Non-negotiable. A violation blocks release.
     secret scan before commit.
 
 When a rule conflicts with a shortcut, the rule wins.
+
+Canonical long-form rules: [`skills/telegram-security/SKILL.md`](../skills/telegram-security/SKILL.md).

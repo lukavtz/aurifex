@@ -121,10 +121,11 @@ export async function upgradeProject(
     let manifest: AurifexManifest | null;
     try {
       manifest = await readManifest(policy, root);
-    } catch (error) {
+    } catch {
       return domainFailure({
         code: "project_unreadable",
-        detail: error instanceof Error ? error.message : "invalid manifest",
+        detail:
+          "invalid .aurifex/manifest.json; restore the original manifest file from version control (do not delete project files)",
         retryable: false,
         details: { path: joinProjectPath(root, MANIFEST_PATH) },
       });
@@ -132,7 +133,8 @@ export async function upgradeProject(
     if (manifest === null) {
       return domainFailure({
         code: "project_unreadable",
-        detail: "run aurifex upgrade --apply first",
+        detail:
+          "no .aurifex/manifest.json found; restore the original .aurifex/manifest.json from version control, or scaffold a new project in a different directory",
         retryable: false,
         details: { path: joinProjectPath(root, MANIFEST_PATH) },
       });
@@ -153,7 +155,8 @@ export async function upgradeProject(
     if (mismatches.length > 0) {
       return domainFailure({
         code: "project_unreadable",
-        detail: "generated files do not match the manifest; refusing to migrate",
+        detail:
+          "generated files differ from the manifest; restore the original generated files from version control, or scaffold a new project in a different directory",
         retryable: false,
         details: { paths: mismatches },
       });

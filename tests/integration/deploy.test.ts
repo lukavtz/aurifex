@@ -15,6 +15,7 @@ import {
 } from "../../src/core/projects/deploy.ts";
 import { generateTestHarness } from "../../src/core/projects/test-harness.ts";
 import { upgradePlan } from "../../src/core/projects/upgrade.ts";
+import { BOT_ALLOWED_UPDATES } from "../../src/core/targets/catalog.ts";
 
 const roots: string[] = [];
 
@@ -53,6 +54,25 @@ async function project(
   }
   return { policy, root };
 }
+
+test("deploy uses the canonical thirteen allowed update types", () => {
+  assert.equal(DEPLOY_ALLOWED_UPDATES, BOT_ALLOWED_UPDATES);
+  assert.deepEqual([...DEPLOY_ALLOWED_UPDATES].toSorted(), [
+    "callback_query",
+    "chat_member",
+    "chosen_inline_result",
+    "edited_message",
+    "inline_query",
+    "message",
+    "message_reaction",
+    "my_chat_member",
+    "poll_answer",
+    "pre_checkout_query",
+    "shared_widget_query",
+    "shipping_query",
+    "widget_query",
+  ]);
+});
 
 test("validateDeployDomain accepts lowercase DNS domains", () => {
   assert.equal(validateDeployDomain("bot.example.com"), null);

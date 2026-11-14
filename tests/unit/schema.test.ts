@@ -213,6 +213,14 @@ test("non-https and non-origin miniapp origins fail", () => {
   }
 });
 
+test("payments configuration can be omitted, but present products are required", () => {
+  const spec = full();
+  delete spec.payments;
+  assertBothAccept(spec);
+  assertBothReject({ ...spec, payments: {} });
+  assertBothReject({ ...spec, payments: { products: [] } });
+});
+
 test("payment products are validated", () => {
   const cases: Array<(products: Product[]) => void> = [
     (products) => products.splice(0, products.length),

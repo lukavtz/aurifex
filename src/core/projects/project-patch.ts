@@ -24,6 +24,9 @@ export const SCHEMA_MARKERS = [
 export interface ProjectPatch {
   files: TemplateFile[];
   packageDependencies?: Record<string, string>;
+  packageJsonScripts?: Record<string, string>;
+  replacements?: TemplateFile[];
+  lineInsertions?: Array<{ readonly path: string; readonly before: string; readonly text: string }>;
   pyprojectDependencies?: string[];
   env: Array<{ key: string; value: string }>;
   configTs?: Array<{ key: string; expression: string }>;
@@ -32,6 +35,16 @@ export interface ProjectPatch {
   migrationFiles?: TemplateFile[];
   compose?: { worker: boolean; migrate: boolean };
   runtime?: { queue: "postgres" };
+}
+
+export interface PatchWrite {
+  readonly path: string;
+  readonly previous: string | null;
+}
+
+export interface PatchResult {
+  readonly files: readonly FileRef[];
+  readonly written: readonly PatchWrite[];
 }
 
 const PACKAGE_JSON = "package.json";
@@ -129,7 +142,11 @@ function appendEnv(
   return `${head}${lines.join("\n")}\n`;
 }
 
-function patchPackageJson(text: string, dependencies: Record<string, string>): string {
+function patchPackageJson(
+  text: string,
+  dependencies: Record<string, string>,
+  scripts: Record<string, string> = {},
+): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -165,6 +182,13 @@ function patchPackageJson(text: string, dependencies: Record<string, string>): s
   manifest.dependencies = Object.fromEntries(
     [...merged.entries()].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   );
+  if (Object.keys(scripts).length > 0) {
+    const previous = manifest.scripts;
+    if (previous !== undefined && (typeof previous !== "object" || previous === null || Array.isArray(previous))) {
+      throw new ProjectPatchError("project_unreadable", `${PACKAGE_JSON} scripts is invalid`, [PACKAGE_JSON]);
+    }
+    manifest.scripts = { ...(previous as Record<string, unknown> | undefined), ...scripts };
+  }
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
@@ -323,27 +347,24 @@ function patchCompose(
   return lines.join("\n");
 }
 
-async function rollback(
-  policy: PathPolicy,
-  written: readonly { readonly path: string; readonly previous: string | null }[],
-): Promise<void> {
+async function rollback(policy: PathPolicy, written: readonly PatchWrite[]): Promise<void> {
+  let firstError: unknown;
   for (const entry of [...written].toReversed()) {
     try {
       if (entry.previous === null) await policy.removeFile(entry.path);
       else await policy.writeFile(entry.path, entry.previous, { overwrite: true });
-    } catch {
-      // Best-effort restore; the original failure is reported to the caller.
+    } catch (error) {
+      firstError ??= error;
     }
   }
+  if (firstError !== undefined) throw firstError;
 }
 
-export async function applyPatch(
+export async function preparePatch(
   policy: PathPolicy,
   prefix: string,
   patch: ProjectPatch,
-  manifest: { files: Record<string, string> },
-): Promise<FileRef[]> {
-  void manifest; // Read-only in this module; the caller owns manifest updates.
+): Promise<readonly Operation[]> {
   const base = normalizePrefix(prefix);
 
   const operations: Array<Omit<Operation, "previous">> = [];
@@ -362,16 +383,29 @@ export async function applyPatch(
   for (const file of patch.files) {
     stage(joinPath(base, file.path), file.content, false, file.mode);
   }
+  for (const file of patch.replacements ?? []) {
+    stage(joinPath(base, file.path), file.content, true, file.mode);
+  }
   for (const file of patch.migrationFiles ?? []) {
     stage(joinPath(base, file.path), file.content, false, file.mode);
   }
 
-  if (
-    patch.packageDependencies !== undefined &&
-    Object.keys(patch.packageDependencies).length > 0
-  ) {
+  for (const insertion of patch.lineInsertions ?? []) {
+    const path = joinPath(base, insertion.path);
+    const text = await readRequired(policy, path);
+    if (text.split(insertion.before).length !== 2) {
+      throw new ProjectPatchError("project_unreadable", `unrecognized patch anchor: ${path}`, [path]);
+    }
+    stage(path, text.replace(insertion.before, `${insertion.text}${insertion.before}`), true);
+  }
+
+  if (patch.packageDependencies !== undefined || patch.packageJsonScripts !== undefined) {
     const path = joinPath(base, PACKAGE_JSON);
-    const content = patchPackageJson(await readRequired(policy, path), patch.packageDependencies);
+    const content = patchPackageJson(
+      await readRequired(policy, path),
+      patch.packageDependencies ?? {},
+      patch.packageJsonScripts ?? {},
+    );
     stage(path, content, true);
   }
 
@@ -444,10 +478,25 @@ export async function applyPatch(
 
   const snapshots: Operation[] = [];
   for (const operation of operations) {
-    snapshots.push({ ...operation, previous: await readOptionalFile(policy, operation.path) });
+    const previous = await readOptionalFile(policy, operation.path);
+    if (!operation.overwrite && previous !== null) {
+      throw new ProjectPatchError("project_unreadable", `target file already exists: ${operation.path}`, [operation.path]);
+    }
+    if (previous !== operation.content) snapshots.push({ ...operation, previous });
   }
+  return snapshots;
+}
 
-  const written: Array<{ readonly path: string; readonly previous: string | null }> = [];
+export async function applyPatch(
+  policy: PathPolicy,
+  prefix: string,
+  patch: ProjectPatch,
+  manifest: { files: Record<string, string> },
+): Promise<PatchResult> {
+  void manifest;
+  const snapshots = await preparePatch(policy, prefix, patch);
+
+  const written: PatchWrite[] = [];
   const refs: FileRef[] = [];
   for (const operation of snapshots) {
     try {
@@ -476,5 +525,5 @@ export async function applyPatch(
     }
   }
 
-  return refs;
+  return { files: refs, written };
 }

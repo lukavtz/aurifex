@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
@@ -27,7 +27,7 @@ const responseSchema = z.object({
 type JsonRpcResponse = z.infer<typeof responseSchema>;
 
 const toolsSchema = z.object({
-  tools: z.array(z.object({ name: z.string() }).loose()),
+  tools: z.array(z.object({ name: z.string(), description: z.string() }).loose()),
 });
 
 const callResultSchema = z.object({
@@ -43,8 +43,8 @@ class StdioClient {
   #buffer = "";
   #nextId = 1;
 
-  constructor(env: NodeJS.ProcessEnv) {
-    this.#child = spawn(process.execPath, ["--experimental-strip-types", serverPath], {
+  constructor(env: NodeJS.ProcessEnv, entry: string = serverPath) {
+    this.#child = spawn(process.execPath, ["--experimental-strip-types", entry], {
       cwd: repoRoot,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -144,7 +144,7 @@ test("toolResult marks failures and caps oversized output", () => {
   assert.equal(body.error.code, "output_too_large");
 });
 
-test("stdio server exposes 8 tools and resolves targets", { timeout: 60_000 }, async () => {
+test("stdio server exposes 9 tools and resolves targets", { timeout: 60_000 }, async () => {
   client = new StdioClient({ ...process.env, AURIFEX_ROOT: root });
 
   const initialized = await client.request("initialize", {
@@ -170,6 +170,15 @@ test("stdio server exposes 8 tools and resolves targets", { timeout: 60_000 }, a
     "telegram_bot_upgrade_plan",
     "telegram_bot_verify",
   ]);
+  for (const name of ["telegram_bot_scaffold", "telegram_bot_add_feature"]) {
+    const tool = tools.find((candidate) => candidate.name === name);
+    assert.match(tool?.description ?? "", /skills\/telegram-bot-discovery/);
+    assert.match(tool?.description ?? "", /confirm/i);
+  }
+  assert.equal(
+    tools.find((tool) => tool.name === "telegram_bot_verify")?.description,
+    "Run static file-content checks; no project code execution, network, or Telegram calls.",
+  );
 
   const called = await client.request("tools/call", {
     name: "telegram_bot_target_resolve",
@@ -185,3 +194,62 @@ test("stdio server exposes 8 tools and resolves targets", { timeout: 60_000 }, a
 
   client.assertOnlyJsonStdout();
 });
+
+test(
+  "server exposes nine tools without any installed node_modules",
+  { timeout: 60_000 },
+  async (t) => {
+    const isolated = await mkdtemp(join(tmpdir(), "aurifex-mcp-isolated-"));
+    t.after(() => rm(isolated, { recursive: true, force: true }));
+    await cp(join(repoRoot, "src"), join(isolated, "src"), {
+      recursive: true,
+      filter: (source) => !source.includes("node_modules"),
+    });
+    const bare = new StdioClient(
+      { ...process.env, AURIFEX_ROOT: isolated },
+      join(isolated, "src", "adapters", "mcp", "server.ts"),
+    );
+    try {
+      const initialized = await bare.request("initialize", {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "aurifex-isolated", version: "0.0.0" },
+      });
+      assert.equal(initialized.error, undefined);
+      const listed = await bare.request("tools/list", {});
+      assert.equal(listed.error, undefined);
+      assert.equal(toolsSchema.parse(listed.result).tools.length, 9);
+    } finally {
+      await bare.close();
+    }
+  },
+);
+
+test(
+  "initialize answers only with the supported protocol version",
+  { timeout: 60_000 },
+  async () => {
+    for (const [requested, expected] of [
+      ["2025-11-25", "2025-11-25"],
+      ["1999-01-01", "2025-11-25"],
+    ] as const) {
+      const versionClient = new StdioClient({ ...process.env, AURIFEX_ROOT: root });
+      try {
+        const initialized = await versionClient.request("initialize", {
+          protocolVersion: requested,
+          capabilities: {},
+          clientInfo: { name: "aurifex-version", version: "0.0.0" },
+        });
+        assert.equal(initialized.error, undefined);
+        const version = z
+          .object({ protocolVersion: z.string() })
+          .parse(initialized.result).protocolVersion;
+        assert.equal(version, expected, `requested ${requested}`);
+        const listed = await versionClient.request("tools/list", {});
+        assert.equal(toolsSchema.parse(listed.result).tools.length, 9);
+      } finally {
+        await versionClient.close();
+      }
+    }
+  },
+);

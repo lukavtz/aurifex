@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -99,8 +100,8 @@ test(
     }
     assert.ok(script.includes('HOME_DIR="${AURIFEX_HOME:-$HOME/.aurifex}"'));
     assert.ok(script.includes('PERSIST_DIR="$HOME_DIR/src"'));
-    assert.ok(script.includes(".aurifex-ref"));
     assert.ok(script.includes('"$SOURCE_DIR/dist/cli.js"'));
+    assert.ok(script.includes("dist/adapters/mcp/server.js"));
     assert.ok(script.includes('install --source "$SOURCE_DIR"'));
     assert.ok(script.includes('mv "$TMP_DIR/src" "$PERSIST_DIR"'));
     assert.ok(script.includes('REPO="lukavtz/aurifex"'));
@@ -231,7 +232,7 @@ test(
     const root = await tempRoot();
     t.after(() => rm(root, { recursive: true, force: true }));
     const bin = join(root, "bin");
-    const pkg = join(root, "pkg");
+    const pkg = join(root, "пакет $dollar `tick` \\slash \"quote\" 'single' & ! ^ %");
     const launcherDir = join(root, "launcher");
     const log = join(root, "calls.log");
     await mkdir(bin);
@@ -262,6 +263,32 @@ test(
     const version = await run(launcher, ["--version"], { cwd: root });
     assert.equal(version.code, 0, version.stderr);
     assert.match(version.stdout, /Aurifex 0\.2\.0/);
+  },
+);
+
+test(
+  "POSIX launcher preserves shell metacharacters in install root",
+  { skip: POSIX ? false : "requires a POSIX shell" },
+  async (t) => {
+    await ensureDist();
+    const root = await tempRoot();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const pkg = join(root, "пакет $dollar `tick` \\slash 'single' & ! ^ %");
+    const bin = join(root, "bin"); const launcherDir = join(root, "launcher");
+    await mkdir(pkg, { recursive: true }); await mkdir(bin);
+    await cp(join(REPO, "package.json"), join(pkg, "package.json"));
+    await cp(join(REPO, "dist"), join(pkg, "dist"), { recursive: true });
+    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.2.0","type":"commonjs"}');
+    await writeFile(join(pkg, "dist", "cli.js"), `if (process.argv[2] === "install") process.exit(0); process.stdout.write(JSON.stringify(process.argv.slice(2)) + "\\n"); process.exitCode = 17;`);
+    await writeFile(join(bin, "omp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const install = await run("/bin/sh", [INSTALL_SH], {
+      cwd: root,
+      env: { PATH: `${join(process.execPath, "..")}:${bin}:/usr/bin:/bin:/opt/homebrew/bin`, AURIFEX_SOURCE_DIR: pkg, AURIFEX_BIN_DIR: launcherDir, AURIFEX_HOSTS: "omp", AURIFEX_YES: "1" },
+    });
+    assert.equal(install.code, 0, install.stderr);
+    const result = await run(join(launcherDir, "aurifex"), ["arg with spaces", "$literal", "`literal`", "\\", "quote's"], { cwd: root });
+    assert.equal(result.code, 17);
+    assert.deepEqual(JSON.parse(result.stdout), ["arg with spaces", "$literal", "`literal`", "\\", "quote's"]);
   },
 );
 
@@ -348,6 +375,15 @@ test("install.ps1 implements the required Windows install flow", async () => {
   assert.ok(script.includes("npm was not found"));
   assert.equal(/sudo/i.test(script), false, "install.ps1 must not use sudo");
   assert.equal(/npm install -g/.test(script), false, "install.ps1 must not install globally");
+  assert.ok(script.includes("--include=dev --ignore-scripts --no-audit --no-fund --no-progress"));
+  assert.ok(script.includes("& npm run build"));
+  assert.ok(script.includes("dist/adapters/mcp/server.js"));
+  assert.ok(script.includes("DisableDelayedExpansion"));
+  assert.ok(script.includes("chcp 65001"));
+  assert.ok(script.includes('set "AURIFEX_RC=%ERRORLEVEL%"'));
+  assert.ok(script.includes("exit /b %AURIFEX_RC%"));
+  assert.ok(script.includes("[Text.UTF8Encoding]::new($false)"));
+  assert.ok(script.includes(".Replace('%', '%%')"));
 });
 
 const pwsh = process.platform === "win32" ? "powershell" : "pwsh";
@@ -382,5 +418,95 @@ test(
     assert.equal(result.stdout.includes("\u001b["), false, "dry run must not emit ANSI color");
     assert.match(result.stdout, /Would install: OMP, DSH, Claude Code/);
     assert.equal(result.stdout.includes("Downloading"), false, "must not download a checkout");
+  },
+);
+
+// Drives the real terminal prompt (a pty, not pipes) so Enter, Ctrl-C and EOF
+// exercise the same code path a user's terminal does.
+const PTY_DRIVER = String.raw`
+import json, os, pty, select, sys, time
+mode, cmd = sys.argv[1], sys.argv[2:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(cmd[0], cmd)
+out, answers, status, start = b"", 0, None, time.time()
+while time.time() - start < 30:
+    ready, _, _ = select.select([fd], [], [], 0.1)
+    if fd in ready:
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            chunk = b""
+        out += chunk
+    if answers == 0 and b"Hosts [" in out:
+        answers = 1
+        os.write(fd, b"\x03" if mode == "int" else b"\x04" if mode == "eof" else b"\n")
+    elif answers == 1 and mode == "defaults" and b"Scope [" in out:
+        answers = 2
+        os.write(fd, b"\n")
+    done, state = os.waitpid(pid, os.WNOHANG)
+    if done:
+        status = os.waitstatus_to_exitcode(state)
+        break
+if status is None:
+    os.kill(pid, 9)
+    os.waitpid(pid, 0)
+print(json.dumps({"code": status, "out": out.decode("utf-8", "replace")}))
+`;
+
+test(
+  "interactive installer answers prompts and cancels in a real tty",
+  { skip: POSIX ? false : "requires a POSIX pty" },
+  async (t) => {
+    const root = await tempRoot();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    let python = false;
+    try {
+      python = (await run("python3", ["--version"], { cwd: root })).code === 0;
+    } catch {
+      python = false;
+    }
+    if (!python) {
+      t.skip("python3 is required to allocate a pty");
+      return;
+    }
+    const pkg = join(root, "pkg");
+    const bin = join(root, "bin");
+    const log = join(root, "calls.log");
+    await mkdir(join(pkg, "dist", "adapters", "mcp"), { recursive: true });
+    await mkdir(bin);
+    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.2.0"}\n');
+    await writeFile(join(pkg, "dist", "cli.js"), "");
+    await writeFile(join(pkg, "dist", "adapters", "mcp", "server.js"), "");
+    for (const name of ["omp", "dsh", "claude"]) {
+      await writeFile(
+        join(bin, name),
+        `#!/bin/sh\nprintf '%s\\n' '${name}:'"$*" >> "$AURIFEX_TEST_LOG"\n`,
+        { mode: 0o755 },
+      );
+    }
+    const drive = async (mode: string) => {
+      const result = await run("python3", ["-c", PTY_DRIVER, mode, process.execPath, "--experimental-strip-types", join(REPO, "src", "cli.ts"), "install", "--source", pkg], {
+        cwd: root,
+        env: { HOME: join(root, "home"), PATH: `${bin}:${join(process.execPath, "..")}:/usr/bin:/bin:/opt/homebrew/bin`, AURIFEX_TEST_LOG: log },
+      });
+      assert.equal(result.code, 0, result.stderr);
+      return JSON.parse(result.stdout.trim().split("\n").at(-1)!) as { code: number; out: string };
+    };
+
+    const defaults = await drive("defaults");
+    assert.equal(defaults.code, 0, defaults.out);
+    assert.match(defaults.out, /Installed: OMP, DSH, Claude Code/);
+    assert.match(defaults.out, /Scope \[user\/project\] \(user\)/);
+    const calls = await readFile(log, "utf8");
+    for (const host of ["omp", "dsh", "claude"]) assert.ok(calls.includes(`${host}:`), `missing ${host}`);
+
+    for (const mode of ["int", "eof"]) {
+      await rm(log, { force: true });
+      const cancelled = await drive(mode);
+      assert.equal(cancelled.code, 2, cancelled.out);
+      assert.match(cancelled.out, /install cancelled/);
+      assert.equal(existsSync(log), false, "a cancelled prompt must not run hosts");
+    }
   },
 );

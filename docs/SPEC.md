@@ -33,8 +33,7 @@ test, deploy, and migrate.
 
 - A hosted bot runtime or control plane.
 - A full Bot API client library.
-- MTProto/userbot automation. A separate optional module may be added later; v0.1.0
-  targets the official Bot API only.
+- MTProto/userbot automation. v0.2.0 targets the official Bot API only.
 - Copying third-party skill text. Reference repositories inform patterns; all
   shipped text and code are original or properly attributed.
 
@@ -121,8 +120,10 @@ possible and never executes project code.
 
 ### F5 — Verification
 
-`telegram_bot_verify` returns check results with `pass | warn | fail` and evidence. A single
-`fail` makes `ok: false`. Mandatory checks:
+`telegram_bot_verify` returns check results with `pass | warn | fail` and evidence.
+It checks static file-content markers in a bounded snapshot, without executing project
+code, using the network, or calling Telegram. A single `fail` makes `ok: false`.
+These markers do not prove runtime behavior. Mandatory checks:
 
 - no Telegram-token-shaped literal in tracked text files;
 - `.env` ignored;
@@ -212,6 +213,8 @@ v0.2.0 is accepted when:
     handler; `verify` reports `botapi.104: pass`.
 12. `aurifex install --dry-run --host all --json` reports OMP, DSH, and Claude Code
     commands without executing them.
+    Script-level dry-run may still download and build the checkout before planning
+    the host commands; `AURIFEX_SOURCE_DIR` can select an existing build.
 
 ## 9. Version policy
 

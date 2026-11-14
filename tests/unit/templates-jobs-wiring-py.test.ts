@@ -58,7 +58,13 @@ test("broadcast feature commands enqueue and the job pages the users table", () 
 
   const job = contentOf("app/jobs/broadcast.py");
   assert.match(job, /KIND = "broadcast\.send"/);
-  assert.match(job, /SELECT id FROM users WHERE id > :last_user_id::bigint ORDER BY id LIMIT 100/);
+  assert.match(
+    job,
+    /SELECT id FROM users WHERE id > CAST\(:last_user_id AS bigint\) ORDER BY id LIMIT 100/,
+  );
+  assert.match(job, /SET last_user_id = CAST\(:last_user_id AS bigint\)/);
+  // SQLAlchemy text() parses "::" after a bind token as an empty bind name.
+  assert.doesNotMatch(job, /:[a-z_]+::/);
   assert.match(job, /broadcast_deliveries/);
   assert.doesNotMatch(job, /ADMIN_IDS|admin_id_set|admin_ids/);
 });

@@ -142,7 +142,7 @@ export async function handle(job: ClaimedJob, ctx: JobContext): Promise<void> {
 `;
 }
 
-export function renderLlmEnqueueTs(): string {
+export function renderLegacyLlmEnqueueTs(): string {
   return `import type { Bot } from "grammy";
 import type { Queue } from "../runtime/queue.js";
 
@@ -162,6 +162,49 @@ export async function enqueueLlm(queue: Queue, payload: LlmEnqueue): Promise<str
 }
 
 export function register(bot: Bot, queue: Queue): void {
+  bot.command("llm", async (ctx) => {
+    const prompt = ctx.match.trim();
+    if (prompt === "") {
+      await ctx.reply(USAGE_TEXT);
+      return;
+    }
+    const chatId = ctx.chat.id;
+    const updateId = ctx.update.update_id;
+    const payload: LlmEnqueue = {
+      chatId,
+      prompt,
+      updateId,
+      ...(ctx.message?.message_id === undefined ? {} : { replyToMessageId: ctx.message.message_id }),
+    };
+    await enqueueLlm(queue, payload);
+    await ctx.reply(WORKING_TEXT);
+  });
+}
+`;
+}
+
+export function renderLlmEnqueueTs(): string {
+  return `import type { Bot } from "grammy";
+import type { FeatureDeps } from "./index.js";
+
+export const KIND = "llm.request";
+export const USAGE_TEXT = "Usage: /llm <prompt>";
+export const WORKING_TEXT = "Working on it.";
+
+export interface LlmEnqueue {
+  readonly chatId: number;
+  readonly prompt: string;
+  readonly replyToMessageId?: number;
+  readonly updateId: number;
+}
+
+export async function enqueueLlm(queue: NonNullable<FeatureDeps["queue"]>, payload: LlmEnqueue): Promise<string> {
+  return queue.enqueue(KIND, payload, { idempotencyKey: "llm:" + String(payload.updateId) });
+}
+
+export function register(bot: Bot, deps: FeatureDeps): void {
+  const queue = deps.queue;
+  if (queue === null) throw new Error("the LLM feature requires runtime.queue");
   bot.command("llm", async (ctx) => {
     const prompt = ctx.match.trim();
     if (prompt === "") {
@@ -594,7 +637,7 @@ START_SQL = text(
     "UPDATE broadcasts SET status = 'running', finished_at = NULL WHERE id = :broadcast_id"
 )
 PAGE_USERS_SQL = text(
-    "SELECT id FROM users WHERE id > :last_user_id::bigint ORDER BY id LIMIT 100"
+    "SELECT id FROM users WHERE id > CAST(:last_user_id AS bigint) ORDER BY id LIMIT 100"
 )
 CLAIM_DELIVERY_SQL = text(
     """
@@ -614,7 +657,7 @@ UPDATE_DELIVERY_SQL = text(
 UPDATE_PROGRESS_SQL = text(
     """
     UPDATE broadcasts
-    SET last_user_id = :last_user_id::bigint, sent = :sent, failed = :failed,
+    SET last_user_id = CAST(:last_user_id AS bigint), sent = :sent, failed = :failed,
         status = 'running'
     WHERE id = :broadcast_id
     """

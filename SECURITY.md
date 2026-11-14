@@ -6,7 +6,16 @@ Aurifex is pre-1.0. Security fixes land on the latest published release only.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.1.x   | Yes       |
+| 0.2.x   | Yes       |
+| 0.1.x   | No        |
+
+## Install provenance
+
+The installer fetches the repository archive at `AURIFEX_REF` (default `main`) and
+builds the checkout locally. `AURIFEX_SOURCE_DIR` selects an existing local checkout.
+The installer trusts the publisher; it does not verify release `SHA256SUMS`, SBOMs,
+or cosign bundles. Release signing is a separate, non-blocking workflow step, so a
+release may ship without a signature.
 
 ## Reporting a vulnerability
 

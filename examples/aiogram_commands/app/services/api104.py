@@ -189,14 +189,12 @@ class GetUniqueGift(TelegramMethod[dict[str, Any]]):
     __returning__ = dict
     __api_method__ = "getUniqueGift"
 
-    gift_id: str
+    name: str
 
 
 class GetChatShareThemeBackdrops(TelegramMethod[dict[str, Any]]):
     __returning__ = dict
     __api_method__ = "getChatShareThemeBackdrops"
-
-    chat_id: int | str
 
 
 class DeleteBusinessAccountGift(TelegramMethod[bool]):
@@ -204,8 +202,7 @@ class DeleteBusinessAccountGift(TelegramMethod[bool]):
     __api_method__ = "deleteBusinessAccountGift"
 
     business_connection_id: str
-    gift_id: str
-
+    owned_gift_id: str
 
 class VerifyUser(TelegramMethod[bool]):
     __returning__ = bool
@@ -240,20 +237,20 @@ def _build_rich_message(
 
 
 
-async def get_unique_gift(bot: Bot, gift_id: str) -> dict[str, Any]:
-    return await bot(GetUniqueGift(gift_id=gift_id))
+async def get_unique_gift(bot: Bot, name: str) -> dict[str, Any]:
+    return await bot(GetUniqueGift(name=name))
 
 
-async def get_chat_share_theme_backdrops(bot: Bot, chat_id: int | str) -> dict[str, Any]:
-    return await bot(GetChatShareThemeBackdrops(chat_id=chat_id))
+async def get_chat_share_theme_backdrops(bot: Bot) -> dict[str, Any]:
+    return await bot(GetChatShareThemeBackdrops())
 
 
 async def delete_business_account_gift(
-    bot: Bot, business_connection_id: str, gift_id: str
+    bot: Bot, business_connection_id: str, owned_gift_id: str
 ) -> bool:
     return await bot(
         DeleteBusinessAccountGift(
-            business_connection_id=business_connection_id, gift_id=gift_id
+            business_connection_id=business_connection_id, owned_gift_id=owned_gift_id
         )
     )
 
