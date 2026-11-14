@@ -7,8 +7,8 @@ from aiogram.types import Update
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.middlewares.allowlist import is_admin
-from app.middlewares.dedupe import DedupeMiddleware
+from app.guard.allowlist import is_admin
+from app.guard.dedupe import DedupeMiddleware
 
 VALID_TOKEN = "123456:" + "A" * 30
 

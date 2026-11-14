@@ -39,6 +39,8 @@ They are the proof that the knowledge produces working code, and they double as
   surfaces.
 - `tests/unit`, `tests/integration`, `tests/host`, `tests/security`,
   `tests/fixtures`.
+- `tools/` — repository checks (`check-skills.mjs`, `check-site.mjs`,
+  `check-no-secrets.mjs`, `check-bot-api.mjs`) and the host smoke runner.
 - `raw/` — reference clones. Ignored by git.
 
 ## Verification

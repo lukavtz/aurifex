@@ -1,8 +1,8 @@
 import { Bot, type Context, type MiddlewareFn } from "grammy";
 import { getConfig, type Config } from "./config.js";
 import { logger } from "./logger.js";
-import { callbackAckMiddleware } from "./security/callback-ack.js";
-import { retryAfterMs } from "./security/retry.js";
+import { callbackAckMiddleware } from "./guard/callback-ack.js";
+import { retryAfterMs } from "./guard/retry.js";
 
 export interface BotWithSecurity extends Bot {
   readonly securityMiddleware: readonly MiddlewareFn<Context>[];

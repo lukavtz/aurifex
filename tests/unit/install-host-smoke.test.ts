@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { installedClaudeRoot } from "../../scripts/smoke-hosts.ts";
+import { installedClaudeRoot } from "../../tools/smoke-hosts.ts";
 
 test("Claude root comes only from installed JSON v2 record", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-claude-record-"));

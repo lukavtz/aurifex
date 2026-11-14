@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Context } from "grammy";
-import { callbackAckMiddleware } from "../src/security/callback-ack.js";
+import { callbackAckMiddleware } from "../src/guard/callback-ack.js";
 
 function fakeContext(answers: string[]): Context {
   return {

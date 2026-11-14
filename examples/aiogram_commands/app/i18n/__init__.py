@@ -17,7 +17,7 @@ _WARNED: set[str] = set()
 def _catalog(locale: str) -> dict[str, str]:
     cached = _CATALOGS.get(locale)
     if cached is None:
-        path = Path(__file__).resolve().parent.parent / "i18n" / (locale + ".json")
+        path = Path(__file__).resolve().parent / (locale + ".json")
         cached = json.loads(path.read_text(encoding="utf-8"))
         _CATALOGS[locale] = cached
     return cached

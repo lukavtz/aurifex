@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import { isAdmin } from "../security/allowlist.js";
+import { isAdmin } from "../guard/allowlist.js";
 
 export function register(bot: Bot): void {
   bot.command("admin", async (ctx) => {

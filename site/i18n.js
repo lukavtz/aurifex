@@ -1,5 +1,5 @@
 /* Aurifex site copy. One flat dictionary per locale, identical keys by contract.
-   scripts/check-site.mjs asserts parity, so keep the three objects in step. */
+   tools/check-site.mjs asserts parity, so keep the three objects in step. */
 window.AURIFEX_I18N = {
   en: {
     "meta.title": "Aurifex · the knowledge an agent needs to build a Telegram bot",

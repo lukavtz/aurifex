@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
 
-const SCRIPT = fileURLToPath(new URL("../../scripts/check-bot-api.mjs", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("../../tools/check-bot-api.mjs", import.meta.url));
 const CONTRACT = fileURLToPath(
   new URL("../../src/core/targets/bot-api-contract.json", import.meta.url),
 );

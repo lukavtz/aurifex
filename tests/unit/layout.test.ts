@@ -20,8 +20,9 @@ function backtickedPaths(markdown: string): string[] {
 
 test("the layout contract declares both stacks with every path", () => {
   assert.deepEqual(Object.keys(LAYOUT).toSorted(), ["aiogram", "grammy"]);
-  assert.equal(layoutPaths().length, 17);
+  assert.equal(layoutPaths().length, 35);
   assert.deepEqual(layoutPaths(), [...new Set(layoutPaths())]);
+  assert.deepEqual(Object.keys(LAYOUT.grammy).toSorted(), Object.keys(LAYOUT.aiogram).toSorted());
   for (const layout of Object.values(LAYOUT)) {
     for (const value of Object.values(layout)) assert.ok(value.length > 0);
   }

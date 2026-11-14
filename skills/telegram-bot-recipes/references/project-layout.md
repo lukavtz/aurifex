@@ -2,14 +2,14 @@
 
 **Goal.** One agreed set of files per stack, so the agent, the review, and the
 static verifier all look in the same place. The verifier recognises these exact
-module names; a renamed file makes a feature invisible to it.
+module paths; a renamed file makes a feature invisible to it.
 
 **Read this when.** Before creating any file, and whenever a new module needs a
 home. It is the only file in this skill that enumerates paths.
 
-## Module boundaries
+## Rules
 
-These rules matter more than the file names:
+These matter more than the file names:
 
 1. **One entrypoint.** A single process start function loads config, opens the
    database, registers handlers, starts the transport. Nothing else starts the bot.
@@ -18,97 +18,81 @@ These rules matter more than the file names:
 3. **Business logic in services.** Rules, permission checks, and transaction
    boundaries live in service modules that the handler, the worker, and the
    Mini App backend all call.
-4. **All SQL in one place.** One module per stack owns queries and migrations
-   mapping. Handlers never build query strings.
+4. **All SQL in one place.** The store module owns the connection and the
+   queries; the migration owns schema changes. Handlers never build query strings.
 5. **Config from the environment only.** Token, owner ids, database URL, webhook
    secret, model keys. Validate required values at startup and fail fast.
-6. **One direction of imports.** Entrypoint -> handlers -> services -> storage.
+6. **Guards registered on the dispatcher.** Dedupe runs before every handler and
+   fails closed. A guard file that is never registered is dead weight.
+7. **One direction of imports.** Entrypoint to handlers to services to storage.
    A service never imports a handler; storage never imports services.
-
-Create a module only when the spec enables its feature. A bot without a queue
-does not get an empty queue file: the verifier treats "not configured" as a pass,
-and an unused module is dead weight.
-
-## Steps
-
-1. Pick the stack's table and create only the modules the confirmed spec enables.
-2. Write the entrypoint first; it loads config, opens storage, registers handlers,
-   and starts the transport.
-3. Add the user-sync path before the first feature so every handler sees a known
-   actor.
-4. Add the migration with the tables the enabled features need, then the service
-   modules that use them.
-5. Wire workers and background consumers in the same change that introduces them.
-6. Run the verifier and fix anything it reports before adding the next feature.
+8. **Optional roles only when enabled.** Queue, worker, payments, and Mini App
+   exist only when the confirmed spec enables the feature. A bot without a queue
+   does not get an empty queue file; the verifier treats "not configured" as a
+   pass.
 
 ## grammY / TypeScript
 
-| Path                              | Purpose                                                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/queue.ts`            | Durable job queue: `enqueue` and `claim`. Writes a job row with an idempotency key instead of running slow work inside the update handler. |
-| `src/worker.ts`                   | Worker entrypoint: claims jobs, runs the registered job handler, retries with backoff, honours `retry_after`, shuts down gracefully.       |
-| `src/runtime/payments.ts`         | Invoice creation, pre-checkout validation, idempotent fulfilment keyed by `telegram_payment_charge_id`, refund bookkeeping.                |
-| `src/runtime/miniapp-session.ts`  | Server side of the Mini App: validates signed `initData`, issues and stores its own short-lived session.                                   |
-| `src/telegram/api104.ts`          | Typed raw-adapter wrappers for the 10.4 calls that grammY 1.46.0 does not type yet.                                                        |
-| `drizzle/0001_runtime_schema.sql` | First migration: users, jobs with a unique idempotency key, payments, sessions. Forward-only and re-runnable on an empty database.         |
-| `src/security/user-sync.ts`       | Upserts the user from the update, loads roles, applies the allowlist gate. Called from middleware, not from each handler.                  |
-| `tests/`                          | Project tests. No network, no real token; the transport is faked at the update boundary.                                                   |
-| `bun.lock`                        | Pinned dependency graph. Committed; the deployment installs from it.                                                                       |
+| Role          | Path                              | Purpose                                                                                    |
+| ------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| entry         | `src/main.ts`                     | Process start: config, storage, handlers, transport. Nothing else starts the bot.          |
+| bot           | `src/bot.ts`                      | Bot instance and dispatcher wiring; handlers registered here.                              |
+| config        | `src/config.ts`                   | Parses and validates environment values; fails fast on a missing required value.           |
+| logger        | `src/logger.ts`                   | Logger setup with secret redaction.                                                        |
+| httpServer    | `src/http/server.ts`              | HTTP app: webhook route, Mini App, readiness, metrics.                                     |
+| httpHealth    | `src/http/health.ts`              | Liveness and readiness endpoints; readiness checks dependencies.                           |
+| httpTelemetry | `src/http/telemetry.ts`           | Metrics endpoint.                                                                          |
+| httpSecrets   | `src/http/secrets.ts`             | Loads secret files for the HTTP process.                                                   |
+| api104        | `src/telegram/api104.ts`          | Typed raw-adapter wrappers for the 10.4 calls grammY 1.46.0 does not type yet.             |
+| dedupe        | `src/guard/dedupe.ts`             | update_id deduplication, fail-closed, registered before handlers.                          |
+| store         | `src/store/db.ts`                 | Connection and queries: the only place SQL lives.                                          |
+| queue         | `src/job/queue.ts`                | Durable queue: enqueue a job with an idempotency key instead of working inside the update. |
+| worker        | `src/job/worker.ts`               | Worker entrypoint: claims jobs, retries with backoff, honours retry_after, shuts down.     |
+| payments      | `src/service/payments.ts`         | Invoices, pre-checkout validation, idempotent fulfilment, refunds.                         |
+| miniapp       | `src/miniapp/session.ts`          | Validates signed initData and issues the app's own short-lived session.                    |
+| migration     | `drizzle/0001_runtime_schema.sql` | First migration: users, jobs, payments, sessions. Forward-only.                            |
+| tests         | `tests/`                          | No network, no real token; the transport is faked at the update boundary.                  |
+| lockfile      | `bun.lock`                        | Pinned dependency graph, committed; deployment installs from it.                           |
 
 ## aiogram / Python
 
-| Path                                         | Purpose                                                                                                                           |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `app/runtime/queue.py`                       | Durable job queue: `enqueue` and `claim` over a jobs table with an idempotency key.                                               |
-| `app/worker.py`                              | Worker entrypoint: claims jobs, dispatches to handlers, retries with backoff, honours `retry_after`, closes the pool on shutdown. |
-| `app/runtime/payments.py`                    | Invoice creation, pre-checkout validation, idempotent fulfilment keyed by `telegram_payment_charge_id`, refund bookkeeping.       |
-| `app/runtime/miniapp_session.py`             | Validates signed `initData` and issues the app's own session.                                                                     |
-| `app/services/api104.py`                     | Raw `bot(method, payload)` wrappers for 10.4.                                                                                     |
-| `migrations/versions/0001_runtime_schema.py` | First Alembic revision with the same initial tables.                                                                              |
-| `app/middlewares/user_sync.py`               | Outer middleware that upserts the user, loads roles, and applies the allowlist before any handler runs.                           |
-| `uv.lock`                                    | Pinned dependency graph, committed.                                                                                               |
+| Role          | Path                                         | Purpose                                                                        |
+| ------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
+| entry         | `app/main.py`                                | Process start: config, pool, dispatcher, transport.                            |
+| bot           | `app/bot.py`                                 | Bot and dispatcher construction; routers and middleware registered here.       |
+| config        | `app/config.py`                              | Environment parsing and startup validation.                                    |
+| logger        | `app/logger.py`                              | Logger setup with secret redaction.                                            |
+| httpServer    | `app/http/server.py`                         | HTTP app: webhook route, Mini App, readiness, metrics.                         |
+| httpHealth    | `app/http/health.py`                         | Liveness and readiness endpoints.                                              |
+| httpTelemetry | `app/http/telemetry.py`                      | Metrics endpoint.                                                              |
+| httpSecrets   | `app/http/secrets.py`                        | Loads secret files for the HTTP process.                                       |
+| api104        | `app/telegram/api104.py`                     | Raw `bot(method, payload)` wrappers for 10.4.                                  |
+| dedupe        | `app/guard/dedupe.py`                        | update_id deduplication as outer middleware, fail-closed.                      |
+| store         | `app/store/db.py`                            | Pool and queries: the only place SQL lives.                                    |
+| queue         | `app/job/queue.py`                           | Durable queue over a jobs table with an idempotency key.                       |
+| worker        | `app/job/worker.py`                          | Worker entrypoint: claims jobs, retries, honours retry_after, closes the pool. |
+| payments      | `app/service/payments.py`                    | Invoices, pre-checkout validation, idempotent fulfilment, refunds.             |
+| miniapp       | `app/miniapp/session.py`                     | Validates signed initData and issues the app's own session.                    |
+| migration     | `migrations/versions/0001_runtime_schema.py` | First revision with the same initial tables.                                   |
+| tests         | `tests/`                                     | pytest, no network, no real token.                                             |
+| lockfile      | `uv.lock`                                    | Pinned dependency graph, committed.                                            |
 
-The test directory is shared by both stacks and listed once above; aiogram tests
-use the same name.
+The test directory is shared by both stacks and listed once per table.
 
-## Wiring the modules
+## Steps
 
-grammY: register the user-sync middleware on the bot, the payment handlers on the
-bot, and job handlers in the worker. The worker imports services, never the bot
-instance.
-
-```ts
-export function startWorker(deps: { jobs: JobQueue; handlers: JobHandlers }) {
-  process.on("SIGTERM", () => void deps.jobs.stop());
-  void deps.jobs.run({
-    claim: () => deps.jobs.claim(20),
-    handle: (job) => deps.handlers[job.kind](job.payload),
-  });
-}
-```
-
-aiogram: the same split with an outer middleware and a separate worker process.
-
-```python
-async def run_worker(jobs: JobQueue, handlers: dict[str, JobHandler]) -> None:
-    async for job in jobs.claim(20):
-        handler = handlers.get(job.kind)
-        if handler is None:
-            await jobs.fail(job, "unknown_kind")
-            continue
-        try:
-            await handler(job.payload)
-            await jobs.done(job)
-        except Exception as exc:  # noqa: BLE001 - worker boundary
-            await jobs.retry(job, str(exc))
-```
+1. Pick the stack's table and create only the roles the confirmed spec enables.
+2. Write the entrypoint first; it loads config, opens storage, registers guards
+   and handlers, and starts the transport.
+3. Add the store and the migration with the tables the enabled features need.
+4. Add service modules, then the queue and worker in one change when the feature
+   is enabled.
+5. Run the verifier and fix anything it reports before adding the next feature.
 
 ## Checks
 
-- Every module the enabled features need exists and is imported by the
-  entrypoint or the worker.
+- Every enabled role exists and is imported by the entrypoint or the worker.
 - No handler imports storage directly; grep the handler folder for query text.
 - The migration runs against an empty database and a second run is a no-op.
-- `bun install --frozen-lockfile` / `uv sync --frozen` succeeds from the committed
-  lockfile.
+- Dependency install succeeds from the committed lockfile with the frozen flag.
 - `aurifex verify` reports no layout-related `fail` after the files land.

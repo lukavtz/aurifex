@@ -393,9 +393,13 @@ function checkWarnMarker(
     : make(id, "pass", passDetail, { path: found.path });
 }
 
+const TESTS_DIRS = [...new Set([LAYOUT.grammy.tests, LAYOUT.aiogram.tests])];
+
 function checkTestsPresent(files: readonly ProjectFile[], prefix: string): Check {
   const found = files.find(
-    (file) => file.path.startsWith(`${prefix}tests/`) || /(^|\/)test_[^/]+\.py$/.test(file.path),
+    (file) =>
+      TESTS_DIRS.some((dir) => file.path.startsWith(`${prefix}${dir}`)) ||
+      /(^|\/)test_[^/]+\.py$/.test(file.path),
   );
   return found === undefined
     ? make("tests.present", "fail", "no tests directory or test_*.py file found")
@@ -428,7 +432,7 @@ function checkLockfile(files: readonly ProjectFile[], prefix: string): Check {
   const names = [LAYOUT.grammy.lockfile, "package-lock.json", LAYOUT.aiogram.lockfile];
   const found = files.find((file) => names.some((name) => file.path === `${prefix}${name}`));
   return found === undefined
-    ? make("deps.lockfile", "warn", "no bun.lock, package-lock.json, or uv.lock found")
+    ? make("deps.lockfile", "warn", `no ${names.join(", ")} found`)
     : make("deps.lockfile", "pass", "dependency lockfile is committed", { path: found.path });
 }
 
@@ -462,7 +466,7 @@ function checkQueueWorker(files: readonly ProjectFile[]): Check {
     ? make(
         "queue.worker",
         "fail",
-        "queue is configured but no src/worker.ts or app/worker.py entrypoint exists",
+        `queue is configured but no ${WORKER_MODULES.join(" or ")} entrypoint exists`,
         { path: findModule(files, QUEUE_MODULES)?.path ?? "unknown" },
       )
     : make("queue.worker", "pass", "queue worker entrypoint is present", { path: worker.path });

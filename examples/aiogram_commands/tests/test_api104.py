@@ -7,7 +7,7 @@ import pytest
 from aiogram.types import Message
 from pydantic import ValidationError
 
-from app.services import api104
+from app.telegram import api104
 
 
 def test_widget_method_metadata() -> None:

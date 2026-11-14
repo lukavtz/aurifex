@@ -25,6 +25,25 @@ bun test
 - Webhook and long-polling transports behind one entrypoint.
 - A typecheck and a test suite that need no network and no Telegram token.
 
+## Structure
+
+Every directory owns one role, so a file moves only when its role changes.
+
+```
+src/
+  main.ts      entry: config, telemetry, transport, shutdown
+  bot.ts       bot construction and dispatcher wiring
+  config.ts    environment parsing and startup validation
+  logger.ts    pino logger with secret redaction
+  http/        transport and probes: webhook server, /healthz, /readyz, /metrics, secret files
+  guard/       admission checks: dedupe, rate limit, admin allowlist, callback ACK, retry
+  store/       persistence: Postgres connection and Drizzle schema
+  telegram/    typed raw adapter for the Bot API 10.4 methods
+  features/    handlers: /start, /help, admin stats
+  i18n/        copy for en, ru, zh
+tests/         update-boundary tests; no network, no Telegram token
+```
+
 ## Verifying it
 
 ```bash

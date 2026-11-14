@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { REPO } from "../fixtures/reference-project.ts";
 
-const SCRIPT = join(REPO, "scripts/check-skills.mjs");
+const SCRIPT = join(REPO, "tools/check-skills.mjs");
 
 function run(root?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const { promise, resolve, reject } = Promise.withResolvers<{

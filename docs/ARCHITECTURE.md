@@ -50,7 +50,7 @@ src/
 skills/                   the knowledge: 15 SKILL.md trees, references, offline scripts
 agents/                   bot-architect, bot-security-reviewer, bot-test-writer
 commands/                 aurifex-new, aurifex-verify, aurifex-deploy
-scripts/                  repository checks, Bot API watcher, host smoke
+tools/                  repository checks, Bot API watcher, host smoke
 examples/                 grammy_commands, aiogram_commands (hand-written)
 site/                     trilingual product site
 ```
@@ -189,7 +189,7 @@ Each `skills/<name>/SKILL.md` is a procedure with three mandatory sections:
 - `## Sources` — at least three absolute `https://` references.
 
 Heavy detail lives in `references/*.md`; the skill states when to read which file.
-`scripts/check-skills.mjs` enforces the structure offline: frontmatter name matches the
+`tools/check-skills.mjs` enforces the structure offline: frontmatter name matches the
 directory, description exists and is within 1024 characters, body is at most 500 lines,
 required headings are present, relative links resolve, and removed generator tool names
 do not appear.

@@ -397,31 +397,32 @@
             <div class="tree reveal">
               <p class="tree__caption">my-bot/</p>
               <pre class="tree__body"><span class="t-dir">├── src/</span>
+<span class="t-dir">│   ├── http/</span>
+│   │   ├── server.ts
+│   │   ├── health.ts
+│   │   ├── telemetry.ts
+│   │   └── secrets.ts
 <span class="t-dir">│   ├── telegram/</span>
 │   │   └── api104.ts
+<span class="t-dir">│   ├── guard/</span>
+│   │   └── dedupe.ts
+<span class="t-dir">│   ├── store/</span>
+│   │   └── db.ts
+<span class="t-dir">│   ├── job/</span>
+│   │   ├── queue.ts
+│   │   └── worker.ts
+<span class="t-dir">│   ├── service/</span>
+│   │   └── payments.ts
+<span class="t-dir">│   ├── miniapp/</span>
+│   │   └── session.ts
 │   ├── config.ts
 │   ├── logger.ts
 │   ├── bot.ts
-│   ├── main.ts
-│   ├── server.ts
-│   ├── worker.ts
-│   ├── migrate.ts
-<span class="t-dir">│   ├── security/</span>
-│   │   ├── callback-ack.ts
-│   │   └── user-sync.ts
-<span class="t-dir">│   ├── runtime/</span>
-│   │   ├── queue.ts
-│   │   ├── payments.ts
-│   │   ├── miniapp-session.ts
-│   │   ├── telemetry.ts
-│   │   └── health.ts
-<span class="t-dir">│   └── storage/</span>
-│       ├── db.ts
-│       └── schema.ts
+│   └── main.ts
 <span class="t-dir">├── drizzle/</span>
 │   └── 0001_runtime_schema.sql
 <span class="t-dir">├── tests/</span>
-│   └── callback-ack.test.ts
+│   └── callback.test.ts
 ├── .env.example
 ├── Dockerfile
 ├── docker-compose.yml

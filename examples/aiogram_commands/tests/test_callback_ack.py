@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from aiogram.types import CallbackQuery
 
-from app.middlewares.callback_ack import CallbackAckMiddleware
+from app.guard.callback_ack import CallbackAckMiddleware
 
 
 def _event() -> MagicMock:

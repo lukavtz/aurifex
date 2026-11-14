@@ -38,7 +38,7 @@ class DriftError extends Error {
 }
 
 function usage() {
-  return `usage: node scripts/check-bot-api.mjs --check|--update|--version [options]
+  return `usage: node tools/check-bot-api.mjs --check|--update|--version [options]
 
   --changelog-file <path>  read the changelog locally instead of fetching
   --api-file <path>        read api.md locally instead of fetching
@@ -389,7 +389,7 @@ async function main() {
     } else {
       console.error(`bot-api drift: ${live.version.raw} vs pinned ${contract.botApiVersion}`);
       for (const diff of diffs) console.error(`  - ${diff}`);
-      console.error("review the changelog, then run: node scripts/check-bot-api.mjs --update");
+      console.error("review the changelog, then run: node tools/check-bot-api.mjs --update");
     }
     if (diffs.length > 0) process.exitCode = 1;
   } catch (error) {

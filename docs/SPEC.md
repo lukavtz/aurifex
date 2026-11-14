@@ -169,7 +169,7 @@ Warnings stay visible. The check ids, grouped by invariant:
 
 Ship 15 skills with procedures, gotchas, and at least three absolute sources each. Heavy
 material lives in `references/*.md`. The corpus is validated offline by
-`scripts/check-skills.mjs`.
+`tools/check-skills.mjs`.
 
 ### F5 — Installation
 
@@ -209,7 +209,7 @@ Details live in `skills/telegram-security` and [THREAT_MODEL.md](THREAT_MODEL.md
 v0.3.0 is accepted when:
 
 1. `pnpm verify` passes on Linux, macOS, and Windows CI.
-2. `node scripts/check-skills.mjs` reports `ok · 15 skills`.
+2. `node tools/check-skills.mjs` reports `ok · 15 skills`.
 3. Both reference projects install, typecheck, pass their tests, and verify with
    `summary.fail == 0`.
 4. `verify` fails on a planted token, a missing worker with a queue, a missing

@@ -79,7 +79,7 @@ The mitigation is instruction content (`telegram-bot` evidence scale and
 
 Skills are instruction content consumed by a model.
 
-- `scripts/check-skills.mjs` enforces structure, link resolution, and a forbidden-string
+- `tools/check-skills.mjs` enforces structure, link resolution, and a forbidden-string
   list; a skill that names a removed generator tool fails the build.
 - Sources must be absolute `https://` URLs, so a relative or local instruction source is
   visible.

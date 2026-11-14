@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REQUIRED_SECRETS, loadConfig } from "../src/config.js";
-import { readSecret, requireSecrets } from "../src/runtime/secrets.js";
+import { readSecret, requireSecrets } from "../src/http/secrets.js";
 
 const TOKEN = "123456:" + "a".repeat(30);
 

@@ -35,7 +35,7 @@ reproduced or referenced at its repository.
 
 - Source: https://agentskills.io
 - License: not applicable; these are published authoring practices, not code.
-- Adapted into: every `skills/*/SKILL.md` and `scripts/check-skills.mjs`.
+- Adapted into: every `skills/*/SKILL.md` and `tools/check-skills.mjs`.
 - What was adapted: the structural rules — `SKILL.md` under 500 lines, progressive
   disclosure into `references/`, a procedure-first body, a dedicated gotchas section, and
   a verification loop that closes with an observable check. No text was copied; the rules

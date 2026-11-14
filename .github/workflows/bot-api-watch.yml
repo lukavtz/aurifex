@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          node scripts/check-bot-api.mjs --check > "$RUNNER_TEMP/bot-api.log" 2>&1
+          node tools/check-bot-api.mjs --check > "$RUNNER_TEMP/bot-api.log" 2>&1
           code=$?
           cat "$RUNNER_TEMP/bot-api.log"
           exit $code
@@ -38,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="$(node scripts/check-bot-api.mjs --version 2>/dev/null || true)"
+          version="$(node tools/check-bot-api.mjs --version 2>/dev/null || true)"
           version="${version:-unknown}"
           title="Bot API drift: ${version}"
           {

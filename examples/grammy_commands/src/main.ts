@@ -2,8 +2,8 @@ import { createBot } from "./bot.js";
 import { getConfig } from "./config.js";
 import { registerFeatures } from "./features/index.js";
 import { logger } from "./logger.js";
-import { initTelemetry, shutdownTelemetry } from "./runtime/telemetry.js";
-import { createServer } from "./server.js";
+import { initTelemetry, shutdownTelemetry } from "./http/telemetry.js";
+import { createServer } from "./http/server.js";
 import type { Update } from "grammy/types";
 
 // Bot API 10.4 adds the widget update kinds; grammY 1.46.0 does not type them yet.

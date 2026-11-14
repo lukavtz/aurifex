@@ -166,8 +166,8 @@ async def cancel(message: Message, state: FSMContext) -> None:
     await message.answer("Отменено.", reply_markup=main_menu())
 ```
 
-Middleware order matters: the user-sync middleware runs before FSM handlers, so
-the actor is known when a step validates ownership of the draft.
+Middleware order matters: the identity guard runs as an outer middleware before
+FSM handlers, so the actor is known when a step validates ownership of the draft.
 
 ## State shape
 

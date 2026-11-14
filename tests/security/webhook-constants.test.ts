@@ -31,7 +31,7 @@ test("reference grammY webhook validates the secret through the framework", asyn
     assert.ok(inspection.status === "ok");
     assert.equal(inspection.value.stack, "grammy");
 
-    const server = await readFile(join(reference.root, "src/server.ts"), "utf8");
+    const server = await readFile(join(reference.root, "src/http/server.ts"), "utf8");
     assert.match(server, /webhookCallback\(bot, "http"/);
     assert.match(server, /secretToken/);
     assert.doesNotMatch(server, /x-telegram-bot-api-secret-token/i);
@@ -59,7 +59,7 @@ test("reference aiogram webhook validates the secret through SimpleRequestHandle
     assert.ok(inspection.status === "ok");
     assert.equal(inspection.value.stack, "aiogram");
 
-    const webhook = await readFile(join(reference.root, "app/webhook.py"), "utf8");
+    const webhook = await readFile(join(reference.root, "app/http/server.py"), "utf8");
     assert.match(webhook, /SimpleRequestHandler\(/);
     assert.match(webhook, /secret_token=settings\.webhook_secret/);
     await assertNoCustomCompare(reference.root);

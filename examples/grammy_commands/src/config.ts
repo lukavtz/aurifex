@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readSecret, requireSecrets } from "./runtime/secrets.js";
+import { readSecret, requireSecrets } from "./http/secrets.js";
 
 const tokenSchema = z
   .string()

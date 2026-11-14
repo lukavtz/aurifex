@@ -27,8 +27,8 @@ surface.
 1. Update `version` in `package.json` (current target: `0.3.0`).
 2. Run the full matrix from [TEST_PLAN.md](TEST_PLAN.md): `pnpm verify`, both reference
    project suites, both `verify --json` runs, `--help`, and the MCP stdio smoke.
-3. Confirm `node scripts/check-skills.mjs` prints `ok · 15 skills` and
-   `node scripts/check-site.mjs` prints the three locales with
+3. Confirm `node tools/check-skills.mjs` prints `ok · 15 skills` and
+   `node tools/check-site.mjs` prints the three locales with
    checks 29 / tools 3 / commands 4.
 4. Commit, then tag:
    ```sh

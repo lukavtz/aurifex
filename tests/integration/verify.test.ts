@@ -126,7 +126,7 @@ test("reference aiogram project passes every check", async () => {
 test("a queue without a worker entrypoint fails queue.worker", async () => {
   const reference = await copyReference("grammy");
   try {
-    await write(reference.root, "src/runtime/queue.ts", "export const queue = { claim: true };\n");
+    await write(reference.root, "src/job/queue.ts", "export const queue = { claim: true };\n");
     const value = await verify(reference.root);
     assert.equal(value.ok, false);
     assert.equal(statusOf(value, "queue.worker"), "fail");
@@ -141,13 +141,13 @@ test("a jobs schema without SKIP LOCKED fails queue.schema", async () => {
   try {
     await write(
       reference.root,
-      "src/runtime/queue.ts",
+      "src/job/queue.ts",
       'export const claim = "SELECT id FROM jobs FOR UPDATE";\n',
     );
     await write(
       reference.root,
-      "src/worker.ts",
-      'import { claim } from "./runtime/queue.ts";\n\nexport const worker = claim;\n',
+      "src/job/worker.ts",
+      'import { claim } from "./queue.ts";\n\nexport const worker = claim;\n',
     );
     const value = await verify(reference.root);
     assert.equal(statusOf(value, "queue.schema"), "fail");
@@ -204,7 +204,7 @@ test("a project without .gitignore fails env.ignored", async () => {
 test("a missing 10.4 adapter fails botapi.104", async () => {
   const reference = await copyReference("aiogram");
   try {
-    await rm(join(reference.root, "app/services/api104.py"));
+    await rm(join(reference.root, "app/telegram/api104.py"));
     const value = await verify(reference.root);
     assert.equal(statusOf(value, "botapi.104"), "fail");
     assert.match(detailOf(value, "botapi.104"), /adapter file is missing/);
@@ -232,7 +232,7 @@ test("payments without refunds fail payments.schema", async () => {
   try {
     await write(
       reference.root,
-      "src/runtime/payments.ts",
+      "src/service/payments.ts",
       "export const PAYMENTS = { charge_id: true, subscriptions: true };\n",
     );
     await rewriteAll(
@@ -253,7 +253,7 @@ test("payments without amount validation fail payments.validation", async () => 
   try {
     await write(
       reference.root,
-      "src/runtime/payments.ts",
+      "src/service/payments.ts",
       "export const PAYMENTS = { charge_id: true, refunds: true, subscriptions: true };\nexport const validate = { invoice_payload: true, currency: true };\n",
     );
     const value = await verify(reference.root);
@@ -301,7 +301,7 @@ test("a project without /metrics only warns telemetry.metrics", async () => {
   try {
     await rewriteAll(
       reference.root,
-      (path) => path.startsWith("src/") || path.startsWith("tests/"),
+      (path) => path.startsWith("src/") || path.startsWith("tests/") || path === "README.md",
       (text) => text.replaceAll("/metrics", "/measurements"),
     );
     const value = await verify(reference.root);
@@ -317,8 +317,8 @@ test("a miniapp session without HttpOnly fails miniapp.session", async () => {
   try {
     await write(
       reference.root,
-      "src/runtime/miniapp-session.ts",
-      'export const cookie = "aurifex_session=; SameSite=Strict";\nexport const sessionKey = "miniapp:session";\n',
+      "src/miniapp/session.ts",
+      'export const cookie = "aurifex_session=; HttpOnly";\nexport const sessionKey = "miniapp:session";\n',
     );
     await rewriteAll(
       reference.root,
@@ -338,7 +338,7 @@ test("a miniapp without CSP fails miniapp.csp", async () => {
   try {
     await write(
       reference.root,
-      "src/runtime/miniapp-session.ts",
+      "src/miniapp/session.ts",
       'export const cookie = "aurifex_session=; HttpOnly";\nexport const sessionKey = "miniapp:session";\n',
     );
     const value = await verify(reference.root);
@@ -369,7 +369,7 @@ test("dedupe that returns true on error fails dedupe.fail_closed", async () => {
   try {
     await append(
       reference.root,
-      "src/security/dedupe.ts",
+      "src/guard/dedupe.ts",
       "\nexport async function loose(): Promise<boolean> {\n  try {\n    return true;\n  } catch {\n    return true;\n  }\n}\n",
     );
     const value = await verify(reference.root);

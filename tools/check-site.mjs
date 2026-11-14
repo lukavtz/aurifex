@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Static checks for site/. No dependencies. Run: node scripts/check-site.mjs
+// Static checks for site/. No dependencies. Run: node tools/check-site.mjs
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";

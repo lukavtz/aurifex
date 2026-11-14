@@ -194,14 +194,14 @@ test("host matrix installs the packed plugin and checks the three-tool surface",
   for (const host of ["omp", "dsh", "claude"]) {
     const step = hosts.steps.find((entry) => entry.run?.includes(`--host ${host}`));
     assert.ok(step, `missing install step for ${host}`);
-    assert.ok(step.run?.includes("scripts/smoke-hosts.ts"));
+    assert.ok(step.run?.includes("tools/smoke-hosts.ts"));
   }
 
   const source = await workflowSource("host-matrix");
   assert.doesNotMatch(source, RETIRED_TOOL_NAMES);
   assert.doesNotMatch(source, /\bnine tools\b/);
 
-  const smoke = await readFile(new URL("../../scripts/smoke-hosts.ts", import.meta.url), "utf8");
+  const smoke = await readFile(new URL("../../tools/smoke-hosts.ts", import.meta.url), "utf8");
   for (const tool of TOOLS) assert.ok(smoke.includes(tool), `smoke-hosts must assert ${tool}`);
   assert.doesNotMatch(smoke, RETIRED_TOOL_NAMES);
   assert.doesNotMatch(smoke, /exactly nine tools/);

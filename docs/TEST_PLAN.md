@@ -13,7 +13,7 @@ checked, with which command, and what counts as a failure.
   root is a failure, not a warning.
 - Telegram tokens are findings. A tracked file containing a token-shaped literal fails
   the build; fixtures build such strings at runtime instead of storing them.
-- Knowledge is code: `scripts/check-skills.mjs` validates the 15 skills offline.
+- Knowledge is code: `tools/check-skills.mjs` validates the 15 skills offline.
 
 ## Environments
 
@@ -34,8 +34,8 @@ The reference-project suites install dependencies and therefore need network.
 ```sh
 pnpm install --frozen-lockfile
 npx tsc --noEmit
-node scripts/check-skills.mjs
-node scripts/check-site.mjs
+node tools/check-skills.mjs
+node tools/check-site.mjs
 node --test --experimental-strip-types "tests/unit/**/*.test.ts"
 node --test --experimental-strip-types "tests/security/**/*.test.ts"
 node --test --experimental-strip-types "tests/integration/**/*.test.ts"
@@ -85,15 +85,15 @@ test:integration → test:host → check:skills → check:site → check:secrets
 
 ## Deterministic checks
 
-| Check            | Command                             | Failure condition                                                                                                                                                                                                                                                                               |
-| ---------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Formatting       | `pnpm format:check`                 | any file differs from Prettier output                                                                                                                                                                                                                                                           |
-| Lint             | `pnpm lint`                         | any `oxlint` diagnostic                                                                                                                                                                                                                                                                         |
-| Types            | `pnpm typecheck`                    | any TypeScript error (strict, NodeNext, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`)                                                                                                                                                                                               |
-| Skill structure  | `node scripts/check-skills.mjs`     | missing or mismatched frontmatter, description over 1024 chars or not starting with `Use when`, body over 500 lines, missing `## Procedure`/`## Gotchas`/`## Sources`, fewer than three absolute `https://` sources, broken relative link, token-like literal, or a removed generator tool name |
-| Site truth       | `node scripts/check-site.mjs`       | locale key mismatch, external script, wrong count (checks 29, tools 3, commands 4), unknown tool or command, skill chip without a `SKILL.md`                                                                                                                                                    |
-| Secret literals  | `node scripts/check-no-secrets.mjs` | token-shaped literal in a tracked text file                                                                                                                                                                                                                                                     |
-| Package contents | `pnpm pack:check`                   | declared `files` missing from the tarball                                                                                                                                                                                                                                                       |
+| Check            | Command                           | Failure condition                                                                                                                                                                                                                                                                               |
+| ---------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Formatting       | `pnpm format:check`               | any file differs from Prettier output                                                                                                                                                                                                                                                           |
+| Lint             | `pnpm lint`                       | any `oxlint` diagnostic                                                                                                                                                                                                                                                                         |
+| Types            | `pnpm typecheck`                  | any TypeScript error (strict, NodeNext, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`)                                                                                                                                                                                               |
+| Skill structure  | `node tools/check-skills.mjs`     | missing or mismatched frontmatter, description over 1024 chars or not starting with `Use when`, body over 500 lines, missing `## Procedure`/`## Gotchas`/`## Sources`, fewer than three absolute `https://` sources, broken relative link, token-like literal, or a removed generator tool name |
+| Site truth       | `node tools/check-site.mjs`       | locale key mismatch, external script, wrong count (checks 29, tools 3, commands 4), unknown tool or command, skill chip without a `SKILL.md`                                                                                                                                                    |
+| Secret literals  | `node tools/check-no-secrets.mjs` | token-shaped literal in a tracked text file                                                                                                                                                                                                                                                     |
+| Package contents | `pnpm pack:check`                 | declared `files` missing from the tarball                                                                                                                                                                                                                                                       |
 
 ## Suite detail
 
@@ -129,8 +129,8 @@ test:integration → test:host → check:skills → check:site → check:secrets
 - `schema.test.ts` — the JSON Schema and validator agree on accepted and rejected shapes.
 - `spec-v11.test.ts` — 1.0 normalization and 1.1 coupling rules.
 - `content.test.ts` — skill, agent, and command frontmatter and cross-references.
-- `check-bot-api.test.ts`, `ops-scripts.test.ts`, `workflows.test.ts` — repository
-  scripts, workflow expectations, and the Bot API watcher.
+- `check-bot-api.test.ts`, `workflows.test.ts` — repository checks, workflow
+  expectations, and the Bot API watcher.
 
 ### Security (`tests/security`)
 
@@ -186,7 +186,7 @@ knowledge, code, and gate agree.
 - **Runtime behaviour.** No test starts a bot, receives a real update, or calls Telegram.
   Behavioural evidence comes from a project's own tests and a real deployment.
 - **Docker image builds.** Not in the default gate; optional and environment-dependent.
-- **Live Telegram API checks.** `scripts/check-bot-api.mjs --check` and
+- **Live Telegram API checks.** `tools/check-bot-api.mjs --check` and
   `tg_docs.py` require network and are not part of `pnpm verify`. The docs tool exits `3`
   when the network is unavailable; that is a reported state, not a test failure.
 - **Agent compliance.** Whether the agent actually asks before building is instruction

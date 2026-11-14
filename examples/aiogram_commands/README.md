@@ -7,6 +7,26 @@ produces a working bot. It is not generated, it has no `.aurifex/` manifest, and
 Bot API target: 10.4. The framework advertises 10.3;
 methods added after that version use await bot(method) with a TelegramMethod subclass for methods newer than aiogram types.
 
+## Layout
+
+```
+app/main.py                  entry: loads config, opens storage, starts the transport
+app/bot.py                   bot instance, dispatcher wiring, middleware order
+app/config.py                environment parsing and startup validation
+app/logger.py                logger construction with secret redaction
+app/http/                    transport: webhook server, health, metrics, secret files
+app/guard/                   update guards: allowlist, dedupe, rate limit, ACK, retry
+app/store/                   storage: engine, session factory, ORM models
+app/telegram/                Bot API 10.4 raw adapter and wire types
+app/i18n/                    locale catalogs and the `t` lookup
+app/handlers/                routers: commands and admin
+migrations/                  Alembic environment and schema revisions
+tests/                       pytest suite, faked at the update boundary
+```
+
+Each directory owns one role; a file move means the role moved. The same role table
+exists for the grammY reference project, so both stacks read alike.
+
 ## Quick start
 
 ```bash
@@ -52,7 +72,7 @@ Terminate TLS at Caddy and call `setWebhook` with the secret from `WEBHOOK_SECRE
 
 ## Bot API 10.4 typed raw adapter
 
-`app/services/api104.py` implements typed `TelegramMethod` wrappers for Bot API 10.4
+`app/telegram/api104.py` implements typed `TelegramMethod` wrappers for Bot API 10.4
 methods that aiogram 3.31.0 does not ship: `sendWidget`, `sendSharedWidget`,
 `answerWidgetQuery`, `editMessageWidgetData`, `editSharedWidgetData`,
 `sendRichMessage`, and `sendRichMessageDraft`. Call them as `await bot(method)` or

@@ -40,6 +40,7 @@
     "commands",
     "rules",
     "prompts",
+    "schema",
     "cordis.patch.yml",
     "docs/SPEC.md",
     "docs/ARCHITECTURE.md",
@@ -113,12 +114,12 @@
     "test:host": "node --test --experimental-strip-types \"tests/host/**/*.test.ts\"",
     "test:security": "node --test --experimental-strip-types --test-timeout=60000 --test-concurrency=1 \"tests/security/**/*.test.ts\"",
     "test:fuzz": "node --test --experimental-strip-types \"tests/security/fuzz.test.ts\"",
-    "test:host:smoke": "node --experimental-strip-types scripts/smoke-hosts.ts",
-    "check:secrets": "node scripts/check-no-secrets.mjs",
+    "test:host:smoke": "node --experimental-strip-types tools/smoke-hosts.ts",
+    "check:secrets": "node tools/check-no-secrets.mjs",
     "pack:check": "pnpm pack --dry-run",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:security && pnpm test:fuzz && pnpm test:integration && pnpm test:host && pnpm check:skills && pnpm check:site && pnpm check:secrets && pnpm pack:check",
     "prepare": "npm run build",
-    "check:site": "node scripts/check-site.mjs",
-    "check:skills": "node scripts/check-skills.mjs"
+    "check:site": "node tools/check-site.mjs",
+    "check:skills": "node tools/check-skills.mjs"
   }
 }

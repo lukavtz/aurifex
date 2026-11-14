@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { retryAfterMs, sendWithRetry } from "../src/security/retry.js";
+import { retryAfterMs, sendWithRetry } from "../src/guard/retry.js";
 
 test("reads retry_after seconds and converts to milliseconds", () => {
   expect(retryAfterMs({ parameters: { retry_after: 3 } })).toBe(3000);

@@ -5,7 +5,7 @@ import json
 import pytest
 
 from app.config import REQUIRED_SECRETS, load_settings
-from app.runtime.secrets import read_secret, require_secrets
+from app.http.secrets import read_secret, require_secrets
 
 VALID_TOKEN = "123456:" + "A" * 30
 

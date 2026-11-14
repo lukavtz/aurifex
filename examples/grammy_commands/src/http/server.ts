@@ -6,9 +6,9 @@ import {
 } from "node:http";
 import type { Sql } from "postgres";
 import { webhookCallback, type Bot } from "grammy";
-import type { Config } from "./config.js";
-import { handleHealthRequest } from "./runtime/health.js";
-import { getRedis } from "./security/dedupe.js";
+import type { Config } from "../config.js";
+import { handleHealthRequest } from "./health.js";
+import { getRedis } from "../guard/dedupe.js";
 
 const MAX_BODY_BYTES = 1_048_576;
 

@@ -65,19 +65,22 @@ function parseEnv(text: string): Map<string, string> {
 
 interface DeclaredFeatures {
   readonly queue: boolean;
+  readonly worker: boolean;
   readonly payments: boolean;
   readonly miniapp: boolean;
-  readonly userSync: boolean;
   readonly migration: boolean;
 }
 
 /**
- * A feature is configured only when the project sets a value or starts the
- * service it needs. Tuning keys (`QUEUE_POLL_MS`, `MINIAPP_SESSION_TTL_SECONDS`)
- * ship in every `.env.example` and prove nothing on their own.
+ * A feature is configured only when the project sets a value, starts the
+ * service it needs, or ships the role module. Tuning keys (`QUEUE_POLL_MS`,
+ * `MINIAPP_SESSION_TTL_SECONDS`) ship in every `.env.example` and prove
+ * nothing on their own.
  */
 async function declaredFeatures(project: Project): Promise<DeclaredFeatures> {
   const root = join(EXAMPLES, project.dir);
+  const layout = LAYOUT[project.stack];
+  const files = await listFiles(root);
   const env = parseEnv(await readProjectFile(root, ".env.example"));
   const compose = (
     await Promise.all(
@@ -86,12 +89,19 @@ async function declaredFeatures(project: Project): Promise<DeclaredFeatures> {
   ).join("\n");
   const set = (...names: readonly string[]): boolean =>
     names.some((name) => (env.get(name) ?? "") !== "");
+  const queue =
+    set("QUEUE_ENABLED", "WORKER_ID") ||
+    /^\s+worker\w*:/im.test(compose) ||
+    files.includes(layout.queue) ||
+    files.includes(layout.worker);
   return {
-    queue: set("QUEUE_ENABLED", "WORKER_ID") || /^\s+worker\w*:/im.test(compose),
-    payments: set("PAYMENTS_ENABLED", "STARS_ENABLED", "PROVIDER_TOKEN"),
-    miniapp: set("MINIAPP_URL", "MINIAPP_ALLOWED_ORIGINS", "WEBAPP_URL"),
-    userSync: set("OWNER_ID", "ADMIN_IDS", "USER_SYNC_ENABLED"),
-    migration: set("DATABASE_URL", "DATABASE_URL_FILE"),
+    queue,
+    worker: queue,
+    payments:
+      set("PAYMENTS_ENABLED", "STARS_ENABLED", "PROVIDER_TOKEN") || files.includes(layout.payments),
+    miniapp:
+      set("MINIAPP_URL", "MINIAPP_ALLOWED_ORIGINS", "WEBAPP_URL") || files.includes(layout.miniapp),
+    migration: set("DATABASE_URL", "DATABASE_URL_FILE") || files.includes(layout.migration),
   };
 }
 
@@ -140,11 +150,10 @@ for (const project of PROJECTS) {
 
     const conditional = [
       ["queue", layout.queue, features.queue],
-      ["worker", layout.worker, features.queue],
+      ["worker", layout.worker, features.worker],
       ["payments", layout.payments, features.payments],
       ["miniapp", layout.miniapp, features.miniapp],
       ["migration", layout.migration, features.migration],
-      ["userSync", layout.userSync, features.userSync],
     ] as const;
     for (const [name, path, enabled] of conditional) {
       if (!enabled) {
@@ -154,12 +163,28 @@ for (const project of PROJECTS) {
       assert.ok(files.includes(path), `${project.dir}: missing ${name} module ${path}`);
     }
 
-    assert.ok(files.includes(layout.api104), `${project.dir}: missing ${layout.api104}`);
+    const required = [
+      ["entry", layout.entry],
+      ["bot", layout.bot],
+      ["config", layout.config],
+      ["logger", layout.logger],
+      ["httpServer", layout.httpServer],
+      ["httpHealth", layout.httpHealth],
+      ["httpTelemetry", layout.httpTelemetry],
+      ["httpSecrets", layout.httpSecrets],
+      ["api104", layout.api104],
+      ["dedupe", layout.dedupe],
+      ["store", layout.store],
+      ["lockfile", layout.lockfile],
+    ] as const;
+    for (const [name, path] of required) {
+      assert.ok(files.includes(path), `${project.dir}: missing ${name} module ${path}`);
+    }
+
     assert.ok(
       files.some((path) => path.startsWith(layout.tests)),
       `${project.dir}: missing ${layout.tests}`,
     );
-    assert.ok(files.includes(layout.lockfile), `${project.dir}: missing ${layout.lockfile}`);
   });
 
   test(`${project.dir}: README says reference implementation and points at verify`, async () => {

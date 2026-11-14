@@ -10,10 +10,10 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.config import Settings
-from app.runtime.health import healthz, metrics, readyz
+from app.http.health import healthz, metrics, readyz
 
 try:
-    from app.runtime.miniapp_session import SECURITY_HEADERS
+    from app.miniapp.session import SECURITY_HEADERS
 except ModuleNotFoundError:  # miniapps feature is not enabled
     SECURITY_HEADERS = {}
 
@@ -59,9 +59,9 @@ def readiness_probes(
 
 def register_miniapp_routes(app: web.Application, settings: Settings) -> bool:
     try:
-        module: Any = import_module("app.services.miniapp")
+        module: Any = import_module("app.miniapp.session")
     except ModuleNotFoundError as error:
-        if error.name != "app.services.miniapp":
+        if not str(error.name or "").startswith("app.miniapp"):
             raise
         return False
     module.register_routes(app, settings)

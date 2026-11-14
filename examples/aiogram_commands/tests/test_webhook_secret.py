@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiohttp.test_utils import TestClient, TestServer
 
 from app.config import Settings
-from app.webhook import create_webhook_app
+from app.http.server import create_webhook_app
 
 VALID_TOKEN = "123456:" + "A" * 30
 

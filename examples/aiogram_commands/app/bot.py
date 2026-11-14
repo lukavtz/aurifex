@@ -9,13 +9,13 @@ from aiogram.types import ErrorEvent
 from redis.asyncio import Redis
 
 from app.config import Settings
-from app.db.session import create_session_factory
+from app.guard.allowlist import AllowlistMiddleware
+from app.guard.callback_ack import CallbackAckMiddleware
+from app.guard.dedupe import DedupeMiddleware
+from app.guard.rate_limit import RateLimitMiddleware
+from app.guard.retry import is_retry_after_error, sleep_retry_after
 from app.handlers import register_handlers
-from app.middlewares.allowlist import AllowlistMiddleware
-from app.middlewares.callback_ack import CallbackAckMiddleware
-from app.middlewares.dedupe import DedupeMiddleware
-from app.middlewares.rate_limit import RateLimitMiddleware
-from app.services.retry import is_retry_after_error, sleep_retry_after
+from app.store.db import create_session_factory
 
 logger = logging.getLogger(__name__)
 

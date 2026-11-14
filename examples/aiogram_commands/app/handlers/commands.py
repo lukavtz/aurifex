@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from app.services.i18n import t
+from app.i18n import t
 
 router = Router(name="commands")
 
