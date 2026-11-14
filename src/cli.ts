@@ -333,7 +333,7 @@ export async function resolveInstallSource(raw: string | undefined): Promise<str
     );
   }
   const resolved = resolve(raw);
-  let source = resolved;
+  let source: string;
   try {
     source = await realpath(resolved);
   } catch {

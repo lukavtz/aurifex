@@ -39,16 +39,28 @@ jobs:
           pnpm pack --pack-destination "$RUNNER_TEMP/pkg"
       - name: OMP
         if: matrix.host == 'omp'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @oh-my-pi/pi-coding-agent@18.18.3
           node --experimental-strip-types scripts/smoke-hosts.ts --host omp --package "$RUNNER_TEMP"/pkg/*.tgz
       - name: DeepSeek Harness
         if: matrix.host == 'dsh'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @deepseek-ai/dsh@0.2.2-rc.1
           node --experimental-strip-types scripts/smoke-hosts.ts --host dsh --package "$RUNNER_TEMP"/pkg/*.tgz
       - name: Claude Code
         if: matrix.host == 'claude'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @anthropic-ai/claude-code@2.1.308
           node --experimental-strip-types scripts/smoke-hosts.ts --host claude --package "$RUNNER_TEMP"/pkg/*.tgz

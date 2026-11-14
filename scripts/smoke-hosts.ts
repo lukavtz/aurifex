@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { cp, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -106,6 +107,33 @@ export async function listInstalledTools(
   }
 }
 
+async function writeArtifact(directory: string, name: string, body: string): Promise<void> {
+  const target = join(directory, name);
+  const flags =
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(target, flags, 0o600);
+      try {
+        await handle.writeFile(body);
+      } finally {
+        await handle.close();
+      }
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (!(await lstat(target)).isFile()) {
+        process.stderr.write(`::error::refusing to overwrite non-regular artifact ${target}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      await unlink(target);
+    }
+  }
+  process.stderr.write(`::error::cannot write artifact ${target}\n`);
+  process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: { host: { type: "string" }, package: { type: "string" } },
@@ -114,8 +142,8 @@ async function main(): Promise<void> {
   const host = z.enum(["omp", "dsh", "claude"]).parse(values.host);
   const artifacts =
     process.env.AURIFEX_ARTIFACT_DIR ??
-    join(process.env.RUNNER_TEMP ?? tmpdir(), "aurifex-artifacts");
-  await mkdir(artifacts, { recursive: true });
+    (await mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), "aurifex-artifacts-")));
+  await mkdir(artifacts, { recursive: true, mode: 0o700 });
   const root = await mkdtemp(join(tmpdir(), "aurifex-host-smoke-"));
   const home = join(root, "home");
   const checkout = join(root, "aurifex");
@@ -218,7 +246,7 @@ async function main(): Promise<void> {
     process.stderr.write(`::error::${evidence.error}\n`);
     process.exitCode = 1;
   } finally {
-    await writeFile(join(artifacts, `host-${host}.json`), JSON.stringify(evidence, null, 2) + "\n");
+    await writeArtifact(artifacts, `host-${host}.json`, JSON.stringify(evidence, null, 2) + "\n");
     await rm(root, { recursive: true, force: true });
   }
 }
