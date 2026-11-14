@@ -144,7 +144,7 @@ test("toolResult marks failures and caps oversized output", () => {
   assert.equal(body.error.code, "output_too_large");
 });
 
-test("stdio server exposes 9 tools and resolves targets", { timeout: 60_000 }, async () => {
+test("stdio server exposes 3 tools and resolves targets", { timeout: 60_000 }, async () => {
   client = new StdioClient({ ...process.env, AURIFEX_ROOT: root });
 
   const initialized = await client.request("initialize", {
@@ -158,23 +158,12 @@ test("stdio server exposes 9 tools and resolves targets", { timeout: 60_000 }, a
   const listed = await client.request("tools/list", {});
   assert.equal(listed.error, undefined);
   const tools = toolsSchema.parse(listed.result).tools;
-  assert.equal(tools.length, 9);
+  assert.equal(tools.length, 3);
   assert.deepEqual(tools.map((tool) => tool.name).toSorted(), [
-    "telegram_bot_add_feature",
-    "telegram_bot_deploy_plan",
     "telegram_bot_inspect",
-    "telegram_bot_scaffold",
     "telegram_bot_target_resolve",
-    "telegram_bot_test_harness",
-    "telegram_bot_upgrade",
-    "telegram_bot_upgrade_plan",
     "telegram_bot_verify",
   ]);
-  for (const name of ["telegram_bot_scaffold", "telegram_bot_add_feature"]) {
-    const tool = tools.find((candidate) => candidate.name === name);
-    assert.match(tool?.description ?? "", /skills\/telegram-bot-discovery/);
-    assert.match(tool?.description ?? "", /confirm/i);
-  }
   assert.equal(
     tools.find((tool) => tool.name === "telegram_bot_verify")?.description,
     "Run static file-content checks; no project code execution, network, or Telegram calls.",
@@ -196,7 +185,7 @@ test("stdio server exposes 9 tools and resolves targets", { timeout: 60_000 }, a
 });
 
 test(
-  "server exposes nine tools without any installed node_modules",
+  "server exposes three tools without any installed node_modules",
   { timeout: 60_000 },
   async (t) => {
     const isolated = await mkdtemp(join(tmpdir(), "aurifex-mcp-isolated-"));
@@ -218,7 +207,7 @@ test(
       assert.equal(initialized.error, undefined);
       const listed = await bare.request("tools/list", {});
       assert.equal(listed.error, undefined);
-      assert.equal(toolsSchema.parse(listed.result).tools.length, 9);
+      assert.equal(toolsSchema.parse(listed.result).tools.length, 3);
     } finally {
       await bare.close();
     }
@@ -246,7 +235,7 @@ test(
           .parse(initialized.result).protocolVersion;
         assert.equal(version, expected, `requested ${requested}`);
         const listed = await versionClient.request("tools/list", {});
-        assert.equal(toolsSchema.parse(listed.result).tools.length, 9);
+        assert.equal(toolsSchema.parse(listed.result).tools.length, 3);
       } finally {
         await versionClient.close();
       }

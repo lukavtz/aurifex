@@ -29,7 +29,7 @@ export async function claimUpdate(
       { message: error instanceof Error ? error.message : "redis error" },
       "dedupe check failed; refusing update",
     );
-    throw new Error("update deduplication unavailable");
+    throw new Error("update deduplication unavailable", { cause: error });
   }
 }
 

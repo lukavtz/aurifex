@@ -1,194 +1,162 @@
 # Threat model
 
-Scope: the `aurifex` CLI, generated bots, and the generated production runtime.
-This model covers the shipped code, not future platform expansion.
+Scope: the `aurifex` package — CLI, MCP server, OMP and DSH adapters, installer,
+verification, skill corpus, and the two reference projects. This model covers shipped
+code, not future platform expansion and not the runtime of a user's bot (a user's bot is
+that operator's system).
 
 ## Assets
 
-- Telegram bot token and webhook secret.
-- Postgres and Redis credentials, LLM API key.
-- Payment records, charge ids, refunds, and subscription state.
-- User ids, usernames, display names, and broadcast audience.
-- Queued job payloads, including chat ids and prompts.
-- Bot availability and the integrity of generated source.
+- The Telegram bot token and webhook secret of a user's project.
+- Postgres, Redis, and LLM credentials referenced by a user's project.
+- User ids, usernames, and message content read from a project during verification.
+- The integrity of the skill corpus and the verifier results.
+- The integrity of the installed plugin copy.
+- The host process in which the plugin runs.
 
 ## Trust boundaries
 
-| Boundary                        | Untrusted side                             | Trusted side                |
-| ------------------------------- | ------------------------------------------ | --------------------------- |
-| Telegram to webhook             | update body, headers, `update_id`          | bot process                 |
-| Browser to Mini App API         | cookies, `Origin`, CSRF header, `initData` | session store and bot       |
-| Operator to CLI                 | spec file, paths, feature names            | path policy and domain core |
-| Generated bot to Postgres/Redis | network input                              | database and cache          |
-| Generated bot to Telegram       | API responses, `retry_after`               | local queue and payments    |
-| Generated bot to LLM provider   | prompt and response                        | job worker                  |
-| Package install                 | repository archive (`AURIFEX_REF`), npm registry, host plugin CLI | local installation |
+| Boundary                  | Untrusted side                                                    | Trusted side                        |
+| ------------------------- | ----------------------------------------------------------------- | ----------------------------------- |
+| Model to tool arguments   | stack name, project path, arbitrary strings                       | MCP/adapter schema and `PathPolicy` |
+| Project files to verifier | file content, file size, symlinks                                 | bounded read and marker checks      |
+| Project files to inspect  | manifests, source text                                            | bounded read, no execution          |
+| Telegram docs to skills   | page content, page availability                                   | curated reference list and cache    |
+| Package install           | repository archive (`AURIFEX_REF`), npm registry, host plugin CLI | local build and host registration   |
+| Host plugin process       | model-supplied paths                                              | authorized root                     |
 
 ## Threats and mitigations
 
-### Token or secret disclosure
+### Secret disclosure through verification evidence
 
-- The scaffold never writes a token literal; `.env.example` values are empty.
-- `NAME_FILE` indirection keeps secrets out of environment dumps; the loader
-  refuses symlinks and checks file mode
-  ([`runtime-secrets.ts`](../src/core/projects/templates/runtime-secrets.ts)).
-- CLI output, install output, and error text pass through `redactSecrets`, which
-  replaces token-shaped values and bearer headers
-  ([`security/secrets.ts`](../src/core/security/secrets.ts)).
-- `verify` fails a project containing a token-shaped literal and checks that
-  `.env` is ignored ([`verify.ts`](../src/core/projects/verify.ts)).
-- Structured logs redact `BOT_TOKEN`, `WEBHOOK_SECRET`, and `LLM_API_KEY`; the LLM
-  client never logs the prompt, answer, or key.
+Verification reads project files, which routinely contain token-shaped strings in
+fixtures, comments, and `.env` copies.
 
-### Webhook spoofing and replay
+- Matches are reported as check id, path, and line — never the matched value.
+- CLI and MCP output pass through `redactSecrets`, which replaces token-shaped values and
+  bearer headers ([`src/core/security/secrets.ts`](../src/core/security/secrets.ts)).
+- The MCP result size cap (`output_too_large` at 256 KiB) prevents dumping a large file
+  body by accident.
+- The installer never prompts for credentials and never prints an environment file.
 
-- grammY uses `webhookCallback(..., { secretToken })`; aiogram checks
-  `X-Telegram-Bot-Api-Secret-Token` in constant time before dispatch
-  ([`templates/grammy.ts`](../src/core/projects/templates/grammy.ts),
-  [`templates/aiogram.ts`](../src/core/projects/templates/aiogram.ts)).
-- `verify` checks the secret header, HTTPS, the allowed port, and constant-time
-  comparison (`webhook.secret`, `webhook.https`, `webhook.port`,
-  `webhook.constant_time`).
-- `update_id` is claimed in Redis with `SET NX EX 86400` before handling
-  ([`templates/grammy.ts`](../src/core/projects/templates/grammy.ts)).
-- Mini App `auth_date` must be within the session TTL and not in the future. The
-  HMAC hash is claimed once with `SET NX EX 300`
-  ([`miniapp-session.ts`](../src/core/projects/templates/miniapp-session.ts)).
+Residual risk: a user can paste a real token into a support thread. That is outside the
+tool's control; [SECURITY.md](../SECURITY.md) states the revocation procedure.
 
-Residual risk: generated grammY dedupe returns `true` when Redis fails, so a
-Redis outage disables duplicate suppression instead of stopping processing.
-`verify` reports this as `dedupe.fail_closed: fail`; a deployment that treats
-availability as more important must still accept possible duplicate updates.
+### Path traversal and read amplification
 
-### CSRF and hostile origins
+The model supplies `projectRoot`.
 
-- Mini App sessions are opaque 256-bit ids stored as SHA-256 hashes in Redis.
-- The cookie is `HttpOnly; SameSite=Lax; Path=/`, with `Secure` on HTTPS.
-- Mutating requests require an allowed `Origin` and `X-CSRF-Token` equal to the
-  stored CSRF value; comparison uses `timingSafeEqual`.
-- Responses set CSP `default-src 'self'`, `frame-ancestors 'none'`, `nosniff`,
-  and `Referrer-Policy: no-referrer`
-  ([`miniapp-session.ts`](../src/core/projects/templates/miniapp-session.ts)).
+- `PathPolicy` resolves the real root and requires the project path to be inside it, with
+  no symlink escape ([`src/core/security/path-policy.ts`](../src/core/security/path-policy.ts)).
+- Reads are capped at 1 MiB per file and 64 MiB per snapshot; an oversized file fails
+  `scan.bounded` instead of being silently skipped.
+- No operation in `0.3.0` writes to a project.
+- Directories such as `node_modules`, `.git`, and build output are excluded from the scan.
 
-Residual risk: an empty `allowedOrigins` list falls back to same-origin
-comparison using the request host. A reverse proxy that rewrites `Host` must be
-configured consistently.
+Residual risk: a project with many small files can still cost the 64 MiB bound. The
+bound is a hard ceiling, so the worst case is bounded CPU and memory, not an arbitrary
+read.
 
-### SQL injection
+### False confidence from static verification
 
-- Runtime SQL uses parameter placeholders. The queue, payments, broadcast, and
-  user-sync statements are emitted as constants with `$n` parameters
-  ([`queue.ts`](../src/core/projects/templates/queue.ts),
-  [`payments.ts`](../src/core/projects/templates/payments.ts),
-  [`jobs.ts`](../src/core/projects/templates/jobs.ts)).
-- Schema and migration SQL is checked in, not assembled from user input.
-- Error strings stored in `jobs.last_error` are clipped, never executed.
+The verifier matches text. A marker can be present while the behaviour is broken, and a
+missing marker does not always mean the invariant is absent.
 
-Residual risk: generated code that an operator edits can reintroduce string
-interpolation. `verify` does not perform taint analysis.
+- Every check returns `pass`, `warn`, or `fail` with a `detail` that names the marker.
+- Documentation, the SPEC, and the skills state repeatedly that the gate is necessary but
+  not sufficient; L2/L3 evidence requires running the bot.
+- Checks that matter most are `fail`, not `warn`: token literal, webhook secret, update
+  deduplication, `retry_after`, non-root container, 10.4 adapter, lockfile presence is a
+  warning by design.
+- `dedupe.fail_closed` exists specifically because an open-fail dedupe is a real design
+  choice that must be surfaced, not hidden.
 
-### Duplicate or replayed jobs
+Residual risk: an agent can report "verified" after a green gate and skip runtime proof.
+The mitigation is instruction content (`telegram-bot` evidence scale and
+`telegram-testing`), not code.
 
-- `jobs.idempotency_key` is unique. `enqueue` uses
-  `ON CONFLICT DO NOTHING` and reads the existing id on conflict.
-- Claim uses `FOR UPDATE SKIP LOCKED`, so two workers cannot claim one row.
-- A stuck running job returns to `pending` after the visibility timeout.
-- Job attempts and dead-letter state are bounded.
+### Skill corpus integrity
 
-Residual risk: delivery is at-least-once. A handler can run twice after a crash
-between the side effect and `complete`. Handlers must key external effects on the
-job payload or idempotency key.
+Skills are instruction content consumed by a model.
 
-### Payment replay and refund abuse
+- `scripts/check-skills.mjs` enforces structure, link resolution, and a forbidden-string
+  list; a skill that names a removed generator tool fails the build.
+- Sources must be absolute `https://` URLs, so a relative or local instruction source is
+  visible.
+- Heavy content lives in `references/*.md` under the same owner; there is no dynamic
+  fetch at load time.
+- Documentation fetched by `tg_docs.py` is cached and treated as data. A page cannot
+  change plugin code; it can only inform the agent.
 
-- Invoice payloads bind product, user, and a nonce; malformed, unknown-product, or
-  mismatched-user payloads are rejected.
-- Pre-checkout validates product, amount, and `XTR` currency and writes nothing.
-- `successful_payment` uses the Telegram charge id as the primary key with
-  `ON CONFLICT DO NOTHING`; fulfillment is enqueued once per charge id.
-- Refund and chargeback state is recorded; refund requests are idempotent;
-  subscription cancellation is admin-only.
-- Reconciliation records Telegram transactions and never grants entitlements.
+Residual risk: documentation pages can contain adversarial text. The agent must treat
+fetched content as reference, not as instructions that override the skill procedure.
 
-Residual risk: a refunded payment whose entitlement was already delivered is not
-revoked automatically. The operator must decide whether to revoke access.
+### MCP server exposure
 
-### SSRF and prompt-data leakage through the LLM path
+The server can be registered in any MCP client.
 
-- The LLM request runs in a worker, not in the webhook.
-- `LLM_BASE_URL` is operator configuration, not user input.
-- Requests use an 8-second timeout, a bounded token count, and a static error on
-  failure. Prompts and answers are not logged.
+- Stdout is reserved for JSON-RPC; diagnostics go to stderr.
+- Input is validated against a strict schema; unknown fields are rejected.
+- Only three read operations exist. There is no shell, no write, no network.
+- `AURIFEX_ROOT` bounds every read; the default is the process working directory.
+- The protocol version is fixed at `2025-11-25`, independent of the client's request.
 
-Residual risk: `LLM_BASE_URL` is not restricted to a public host. An operator can
-point it at an internal service. There is no per-user LLM quota beyond the
-optional Redis rate limiter; cost abuse is possible if the feature is exposed to
-untrusted users.
+Residual risk: a host that leaves `AURIFEX_ROOT` at `/` exposes the whole filesystem to
+read-only marker scans. Set it to the workspace.
 
-### Queue and database compromise
+### Installer and supply chain
 
-- Generated credentials come from files or environment, never from Compose
-  literals.
-- Postgres and Redis bind to the Compose network; only Caddy publishes 80/443.
-- The bot container runs as a non-root user; `verify` checks this.
-- The worker has its own process and can be stopped without taking down the
-  webhook.
+- Install scripts fetch a repository archive at `AURIFEX_REF` (default `main`) and build
+  locally. They do not verify release checksums, SBOMs, or cosign bundles; installation
+  trusts the publisher.
+- The CLI prints and executes host install commands; it does not fetch or run arbitrary
+  scripts from the project.
+- Root development dependencies are pinned exactly; the reference projects use frozen
+  lockfiles.
+- Release builds produce `SHA256SUMS` and a CycloneDX SBOM and attempt keyless cosign
+  signing; signing is non-blocking, so a release may ship unsigned. npm publishing runs
+  only when `NPM_TOKEN` exists.
 
-Residual risk: anyone with database write access can enqueue arbitrary jobs.
-Job handlers must validate payload shape rather than trusting the producer.
+Residual risk: a compromised publisher account or a selected repository ref can change
+the installed code. Pin `AURIFEX_REF` to a tag for production installs and verify the
+published digest when one exists.
 
-### Path traversal and unsafe scaffolds
+### Host process compromise
 
-- All reads and writes go through `PathPolicy`, which resolves real paths,
-  rejects symlink escape, and confines writes to the authorized root
-  ([`security/path-policy.ts`](../src/core/security/path-policy.ts)).
-- `new` rejects a destination outside `--root`; feature paths are validated for
-  absolute paths, `..`, and backslashes.
-- Existing files are not replaced without `--overwrite`; feature writes are
-  rolled back on failure.
+- The plugin runs inside the host process; it is trusted code with the host's
+  permissions.
+- There is no sandbox claim. Tool inputs are untrusted, but a host extension defect is a
+  host-level defect.
+- The Claude Code plugin cache copy runs without `node_modules`, so it cannot be extended
+  by an installed dependency at runtime.
 
-### Supply chain
+Residual risk: any code in the host process can do what the host can do. Review the
+installed version and the ref it came from.
 
-- Root development dependencies are pinned exactly; generated projects pin exact
-  framework, database, telemetry, and test versions
-  ([`package.json`](../package.json),
-  [`templates/shared.ts`](../src/core/projects/templates/shared.ts)).
-- A lockfile is expected; `verify` warns when it is absent (`deps.lockfile`).
-- Release builds produce `SHA256SUMS` and an SBOM, then attempt keyless cosign signing.
-  Signing is non-blocking, so releases may ship unsigned. npm publishing runs only
-  when `NPM_TOKEN` exists ([`release.yml`](../.github/workflows/release.yml)).
-- Install scripts fetch a repository archive at `AURIFEX_REF` (default `main`) and
-  build locally. They do not verify release checksums, SBOMs, or cosign bundles;
-  installation trusts the publisher.
-- The CLI prints and executes host install commands; it does not fetch or run
-  arbitrary scripts from the project.
+### Reference-project compromise
 
-Residual risk: a compromised publisher account or selected repository ref can change
-the installed code. npm installs can execute transitive lifecycle scripts. Production
-images should install from checked-in frozen lockfiles; upstream compromise remains possible.
+- `examples/grammy_commands` and `examples/aiogram_commands` are test fixtures and
+  documentation, not a deployment template.
+- They carry no manifest, no secrets, and no deployment credentials.
+- Verification of an example is advisory: `verify` reports findings, it does not bless a
+  deployment.
 
-### Admin command abuse
-
-- Admin commands check `ADMIN_IDS` server-side through `isAdmin`; an empty list
-  denies every admin command.
-- The allowlist is parsed defensively: invalid entries are dropped, not coerced.
-- Broadcast status, refunds, and subscription cancellation are admin-only.
-
-Residual risk: `ADMIN_IDS` is an environment value. Anyone who can change it can
-grant themselves admin access.
+Residual risk: an operator may copy an example and treat it as production-ready. The
+skills state what production additionally requires (webhook secret, storage, queue,
+monitoring, backup).
 
 ## Verification coverage
 
-`aurifex verify` checks the generated project for token literals, ignored `.env`,
-webhook secret handling, HTTPS and port constraints, constant-time comparison,
-non-root container, healthcheck, readiness, metrics, Mini App session and CSP,
-Bot API 10.4 types, payment schema and amount/currency/payload checks, queue
-worker and schema, secret-file indirection, dedupe failure mode, and tests.
+`aurifex verify` checks a project for token literals, scan bounds, ignored `.env`, secret
+file indirection, log redaction, allowlist presence, webhook secret/HTTPS/port/constant
+time, allowed updates, dedupe, dedupe fail-closed mode, `retry_after`, non-root container,
+healthcheck, Bot API 10.4 adapter and types, lockfile presence, queue worker and schema,
+payment schema and validation, readiness and metrics, Mini App session and CSP, and test
+presence and infrastructure.
 
-Checks match textual markers over a bounded snapshot (64 MiB total, 1 MiB per file).
-Webhook checks detect configuration and comparison markers. Payment checks detect
-`charge_id`, `refunds`, `subscriptions`, `invoice_payload`, `currency`, and
-`total_amount`; their presence does not prove payment integrity at runtime.
-Generated tests and integration/E2E tests provide runtime evidence. See
+Checks match textual markers over a bounded snapshot. Webhook checks detect
+configuration and comparison markers. Payment checks detect `charge_id`, `refunds`,
+`subscriptions`, `invoice_payload`, `currency`, and `total_amount`; their presence does
+not prove payment integrity at runtime. See
 [`src/core/projects/verify.ts`](../src/core/projects/verify.ts) and
-[`docs/TEST_PLAN.md`](TEST_PLAN.md).
+[TEST_PLAN.md](TEST_PLAN.md).

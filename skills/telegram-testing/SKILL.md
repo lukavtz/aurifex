@@ -1,12 +1,38 @@
 ---
 name: telegram-testing
-description: Use when writing deterministic tests for a Telegram bot, faking the Bot API, covering updates and security, or gating live Telegram tests.
+description: Use when writing deterministic tests for a Telegram bot, faking the Bot API, covering updates, concurrency and security, or deciding whether a local test proves production behaviour. Русские триггеры: тесты бота, как тестировать телеграм-бота, фейковый Bot API, матрица сценариев, повтор update.
 ---
 
 # Testing Telegram bots
 
 Default to offline tests. The network is not a test fixture, and a live bot token is
 never a unit-test dependency.
+
+## Procedure
+
+1. Pick the layer that can fail: unit for pure logic, handler for update →
+   reply, webhook for transport, integration for storage, live only on demand.
+2. Build the fixture from a real update shape, with a unique `update_id` per test.
+3. Replace the transport (fake API session or `bot.api.config.use`), not the
+   handler.
+4. Assert on the method and payload that reach the transport, plus the durable
+   state. Do not assert on user-visible copy or button counts.
+5. Cover the scenario matrix below, once per feature that touches it.
+6. Record which level of evidence the run provides.
+
+## Evidence levels
+
+| Level | Evidence                                              | Proves                            |
+| ----- | ----------------------------------------------------- | --------------------------------- |
+| L0    | read the code                                         | nothing                           |
+| L1    | static checks (`telegram_bot_verify`, linters)        | shapes and rules, not behaviour   |
+| L2    | local tests, fake transport                           | handler behaviour in this process |
+| L3    | real delivery in production or a staging Telegram bot | Telegram accepted and delivered   |
+
+**L2 is not L3.** A green local suite cannot prove that a webhook secret is
+registered, that `allowed_updates` includes the needed types, that the token has
+the right rights, or that a 429 is handled against the real API. State the level
+honestly when reporting; never call a local test a production verification.
 
 ## Test layers
 
@@ -19,6 +45,28 @@ never a unit-test dependency.
 | Live        | Credentials and real delivery                       | Telegram, gated |
 
 Run the fast layers on every commit; run live only on demand.
+
+## Scenario matrix
+
+Eleven scenarios, each with an observable assertion. A feature that touches one of
+these needs a test for it.
+
+| #   | Scenario                                    | Assert                                                  |
+| --- | ------------------------------------------- | ------------------------------------------------------- |
+| 1   | Main path                                   | one business result, one reply method                   |
+| 2   | Invalid input                               | a rejection reply, no state change                      |
+| 3   | Back / cancel                               | conversation state cleared, no side effect              |
+| 4   | Another user's object or role               | denial, and the object is untouched                     |
+| 5   | Role revoked while the button is still live | re-check at click time denies                           |
+| 6   | Duplicate update and double click           | exactly one side effect                                 |
+| 7   | Two concurrent claimants                    | one wins, one gets a clean refusal                      |
+| 8   | Restart between inbox write and processing  | work resumes, no double grant                           |
+| 9   | 429 and 403                                 | sleep per `retry_after`; 403 marks the chat unreachable |
+| 10  | Special characters and emoji                | text survives, length is measured in UTF-16             |
+| 11  | Channel access lost                         | send fails closed, state reflects it                    |
+
+Scenario 7 needs two workers or two transactions; a single-threaded fake proves
+nothing. Scenario 8 needs the queue and the storage to be real enough to restart.
 
 ## Fixtures
 
@@ -50,8 +98,8 @@ await bot.handleUpdate(fixture);
 
 Assert:
 
-- the reply text and `parse_mode`;
 - the method name and payload (`sendMessage`, `answerCallbackQuery`);
+- the durable state after the handler;
 - that a duplicate `update_id` does not produce a second side effect;
 - that a `429` with `retry_after` is honored (fake timer, no real sleep);
 - that an unknown update is ignored without throwing.
@@ -62,25 +110,36 @@ over 1 MiB; assert 413 or 400.
 
 ## aiogram
 
-Use `pytest`, `pytest-asyncio`, `AsyncMock`, and hand-built `Message` and
-`CallbackQuery` objects. Bind a mock bot session or monkeypatch `message.answer`.
+Use `dp.feed_update(bot, update)` as the only dispatcher entry, so filters and
+middleware run. `pytest`, `pytest-asyncio`, `AsyncMock`, and a fake session.
 
 ```python
-from unittest.mock import AsyncMock
-
-async def test_start_replies(monkeypatch):
-    message = make_message(text="/start")
-    message.answer = AsyncMock()
-    await start(message)
-    message.answer.assert_awaited_once()
+async def test_start_replies():
+    bot = make_bot()
+    bot.session = AsyncMock()
+    await dp.feed_update(bot, make_message_update(text="/start"))
+    method = bot.session.call_args.args[0]
+    assert method.__api_method__ == "sendMessage"
 ```
 
-For the webhook, use `aiohttp.test_utils.TestClient` and assert:
+Assert the method and its fields, not the reply wording. For the webhook, use
+`aiohttp.test_utils.TestClient` and assert:
 
 - missing secret → 401;
 - wrong secret → 401;
 - correct secret → 200 and one dispatcher feed;
 - body over `client_max_size` → 413.
+
+## Assertions that survive copy changes
+
+- Assert method names, payload fields, and stored rows. Do not assert button labels
+  or the number of buttons; copy changes and keyboard layout edits would break the
+  suite without a behaviour change.
+- When a label is genuinely the contract (a deep link button, a command name),
+  assert the callback data or the command, not the visible text.
+- Assert that a reply exists and contains no unescaped markup rather than matching
+  the whole string.
+- Use a fixed clock and fixed ids; never assert on `Date.now()` output.
 
 ## Security tests
 
@@ -88,10 +147,8 @@ For the webhook, use `aiohttp.test_utils.TestClient` and assert:
   `token.literal` and must not echo the full value.
 - Remove the secret check; verification must fail `webhook.secret`.
 - Delete `.gitignore` or add `.env`; verification must fail `env.ignored`.
-- Create a symlink from inside the project to outside; scaffold and read must fail
-  with `unauthorized_path`.
-- Attempt `..`, an absolute path outside the root, and a NUL byte; all must fail.
 - Send a wrong `admin` callback as a non-admin; assert denial and no side effect.
+- Revoke the admin role between keyboard render and click; assert denial.
 - Validate Mini App `initData` with a stale `auth_date` and a wrong hash.
 
 ## Payments
@@ -133,8 +190,22 @@ production bot; use a dedicated test bot.
 - Single test: `bun test tests/features.test.ts` or
   `uv run pytest tests/test_commands.py -q`
 
+## Gotchas
+
+- Calling a handler function directly skips filters, middleware, and the
+  dispatcher. It passes while production rejects the update.
+- A fake clock that does not advance makes retry tests hang or pass vacuously.
+- `AsyncMock` accepts any call; assert the method name and arguments or the test
+  proves nothing.
+- Shared `update_id` across tests silently turns every test after the first into a
+  duplicate.
+- A test that asserts full reply text fails on every copy edit and gets deleted.
+- A 429 test that really sleeps makes the suite slow and flaky; patch the clock.
+- Live tests that write to a shared chat leave state the next run trips over.
+
 ## Sources
 
-Adapted from `nyxandro/telegram-bot-development-skill` (MIT),
-`nzhulikov/telegram-bot-skills` (Apache-2.0), and Telegram Bot API documentation.
-See `THIRD_PARTY_NOTICES.md`.
+- https://core.telegram.org/bots/api
+- https://grammy.dev/guide/testing
+- https://docs.aiogram.dev/en/latest/dispatcher/index.html
+- https://docs.pytest.org/en/stable/

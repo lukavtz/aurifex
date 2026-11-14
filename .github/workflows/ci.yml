@@ -34,126 +34,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
 
-  e2e:
-    name: e2e (generated projects)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      AURIFEX_E2E: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.18.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: 0.12.23
-          python-version: "3.14"
-          enable-cache: false
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test:e2e
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: generated-full-boot
-          path: ${{ runner.temp }}/aurifex-artifacts/
-          if-no-files-found: error
-
-  infra:
-    name: infra (Postgres + Redis)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      AURIFEX_INFRA: "1"
-      DATABASE_URL: postgres://bot:bot@127.0.0.1:5432/bot
-      REDIS_URL: redis://127.0.0.1:6379/0
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: bot
-          POSTGRES_PASSWORD: bot
-          POSTGRES_DB: bot
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U bot"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-      redis:
-        image: redis:8-alpine
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.18.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: 0.12.23
-          python-version: "3.14"
-          enable-cache: false
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Run infra suite
-        shell: bash
-        run: |
-          set +e
-          pnpm test:infra 2>&1 | tee "$RUNNER_TEMP/infra.log"
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            {
-              echo '### infra failure log'
-              echo '```'
-              tail -200 "$RUNNER_TEMP/infra.log"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            message=$(tail -40 "$RUNNER_TEMP/infra.log" | tr '\n' ' ' | cut -c1-900)
-            echo "::error title=infra failure::$message"
-          fi
-          exit "$status"
-
-  docker:
-    name: docker images
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      AURIFEX_DOCKER: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.18.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: docker/setup-buildx-action@v3
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: 0.12.23
-          python-version: "3.14"
-          enable-cache: false
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test:docker
-
   fuzz:
     name: fuzz
     runs-on: ubuntu-latest
@@ -169,28 +49,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:fuzz
-
-  load:
-    name: load
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      AURIFEX_LOAD: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.18.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test:load
 
   workflows:
     name: workflow lint
@@ -228,12 +86,29 @@ jobs:
           npm install "$RUNNER_TEMP"/pkg/*.tgz
           npx --no-install aurifex target --stack grammy --json \
             | grep -q '"frameworkVersion":"1.46.0"'
+          npx --no-install aurifex --help > "$RUNNER_TEMP/help.txt"
+          for command in target inspect verify install; do
+            grep -Eq "^  aurifex ${command}( |$)" "$RUNNER_TEMP/help.txt"
+          done
+          if grep -Eq "^  aurifex (new|add|deploy|harness|upgrade)( |$)" "$RUNNER_TEMP/help.txt"; then
+            echo "::error title=CLI surface::--help still advertises a removed command"
+            exit 1
+          fi
           printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
             '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-            | node node_modules/aurifex/dist/adapters/mcp/server.js \
-            | grep -q '"telegram_bot_target_resolve"'
+            | node node_modules/aurifex/dist/adapters/mcp/server.js > "$RUNNER_TEMP/tools.json"
+          node -e '
+            const fs = require("node:fs");
+            const messages = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map((line) => JSON.parse(line));
+            const list = messages.find((message) => message.id === 2);
+            const names = list.result.tools.map((tool) => tool.name).sort().join(",");
+            if (names !== "telegram_bot_inspect,telegram_bot_target_resolve,telegram_bot_verify") {
+              console.error(`tools/list exposed: ${names}`);
+              process.exit(1);
+            }
+          ' "$RUNNER_TEMP/tools.json"
       - uses: actions/upload-artifact@v7
         with:
           name: aurifex-package

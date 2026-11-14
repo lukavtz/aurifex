@@ -1,236 +1,240 @@
 # Aurifex — Product Specification
 
-Status: accepted for v0.2.0
-Last verified: 2026-11-09
+Status: accepted for v0.3.0
+Last verified: 2026-11-15
 
 ## 1. Problem
 
-Building a Telegram bot is easy to start and hard to finish correctly. The common
-failure modes are security and operations, not syntax:
+A coding agent can write a Telegram bot. It usually writes the wrong one, for four
+reasons:
 
-- bot tokens committed or logged;
-- webhooks without `secret_token`, HTTPS, or an allowed port;
-- admin commands without server-side authorization;
-- long work inside a webhook request, causing retries and duplicate side effects;
-- no `update_id` deduplication, no `retry_after` handling;
-- in-memory FSM state in production;
-- Mini App `initData` trusted without HMAC validation;
-- no deterministic tests, only manual chat checks.
+- it starts coding before it knows what the user wants, and pads the result with
+  features nobody asked for;
+- it answers Bot API questions from stale model memory instead of the installed SDK and
+  the current documentation;
+- it omits the operational invariants — webhook authentication, `update_id`
+  deduplication, `retry_after`, non-root containers — because they are not visible in
+  the happy path;
+- it declares success without checking anything.
 
-Existing agent skills cover API knowledge. Existing MCP servers expose Telegram
-account operations. Neither owns the full lifecycle: scaffold, implement, verify,
-test, deploy, and migrate.
+Existing agent skills cover API fragments. Existing MCP servers operate Telegram
+accounts. Neither supplies a complete procedure plus a deterministic gate.
 
-## 2. Goals
+## 2. Product
 
-1. Make a production-grade bot project the default output, for TypeScript and Python.
-2. Encode Telegram-specific security invariants in generated code and in verification.
-3. Give the agent deterministic tools with stable schemas, not prose-only guidance.
-4. Reuse one domain core across OMP, DeepSeek Harness, and MCP.
-5. Keep live Telegram access optional and secret-gated.
+Aurifex is a knowledge plugin for OMP, DeepSeek Harness, and Claude Code. It ships:
 
-## 3. Non-goals for v0.2.0
+1. **15 skills** that state how to interview, choose a stack, build each Telegram
+   surface, and verify the result.
+2. **3 MCP tools** with stable schemas: `telegram_bot_target_resolve`,
+   `telegram_bot_inspect`, `telegram_bot_verify`.
+3. **4 CLI commands**: `target`, `inspect`, `verify`, `install`.
+4. **29 static checks** that turn security and operational invariants into a gate.
+5. **2 hand-written reference projects** that pass their own suites and `verify`.
 
+It ships no project generator, no templates, and no manifest workflow.
+
+## 3. Goals
+
+1. Make the agent ask before building, and build only what was confirmed.
+2. Make current facts reachable: official pages, Context7, SDK releases, and the local
+   installation outrank model memory.
+3. Encode Telegram-specific invariants as deterministic checks over file content.
+4. Project the same core through every host with no behaviour divergence.
+5. Keep the package offline and dependency-free at runtime.
+
+## 4. Non-goals
+
+- Generating or rendering a project.
 - A hosted bot runtime or control plane.
-- A full Bot API client library.
-- MTProto/userbot automation. v0.2.0 targets the official Bot API only.
-- Copying third-party skill text. Reference repositories inform patterns; all
-  shipped text and code are original or properly attributed.
-
-## 4. Personas
-
-- **Agent operator**: asks the model to create or harden a bot; expects working files.
-- **Bot developer**: reviews generated code and runs the verification gate.
-- **Security reviewer**: audits tokens, webhook handling, authorization, and data flow.
-- **Platform maintainer**: updates Bot API and framework versions without rewriting adapters.
+- A Bot API client library, MTProto, or userbot automation.
+- Proving runtime behaviour. The gate is static; behaviour needs tests and real updates.
+- Copying third-party skill text. Reference material informs patterns; shipped text is
+  rewritten and attributed in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 ## 5. Supported targets
 
-| Stack      | Framework | Version | Runtime                | Bot API tested |
-| ---------- | --------- | ------- | ---------------------- | -------------- |
-| TypeScript | grammY    | 1.46.0  | Node >= 24.9.0         | 10.3           |
-| Python     | aiogram   | 3.31.0  | Python >= 3.11, < 3.15 | 10.3           |
+| Stack      | Framework | Version | Runtime                | Framework types | Bot API |
+| ---------- | --------- | ------- | ---------------------- | --------------- | ------- |
+| TypeScript | grammY    | 1.46.0  | Node >= 24.9.0         | 10.3            | 10.4    |
+| Python     | aiogram   | 3.31.0  | Python >= 3.11, < 3.15 | 10.3            | 10.4    |
 
-Current Bot API: 10.4 (2026-11-09). Framework type declarations cover 10.3, so
-generated projects ship a typed raw adapter for 10.4-only methods: `sendWidget`,
-`sendSharedWidget`, `answerWidgetQuery`, `editMessageWidgetData`,
-`editSharedWidgetData`, `sendRichMessage`, `sendRichMessageDraft`, ephemeral
-callback replies, and rich messages/drafts. TON wallet cards, share themes, and
-rich-message quotes remain reachable through the framework raw transport.
-The target catalog exposes both `testedBotApi: "10.3"` and
-`supportedBotApi: "10.4"`; verification fails a project that drops the adapter.
+Current Bot API: 10.4 (released 2026-11-09). Both frameworks type Bot API 10.3, so
+10.4-only calls go through a typed raw adapter maintained by the project. The target
+catalog reports `testedBotApi: "10.3"` and `supportedBotApi: "10.4"`, and check
+`botapi.104` fails when the adapter is missing.
 
-## 6. Functional requirements
+## 6. The interview contract
+
+`BotSpec` is the document the agent proposes after questioning and the user confirms
+before any code exists. It is not an input to a renderer; it is the agreement that
+scopes the build.
+
+### 6.1 Procedure
+
+1. The agent reads `telegram-bot` and `telegram-bot-discovery`.
+2. It asks 3–7 questions in one block. Each question offers options and a recommended
+   value, and each maps to a `BotSpec` field.
+3. It asks separately which surfaces are wanted: inline buttons, conversations, media,
+   payments, Mini App.
+4. It proposes the full document. Unanswered items are marked `assuming: …` in prose, not
+   silently invented.
+5. The user confirms or corrects. Only then does the agent write code.
+6. `aurifex verify` runs on the result.
+
+The rule is enforced by instruction content, not by the tools: the tools only resolve
+targets, inspect, and verify.
+
+### 6.2 Fields
+
+| Field           | Type                  | Meaning                                                                  |
+| --------------- | --------------------- | ------------------------------------------------------------------------ |
+| `schemaVersion` | string                | exactly `bot-spec-1.1.0`                                                 |
+| `name`          | string                | `^[a-z][a-z0-9_]{1,63}$`; project and bot handle base                    |
+| `displayName`   | string                | 1–128 chars, shown to users                                              |
+| `stack`         | `grammy` \| `aiogram` | language and framework                                                   |
+| `features`      | string[]              | requested surfaces; nonempty, unique, must contain `commands`            |
+| `deployment`    | `docker`              | container packaging                                                      |
+| `storage`       | object                | `postgres`, `redis` booleans                                             |
+| `i18n`          | object                | `defaultLocale` plus enabled locales `en`, `ru`, `zh`                    |
+| `security`      | object                | `webhookSecret: true`, `adminAllowlist`, `rateLimit`, `idempotency`      |
+| `runtime`       | object                | `queue: "postgres" \| "none"`, `telemetry` booleans                      |
+| `miniapps`      | object, optional      | `sessionTtlSeconds` (300–2592000), `allowedOrigins`                      |
+| `payments`      | object, optional      | product catalogue: `id`, `title`, `description`, `stars`, `subscription` |
+
+Feature enum: `commands`, `llm`, `inline`, `payments`, `miniapps`, `moderation`,
+`broadcast`, `widgets`, `rich`. A feature the user did not ask for must not appear.
+
+Coupling rules are validated, not advisory:
+
+| Condition                                             | Requirement                                    |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `features` contains `llm`, `broadcast`, or `payments` | Postgres storage and a Postgres queue          |
+| no queued feature                                     | `runtime.queue === "none"`                     |
+| `security.idempotency` or `security.rateLimit`        | Redis storage                                  |
+| `miniapps` present                                    | Redis storage; feature `miniapps` enabled      |
+| `payments` present                                    | feature `payments` enabled, unique product ids |
+
+The complete field table, normalization rules, and schema/validator differences are in
+[BOT_SPEC.md](BOT_SPEC.md). The validator in `src/core/spec/bot-spec.ts` is
+authoritative; `schema/bot-spec-1.1.schema.json` mirrors it for editors.
+
+### 6.3 Versioning
+
+- `BOT_SPEC_VERSION` is `bot-spec-1.1.0`.
+- Documents with `bot-spec-1.0.0` are normalized once, then validated by the same rules.
+  Normalization supplies `runtime`, `i18n.zh`, and Mini App defaults. The reported and
+  persisted version is always `bot-spec-1.1.0`.
+- A 1.1 document missing `runtime` is invalid.
+- A breaking change to the interview fields bumps the minor schema version and requires
+  a migration note in [MIGRATION.md](MIGRATION.md).
+- Tool input schemas are versioned separately by the MCP protocol revision
+  (`2025-11-25`) and `DomainResult` (`domain-result-1.0.0`).
+
+## 7. Functional requirements
 
 ### F1 — Target resolution
 
-`telegram_bot_target_resolve` returns the exact stack target, framework version, runtime
-constraint, Bot API version, framework-tested Bot API version, supported features,
-and warnings. Unknown stack is a typed error.
+`telegram_bot_target_resolve` returns the exact stack target: framework version, runtime
+constraint, Bot API version, framework-tested Bot API version, supported features, and
+warnings. An unknown stack is a typed `invalid_request` error.
 
-### F2 — Safe scaffold
+### F2 — Inspection
 
-`telegram_bot_scaffold` creates a project under an authorized root. It:
+`telegram_bot_inspect` detects stack, framework version, webhook or polling mode, Bot API
+gap, and findings with file evidence. It never executes project code and never fails
+because a file is missing; it reports `unknown` with findings.
 
-- validates `BotSpec` strictly;
-- refuses a non-empty destination unless `overwrite` is explicitly true;
-- writes files with exclusive creation;
-- never writes a real token;
-- returns relative paths, byte sizes, and SHA-256 for every file.
+### F3 — Verification
 
-Generated project includes:
+`telegram_bot_verify` returns 29 checks with `pass | warn | fail` and evidence. It reads a
+bounded snapshot: 64 MiB total, 1 MiB per file. A single `fail` makes `ok: false`.
+Warnings stay visible. The check ids, grouped by invariant:
 
-- `.env.example` with empty token, database, and Redis password placeholders;
-- webhook and polling modes;
-- explicit `allowed_updates`;
-- `update_id` deduplication interface;
-- `retry_after` handling;
-- admin allowlist;
-- error handler;
-- graceful shutdown;
-- health endpoint;
-- Redis/Postgres configuration;
-- Dockerfile with a non-root user;
-- docker-compose with app, Caddy, and optional Postgres/Redis; credentials come from `.env`;
-- offline tests;
-- README with exact run and deploy commands.
+- secrets and config: `token.literal`, `scan.bounded`, `env.ignored`, `secrets.file`,
+  `logs.redaction`, `allowlist.present`;
+- webhook: `webhook.secret`, `webhook.https`, `webhook.port`, `webhook.constant_time`;
+- updates: `updates.allowed`, `updates.dedupe`, `dedupe.fail_closed`,
+  `retry.retry_after`;
+- containers: `container.non_root`, `docker.healthcheck`;
+- Bot API 10.4: `botapi.104`, `botapi.104.types`;
+- dependencies: `deps.lockfile`;
+- queue: `queue.worker`, `queue.schema`;
+- payments: `payments.schema`, `payments.validation`;
+- telemetry: `telemetry.readiness`, `telemetry.metrics`;
+- Mini App: `miniapp.session`, `miniapp.csp`;
+- tests: `tests.present`, `tests.infrastructure`.
 
-### F3 — Feature addition
+### F4 — Knowledge
 
-`telegram_bot_add_feature` adds one feature module without rewriting unrelated files:
+Ship 15 skills with procedures, gotchas, and at least three absolute sources each. Heavy
+material lives in `references/*.md`. The corpus is validated offline by
+`scripts/check-skills.mjs`.
 
-- `commands` — a new slash command with authorization guidance;
-- `llm` — a provider-neutral chat handler boundary;
-- `inline` — inline query handler with result validation;
-- `payments` — Stars invoice, pre-checkout, successful-payment handling;
-- `miniapps` — Mini App launch and server-side `initData` validation;
-- `moderation` — allowlist and message-policy middleware;
-- `broadcast` — rate-limited, resumable broadcast worker;
-- `widgets` — Bot API 10.4 widget queries;
-- `rich` — Bot API 10.4 rich messages and drafts.
+### F5 — Installation
 
-Every generated feature compiles or parses in its target stack and includes a test
-or a test stub with an asserted contract.
+`aurifex install --host all` installs the package into OMP, DSH, and Claude Code. It
+detects installed hosts, prints the exact command per host, and supports `--dry-run`,
+`--json`, `--scope`, `--profile`, and `--source`. Claude Code uses
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `.mcp.json`; OMP
+uses `package.json#omp.extensions`; DSH uses `cordis.patch.yml`. The installer prompts
+for host and scope, runs to completion, and exits without waiting for a keypress.
 
-### F4 — Inspection
+### F6 — Reference projects
 
-`telegram_bot_inspect` detects the stack, framework version, webhook or polling
-mode, and the scanned file list. It returns findings with file evidence where
-possible and never executes project code.
+`examples/grammy_commands` and `examples/aiogram_commands` are hand-written, carry no
+manifest, pass their own test suites, and verify with zero `fail`. They are the
+executable proof that the knowledge produces working code and the fixtures for
+integration tests.
 
-### F5 — Verification
+## 8. Security requirements
 
-`telegram_bot_verify` returns check results with `pass | warn | fail` and evidence.
-It checks static file-content markers in a bounded snapshot, without executing project
-code, using the network, or calling Telegram. A single `fail` makes `ok: false`.
-These markers do not prove runtime behavior. Mandatory checks:
-
-- no Telegram-token-shaped literal in tracked text files;
-- `.env` ignored;
-- webhook secret validation present;
-- HTTPS and allowed port in deploy configuration;
-- constant-time secret comparison in custom webhook code;
-- non-root container;
-- explicit `allowed_updates`;
-- `update_id` deduplication;
-- `retry_after` handling;
-- tests present.
-
-### F6 — Deploy plan
-
-`telegram_bot_deploy_plan` writes or returns:
-
-- `Dockerfile`, `docker-compose.yml`, `.dockerignore`;
-- webhook registration script;
-- required environment variable list;
-- exact `setWebhook` parameters;
-- a preflight checklist.
-
-It does not call Telegram. Calling `setWebhook` remains an explicit operator action.
-
-### F7 — Test harness
-
-`telegram_bot_test_harness` writes:
-
-- offline update fixtures;
-- a fake Bot API transport for grammY or aiogram;
-- a secret-token rejection test;
-- a tgfake compose file that is written unconditionally; running it is optional.
-
-### F8 — Skills and subagents
-
-Ship skills for Bot API 10.4 (including widgets and rich messages), grammY,
-aiogram, security, testing, deployment, payments, and Mini Apps. Ship subagents for
-architecture, security review, and test writing. Skills are guidance, not executable
-authority.
-
-### F9 — One-command installation
-
-`aurifex install --host all` installs the same package into OMP, DeepSeek Harness,
-and Claude Code. It detects installed hosts, prints the exact command per host, and
-supports `--dry-run`, `--json`, `--scope`, and `--profile`. Claude Code uses
-`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `.mcp.json`;
-OMP uses `package.json#omp.extensions`; DSH uses `cordis.patch.yml`.
-
-## 7. Security requirements
-
-- Token pattern: `\d{6,}:[A-Za-z0-9_-]{30,}`. Finding is `fail`, never `warn`.
+- Token pattern: `\d{6,}:[A-Za-z0-9_-]{30,}`. A hit is `fail`, never `warn`.
 - Webhook secret: 1–256 chars, `[A-Za-z0-9_-]+`, header
-  `X-Telegram-Bot-Api-Secret-Token`.
-- Webhook URL: HTTPS; port 443, 80, 88, or 8443; no redirects.
-- Generated webhook code compares the secret in constant time.
-- Generated code never logs the token or full request URL.
-- Admin commands check an allowlist server-side.
-- Mini App `initData` validated with HMAC-SHA256 using
-  `HMAC_SHA256(bot_token, "WebAppData")`, sorted fields, and `auth_date` freshness.
-- Stars flow: answer `pre_checkout_query` within 10 s; deliver only after
-  `successful_payment`; store `telegram_payment_charge_id`.
-- Broadcasts: per-chat serialization, `retry_after` backoff, idempotent resume.
-- Paths: realpath containment, no symlink escape, no writes outside the authorized root.
-- Compose: no fixed database/Redis passwords, no direct bot port publication,
-  Caddy terminates TLS; secrets come from `.env`.
-- Dependencies: exact versions for generated bots; a lockfile is recommended and
-  reported as a warning by verification.
+  `X-Telegram-Bot-Api-Secret-Token`, compared in constant time.
+- Webhook URL: HTTPS; port 443, 80, 88, or 8443.
+- Update handling: explicit `allowed_updates`, `update_id` deduplication that fails
+  closed, `retry_after` handling.
+- Admin authority: numeric allowlist checked server-side, never a username.
+- Mini App `initData`: HMAC-SHA256 over key-sorted pairs, own `auth_date` freshness.
+- Stars payments: answer `pre_checkout_query` within 10 s, fail closed, deliver once per
+  `telegram_payment_charge_id`.
+- Paths: realpath containment, no symlink escape, bounded reads.
+- Output: never echo a token, webhook secret, or authorization header.
 
-## 8. Acceptance criteria
+Details live in `skills/telegram-security` and [THREAT_MODEL.md](THREAT_MODEL.md).
 
-v0.2.0 is accepted when:
+## 9. Acceptance criteria
+
+v0.3.0 is accepted when:
 
 1. `pnpm verify` passes on Linux, macOS, and Windows CI.
-2. `telegram_bot_scaffold` produces a TypeScript project that passes `bun install`,
-   `bun run typecheck`, and `bun test` in a clean temp directory.
-3. `telegram_bot_scaffold` produces a Python project that passes `ruff check`,
-   `mypy`, and `pytest` in a Python 3.14 container.
-4. Generated webhook tests reject a missing or wrong secret token.
-5. `telegram_bot_verify` fails on a planted token and on a missing secret check.
-6. OMP loads the extension, lists the tools, and executes `telegram_bot_target_resolve`.
-7. DSH installs the bundle in a fresh profile, `--dump-config` succeeds, and the
-   typed tool executes.
-8. MCP `initialize` + `tools/list` + `tools/call` succeed over stdio.
-9. Live E2E is skipped without secrets and passes with a test bot when enabled.
-10. No generated file contains a real token or a hardcoded webhook secret.
-11. Generated projects expose the typed Bot API 10.4 adapter and a widget query
-    handler; `verify` reports `botapi.104: pass`.
-12. `aurifex install --dry-run --host all --json` reports OMP, DSH, and Claude Code
-    commands without executing them.
-    Script-level dry-run may still download and build the checkout before planning
-    the host commands; `AURIFEX_SOURCE_DIR` can select an existing build.
+2. `node scripts/check-skills.mjs` reports `ok · 15 skills`.
+3. Both reference projects install, typecheck, pass their tests, and verify with
+   `summary.fail == 0`.
+4. `verify` fails on a planted token, a missing worker with a queue, a missing
+   `answerCallbackQuery`, and unsorted `initData`, with the exact check ids.
+5. MCP `initialize` returns `2025-11-25` regardless of the requested version, and
+   `tools/list` returns exactly three tools.
+6. OMP loads the extension, lists three tools, and executes `telegram_bot_target_resolve`.
+7. DSH installs in a fresh profile, `--dump-config` succeeds, and a typed tool executes.
+8. `aurifex install --dry-run --host all --json` reports OMP, DSH, and Claude Code
+   commands without executing them.
+9. No skill or document names a removed generator tool.
+10. Both READMEs agree on 3 tools, 4 commands, 15 skills, 29 checks, and version 0.3.0.
 
-## 9. Version policy
+## 10. Version policy
 
-- Bot API version is data, not code. Updating it changes the target catalog and
-  adds a migration note.
-- Framework versions are exact in generated lockfiles.
-- A framework that trails the Bot API ships a typed raw adapter and a migration
-  note; the package never claims that framework types cover the newer API.
-- Breaking tool schema changes bump `specVersion` and require a migration test.
-- `bot-spec-1.1.0` is the current document version. `bot-spec-1.0.0` documents are
-  normalized and then validated by the same rules; the normalized output carries
-  `runtime`, `i18n.zh`, and the storage the selected features require.
+- Bot API version is data: updating it changes `catalog.ts`, the 10.4 contract module,
+  and the skills.
+- Framework versions are exact in the reference projects' lockfiles.
+- A framework that trails the Bot API uses a typed raw adapter; the package never claims
+  that framework types cover the newer API.
+- Breaking tool schema changes require a protocol revision note and a migration test.
+- `0.3.0` is a breaking release of the tool surface: three tools and four commands.
 
-## 10. Delivery policy
+## 11. Delivery policy
 
-- One focused branch per slice.
-- `pnpm verify` before every commit.
-- PR description includes commands run and their output.
-- Live E2E evidence is attached only when the secret-gated run actually executed.
+- One branch per slice; `pnpm verify` before every commit.
+- The PR body includes commands run and their actual output.
+- Behavioural evidence is attached only when it was produced by the current candidate.

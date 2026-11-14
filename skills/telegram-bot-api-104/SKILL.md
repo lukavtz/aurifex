@@ -1,27 +1,51 @@
 ---
 name: telegram-bot-api-104
-description: Use when implementing Bot API 10.4 widgets, ephemeral replies, rich-message quotes, TON wallet data, chat share themes, or getUniqueGift on a 10.3-only framework.
+description: Use when implementing Bot API 10.4 widgets, ephemeral replies, rich messages and quotes, TON wallet data, chat share themes, or getUniqueGift on a 10.3-only framework. Русские триггеры: Bot API 10.4, виджеты в телеграме, эфемерные сообщения, rich message, подарки TON.
 ---
 
 # Bot API 10.4 first-class surfaces
 
 Bot API 10.4 shipped on 2026-11-09. grammY 1.46.0 and aiogram 3.31.0 still advertise
-10.3, so every 10.4 call goes through a raw adapter. Verify each field against
-`https://core.telegram.org/bots/api` before use; do not trust this summary for a
-method added later.
+10.3, so every 10.4 call goes through a typed raw adapter. The machine-readable
+contract is
+[`api104-contract.ts`](../../src/core/targets/api104-contract.ts): it lists the 10.4
+methods, the added or changed types, and the exact parameter names. The verifier
+reads the same file, so a method it does not list is not implemented by this skill.
+Verify each field against `https://core.telegram.org/bots/api` before use.
+
+## Procedure
+
+1. Find the method in `API104_METHODS` in the contract. If it is absent, stop: this
+   skill does not cover it.
+2. Take the required parameter names from `API104_PARAMS`; do not guess others.
+   `getUniqueGift` takes `{ name }`, `deleteBusinessAccountGift` takes
+   `{ business_connection_id, owned_gift_id }`, and `getChatShareThemeBackdrops`
+   takes no fields. `answerWidgetQuery` takes `{ widget_query_id, data? }`.
+   `sendWidget` and `sendSharedWidget` carry the widget payload; see below.
+3. Add the raw adapter in one module, not in handlers: one `bot.api.raw` wrapper for
+   grammY, one `TelegramMethod` subclass per method for aiogram.
+4. Validate the documented fields yourself, then send and handle the error path.
+5. Add the tests listed at the end before calling the feature done.
+
+## Methods this skill covers
+
+| Method                                    | Purpose                                              |
+| ----------------------------------------- | ---------------------------------------------------- |
+| `sendWidget`                              | Send an inline HTML widget to a private chat         |
+| `sendSharedWidget`                        | Post an existing shared widget by `widget_id`        |
+| `answerWidgetQuery`                       | Answer `widget_query` / `shared_widget_query`        |
+| `editMessageWidgetData`                   | Change `chat_data` or `public_data` of one message   |
+| `editSharedWidgetData`                    | Change `public_data` of a shared widget everywhere   |
+| `sendRichMessage`, `sendRichMessageDraft` | Rich messages and streaming drafts                   |
+| `sendMessageEphemeral` family             | Ephemeral replies via `ephemeral_message_parameters` |
+| `getUniqueGift`                           | Look up one unique gift by name                      |
+| `getChatShareThemeBackdrops`              | List valid share-theme backdrop ids                  |
+| `deleteBusinessAccountGift`               | Remove a gift from a business connection             |
 
 ## Widgets
 
 A widget is one HTML document with inline CSS and JS, sent as a message. It has no
 network, no window, and no server. The bot changes state through widget data.
-
-| Method                  | Purpose                                            |
-| ----------------------- | -------------------------------------------------- |
-| `sendWidget`            | Send `html` to a chat                              |
-| `sendSharedWidget`      | Send an existing shared widget by `widget_id`      |
-| `answerWidgetQuery`     | Answer `widget_query` or `shared_widget_query`     |
-| `editMessageWidgetData` | Change `chat_data` or `public_data` of one message |
-| `editSharedWidgetData`  | Change `public_data` of a shared widget everywhere |
 
 ### `sendWidget` contract
 
@@ -49,7 +73,8 @@ Production limits:
 ### Queries
 
 `Update` carries `widget_query` for a widget sent by the bot or via the bot, and
-`shared_widget_query` for a forwarded shared widget.
+`shared_widget_query` for a forwarded shared widget. Both arrive at the top level of
+`Update`, not inside `message`.
 
 `WidgetQuery` fields: `id`, `from`, optional `chat`, `message_id`,
 `inline_message_id`, `chat_instance`, optional `chat_type`, `type`, `data` (1–64
@@ -77,9 +102,10 @@ The answer goes only to the widget that asked. It does not change widget data; c
 `editMessageWidgetData` or `editSharedWidgetData` for that.
 
 `editMessageWidgetData` selects a message with `chat_id` plus `message_id`, or with
-`inline_message_id`, then changes `public_data` and/or `chat_data`. `editSharedWidgetData`
-requires `widget_id` and `public_data`, with optional `cache_time` from 5 to 3600
-seconds. Shared public data can change at most once per second.
+`inline_message_id`, then changes `public_data` and/or `chat_data`.
+`editSharedWidgetData` requires `widget_id` and `public_data`, with optional
+`cache_time` from 5 to 3600 seconds. Shared public data can change at most once per
+second.
 
 ## Ephemeral callback replies
 
@@ -104,7 +130,11 @@ Reply to an ephemeral message with `reply_parameters.ephemeral_message_id` withi
 15 seconds. The reply must itself be ephemeral. Use the `editEphemeralMessage*`
 family for edits.
 
-## Quotes from rich messages
+## Rich messages, quotes
+
+`sendRichMessage` and `sendRichMessageDraft` carry the rich block model: 32768 bytes,
+500 blocks, nesting depth 16, 50 media, 20 columns. A draft streams into a message
+that the final call replaces; drafts are private-chat only.
 
 `TextQuote` gains `rich_texts`, an array of `RichText`. `text` may be empty when the
 quote came from a rich message. `position` then indexes the joined plain texts of
@@ -127,10 +157,11 @@ plain quote fields or the rich quote fields, not a mix that disagrees.
   floats.
 - `ChatFullInfo.share_theme` is `ChatShareThemeEmoji` (`emojis`, optional
   `background_backdrop_id`) or `ChatShareThemeUniqueGift` (`gift`).
-  `getChatShareThemeBackdrops` returns valid backdrop ids.
+  `getChatShareThemeBackdrops` returns valid backdrop ids and takes no parameters.
 - `getUniqueGift({ name })` returns a `UniqueGift`: `gift_id`, `base_name`, `name`,
   `number`, `model`, `symbol`, `backdrop`, optional `is_premium`, `is_burned`,
   `is_from_blockchain`, `colors`, `publisher_chat`.
+- `deleteBusinessAccountGift` takes `business_connection_id` and `owned_gift_id`.
 
 Exact fields for these objects are in [`references/methods-104.md`](references/methods-104.md).
 
@@ -172,10 +203,24 @@ change.
 - Send a widget only to a private test chat; test a query answered after 16 seconds.
 - Test ephemeral reply visibility with two users in one group.
 - Test rich quote round-trip and a plain quote that is not a substring.
-- Confirm `getUniqueGift` rejects an unknown name.
+- Confirm `getUniqueGift` rejects an unknown name and
+  `getChatShareThemeBackdrops` is sent with no fields.
+
+## Gotchas
+
+- `answerWidgetQuery` with an empty `data` is a valid answer; silence is not. An
+  unanswered query expires in 15 seconds.
+- `sendWidget` succeeds on size and fails on compressed size. A 5 KB HTML page with
+  incompressible data exceeds 4096 bytes after zlib.
+- A widget is protected content by design. Do not promise forwarding.
+- `deleteWebhook` / `getUpdates` never deliver `widget_query` unless
+  `allowed_updates` includes it explicitly.
+- `getUniqueGift` is not `getGift`. The gift methods take `name`, not an id.
+- Model output is untrusted input for rich text. Neutralize markup before quoting.
 
 ## Sources
 
-Adapted from Telegram Bot API 10.4 documentation (`core.telegram.org/bots/api`),
-`nzhulikov/telegram-bot-skills` (Apache-2.0), `serejaris/telegram-skills` (MIT), and
-the official grammY and aiogram repositories. See `THIRD_PARTY_NOTICES.md`.
+- https://core.telegram.org/bots/api
+- https://core.telegram.org/bots/api-changelog
+- https://core.telegram.org/bots/api#sendwidget
+- https://core.telegram.org/bots/webapps

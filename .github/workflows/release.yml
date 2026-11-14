@@ -44,6 +44,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
       - run: pnpm build
+      - name: Assert CLI surface
+        run: |
+          set -euo pipefail
+          node dist/cli.js --help > "$RUNNER_TEMP/help.txt"
+          cat "$RUNNER_TEMP/help.txt"
+          for command in target inspect verify install; do
+            grep -Eq "^  aurifex ${command}( |$)" "$RUNNER_TEMP/help.txt" || {
+              echo "::error title=CLI surface::aurifex ${command} is missing from --help"
+              exit 1
+            }
+          done
+          if grep -Eq "^  aurifex (new|add|deploy|harness|upgrade)( |$)" "$RUNNER_TEMP/help.txt"; then
+            echo "::error title=CLI surface::--help still advertises a removed command"
+            exit 1
+          fi
       - name: Pack and checksum
         run: |
           mkdir -p "$RUNNER_TEMP/pkg"
@@ -214,7 +229,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: [grammy_commands, aiogram_commands, grammy_payments]
+        example: [grammy_commands, aiogram_commands]
     env:
       IMAGE: aurifex-example-${{ matrix.example }}
     steps:

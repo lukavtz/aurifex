@@ -12,14 +12,8 @@ import type { DomainResult } from "../../src/core/results.ts";
 
 const EXPECTED_TOOLS = [
   "telegram_bot_target_resolve",
-  "telegram_bot_scaffold",
   "telegram_bot_inspect",
   "telegram_bot_verify",
-  "telegram_bot_add_feature",
-  "telegram_bot_deploy_plan",
-  "telegram_bot_test_harness",
-  "telegram_bot_upgrade",
-  "telegram_bot_upgrade_plan",
 ] as const;
 
 function execution(): ToolRunContext {
@@ -56,7 +50,7 @@ test("module exports no default and the expected plugin surface", () => {
   assert.equal(typeof plugin.Config, "function");
 });
 
-test("apply registers nine tools, canonical guidance, and disposes cleanly", async () => {
+test("apply registers three tools, canonical guidance, and disposes cleanly", async () => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-dsh-"));
   const { fiber, tools, sections } = await mount(root);
   try {
@@ -71,15 +65,11 @@ test("apply registers nine tools, canonical guidance, and disposes cleanly", asy
     assert.equal(sections[0]?.name, "aurifex");
     assert.equal(sections[0]?.order, 120);
     assert.equal(sections[0]?.interpolate, false);
-    assert.equal(
-      sections[0]?.text,
-      "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.",
-    );
-    for (const name of ["telegram_bot_scaffold", "telegram_bot_add_feature"]) {
-      const tool = tools.definitions().find((definition) => definition.name === name);
-      assert.match(tool?.description ?? "", /skills\/telegram-bot-discovery/);
-      assert.match(tool?.description ?? "", /confirm/i);
+    const text = sections[0]?.text ?? "";
+    for (const phrase of ["skills/telegram-bot-discovery", "never infer", "telegram_bot_verify"]) {
+      assert.match(text, new RegExp(phrase.replace("/", "\\/")));
     }
+    assert.doesNotMatch(text, /telegram_bot_scaffold/);
     assert.equal(
       tools.definitions().find((tool) => tool.name === "telegram_bot_verify")?.description,
       "Run static file-content checks; no project code execution, network, or Telegram calls.",

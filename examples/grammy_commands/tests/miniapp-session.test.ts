@@ -103,7 +103,7 @@ test.skipIf(!available)("accepts nonalphabetical initData and sets a session coo
     query_id: "non-alpha-route",
   });
   const canonical = [...params.keys()]
-    .sort()
+    .toSorted()
     .map((key) => key + "=" + params.get(key))
     .join("\n");
   const secret = createHmac("sha256", "WebAppData").update(token).digest();

@@ -2,26 +2,27 @@
    scripts/check-site.mjs asserts parity, so keep the three objects in step. */
 window.AURIFEX_I18N = {
   en: {
-    "meta.title": "Aurifex · production Telegram bots from one agent request",
+    "meta.title": "Aurifex · the knowledge an agent needs to build a Telegram bot",
     "meta.description":
-      "Scaffold, verify, and deploy production Telegram bots from your coding agent. grammY and aiogram, Bot API 10.4, four hosts.",
+      "Aurifex teaches a coding agent to interview you, build exactly the Telegram bot you asked for, and prove it with 29 static checks. grammY and aiogram, Bot API 10.4.",
 
     "nav.skip": "Skip to content",
     "nav.home": "Aurifex home",
     "nav.language": "Language",
     "nav.what": "What it does",
-    "nav.architecture": "Architecture",
+    "nav.how": "How it works",
+    "nav.skills": "Skills",
     "nav.security": "Security",
     "nav.cli": "CLI",
     "nav.install": "Install",
     "nav.faq": "FAQ",
 
     "hero.titleA": "From one request",
-    "hero.titleB": "to a hardened bot.",
+    "hero.titleB": "to a bot that fits.",
     "hero.lede":
-      "Aurifex gives your coding agent one path from a bot spec to a standalone Telegram project, with security gates that stop a release before it ships.",
+      "Aurifex is a knowledge plugin for coding agents. It teaches the agent to interview you, build exactly the bot you asked for, and prove the result with a static check.",
     "hero.cta": "Install Aurifex",
-    "hero.ctaAlt": "See a generated project",
+    "hero.ctaAlt": "See how it works",
     "hero.installLabel": "One installer for macOS, Linux, and Windows",
     "hero.copy": "Copy",
     "hero.copied": "Copied",
@@ -32,59 +33,60 @@ window.AURIFEX_I18N = {
       "A molten gold Telegram paper plane rising from an anvil on a dark atelier grid, with a cool teal rim light",
     "hero.markAlt": "Aurifex gold monogram",
 
-    "demo.title": "The whole loop, in one terminal",
+    "demo.title": "From questions to a verified bot",
     "demo.lede":
-      "Scaffold, test, verify, deploy. Every command returns a stable DomainResult and accepts --json.",
+      "The agent asks, then writes, then checks. Every command returns a stable DomainResult and accepts --json.",
     "demo.note":
-      "A fresh scaffold reports one warning: commit the lockfile after the first install.",
+      "verify exits 1 on a failed check, so an agent cannot claim success without evidence.",
     "demo.replay": "Replay the session",
 
-    "features.title": "What Aurifex does",
+    "features.title": "What the plugin actually is",
     "features.lede":
-      "Four hosts, one implementation. Everything that touches your filesystem exists exactly once.",
-    "features.core.title": "One core, four projections",
-    "features.core.body":
-      "The OMP extension, DSH bundle, Claude Code plugin, and MCP server only translate schemas. Every write goes through the same CoreOperations and PathPolicy.",
-    "features.standalone.title": "Standalone by design",
-    "features.standalone.body":
-      "A generated bot never imports Aurifex. It owns its source, lockfile, Dockerfile, Caddyfile, and webhook registration script.",
-    "features.botapi.title": "Bot API 10.4, explicit",
-    "features.botapi.body":
-      "grammY 1.46 and aiogram 3.31 stop at typed 10.3. Every project ships a typed raw adapter for widgets, rich messages, and ephemeral replies.",
-    "features.gate.title": "Verification is a gate",
-    "features.gate.body":
-      "Static checks run over a bounded snapshot. A token literal, a missing secret, or a root container makes verify return ok: false.",
-    "features.hosts.title": "Four hosts, 9 tools",
+      "Knowledge, three tools, and one deterministic check. No generator, no templates, no hidden writes.",
+    "features.knowledge.title": "Knowledge, not scaffolding",
+    "features.knowledge.body":
+      "Fifteen skills carry the procedure: discovery, stack choice, feature recipes, framework details, security, testing, delivery. The agent reads them and writes the code itself.",
+    "features.interview.title": "Interview first",
+    "features.interview.body":
+      "The agent asks three to seven questions in one block, each with options and a recommended default. Every answer maps to a BotSpec field, and nothing is coded before you confirm it.",
+    "features.exact.title": "Exactly what you asked for",
+    "features.exact.body":
+      "Ask for inline buttons and you get inline buttons. The recipes skill builds one vertical slice at a time, so the agent never adds scenes, payments, or a Mini App you did not request.",
+    "features.verify.title": "Evidence, not claims",
+    "features.verify.body":
+      "verify reads file contents inside a bounded snapshot and returns 29 check identifiers. A failed check exits 1, so the agent has to fix the bot instead of asserting success.",
+    "features.hosts.title": "3 tools, 4 hosts",
     "features.hosts.body":
-      "OMP, DSH, Claude Code through MCP, and other MCP clients share the same tool interface.",
-    "features.skills.title": "Domain knowledge included",
-    "features.skills.body":
-      "Skills for discovery, the Bot API, grammY, aiogram, security, testing, deploy, payments, and Mini Apps, plus three review subagents.",
+      "OMP, DeepSeek Harness, Claude Code through MCP, and any MCP client expose the same three tools: resolve the pinned stack, inspect a project, run the gate.",
 
-    "arch.title": "One core, thin hosts",
-    "arch.lede": "Hosts translate schemas. The core owns every path, template, and check.",
-    "arch.hostsLabel": "Agent hosts",
-    "arch.coreLabel": "Domain core",
-    "arch.outLabel": "Output",
-    "arch.nodeOmp": "OMP extension",
-    "arch.nodeDsh": "DSH bundle",
-    "arch.nodeClaude": "Claude Code",
-    "arch.nodeMcp": "MCP stdio",
-    "arch.nodeCore": "CoreOperations",
-    "arch.nodePolicy": "PathPolicy",
-    "arch.nodeTemplates": "Templates",
-    "arch.nodeVerify": "Verify",
-    "arch.policyNote": "authorized root",
-    "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "29 checks",
-    "arch.nodeBot": "Standalone bot",
-    "arch.botNote": "no Aurifex import",
-    "arch.caption":
-      "No host writes files directly. PathPolicy bounds every read and write to an authorized root.",
+    "flow.title": "How the agent builds a bot",
+    "flow.lede":
+      "Four steps, in this order. Skipping one is how a bot ends up with features nobody asked for.",
+    "flow.stepsLabel": "Procedure",
+    "flow.step1": "Questions",
+    "flow.step1Note": "3–7, with defaults",
+    "flow.step2": "BotSpec",
+    "flow.step2Note": "confirmed by you",
+    "flow.step3": "Recipes",
+    "flow.step3Note": "one vertical slice",
+    "flow.step4": "Verify",
+    "flow.step4Note": "29 static checks",
+    "flow.outLabel": "Result",
+    "flow.nodeBot": "The bot you asked for",
+    "flow.botNote": "runs without Aurifex",
+    "flow.caption":
+      "The plugin never writes the project. It supplies the procedure and the proof; the agent owns every file.",
 
-    "show.title": "What lands in your working tree",
-    "show.lede": "A scaffold is a complete project you can read, run, and ship without Aurifex.",
-    "show.featuresLabel": "Features, added one at a time",
+    "skills.title": "15 skills, loaded on demand",
+    "skills.lede":
+      "Each skill is a short procedure with gotchas and primary sources. The agent opens only the ones the request needs, so its context stays small.",
+    "skills.note":
+      "Start with telegram-bot: it routes every other skill and states the hard rules. Read project-layout and the reference files only when the task reaches them.",
+
+    "show.title": "What the agent writes",
+    "show.lede":
+      "A project built from the recipes, in the canonical layout. It never imports Aurifex.",
+    "show.featuresLabel": "Only the features you asked for",
     "show.verifyLabel": "Verification output",
     "show.f.commands": "commands",
     "show.f.llm": "llm",
@@ -95,7 +97,8 @@ window.AURIFEX_I18N = {
     "show.f.broadcast": "broadcast",
     "show.f.widgets": "widgets",
     "show.f.rich": "rich",
-    "show.note": "Deploy writes files and a setWebhook script. It never calls Telegram.",
+    "show.note":
+      "The layout reference in telegram-bot-recipes lists these paths, and a test keeps it in sync with the verifier.",
 
     "sec.title": "29 checks before anything ships",
     "sec.lede":
@@ -120,23 +123,17 @@ window.AURIFEX_I18N = {
       "ADMIN_IDS is checked on the server. Mini App initData is validated with HMAC-SHA256 and an auth_date freshness limit.",
     "sec.idsLabel": "Check identifiers",
 
-    "cli.title": "10 commands, one result shape",
+    "cli.title": "4 commands, one result shape",
     "cli.lede": "A human summary by default, a DomainResult with --json.",
+    "cli.target": "Resolve the pinned framework, runtime, and Bot API baseline for a stack.",
+    "cli.inspect": "Detect a project's stack, mode, and storage without writing anything.",
+    "cli.verify": "Run the static file-content gate and return evidence per check identifier.",
+    "cli.install": "Install into OMP, DSH, and Claude Code in one interactive pass.",
     "cli.note": "Exit codes: 0 for success, 1 for a domain error, 2 for invalid usage.",
-    "cli.target": "Resolve the framework, runtime, Bot API, and feature support for a stack.",
-    "cli.new": "Scaffold a standalone project from a strict BotSpec.",
-    "cli.inspect": "Detect stack and mode without writing anything.",
-    "cli.verify": "Run the static gate and return evidence per check.",
-    "cli.add": "Add one feature module without touching unrelated files.",
-    "cli.deploy": "Write deploy files and a setWebhook script. No API call.",
-    "cli.harness": "Write update fixtures, a fake transport, and a tgfake compose profile.",
-    "cli.upgrade": "List the Bot API 10.4 migration actions for a project.",
-    "cli.upgradeApply": "Verify the manifest; --apply bumps the manifest spec version only.",
-    "cli.install": "Install into OMP, DSH, and Claude Code in one pass.",
 
     "install.title": "Install once, reach every host",
     "install.lede":
-      "v0.2.0 installs from the repository. npm publishing is optional and gated by NPM_TOKEN.",
+      "v0.3.0 installs from the repository. The installer asks which harnesses and which scope, then exits on its own.",
     "install.unix": "macOS and Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "Run the installer",
@@ -151,34 +148,34 @@ window.AURIFEX_I18N = {
       "Installs the plugin that points Claude Code at the bundled MCP server through .mcp.json.",
     "install.mcp.title": "MCP client",
     "install.mcp.body":
-      "Any other MCP client connects to the built stdio server.",
+      "Any other MCP client connects to the built stdio server and gets the same three tools.",
     "install.rootNote":
       "AURIFEX_ROOT bounds every read and write. It defaults to the working directory.",
 
     "faq.title": "Before you install",
-    "faq.q1": "Does a generated bot depend on Aurifex?",
+    "faq.q1": "What does Aurifex ship?",
     "faq.a1":
-      "No. A scaffolded project does not import the package or a shared runtime. It owns its source, tests, container, and deploy files.",
-    "faq.q2": "Which Bot API version is supported?",
+      "Fifteen skills, three MCP tools, four CLI commands, and one static verifier. No project generator and no templates.",
+    "faq.q2": "Is there a project generator?",
     "faq.a2":
-      "10.4, through a typed raw adapter. grammY 1.46 and aiogram 3.31 declarations cover 10.3, so Aurifex never claims native 10.4 types.",
-    "faq.q3": "Does verify run my bot?",
+      "No. Version 0.3 removed it. The agent writes the bot from the recipe skills, and the plugin only checks the result.",
+    "faq.q3": "Does the agent ask before writing code?",
     "faq.a3":
-      "No. Verification is static over a bounded snapshot: 64 MiB total, 1 MiB per file. Runtime proof comes from the generated tests and the gated E2E runs.",
-    "faq.q4": "Does deploy call Telegram?",
+      "Yes. Discovery produces three to seven questions with recommended defaults, every answer maps to a BotSpec field, and nothing is built until you confirm the spec.",
+    "faq.q4": "Which Bot API version is supported?",
     "faq.a4":
-      "No. Deploy writes the Docker, Caddy, and setWebhook files. Registering the webhook stays an explicit operator action.",
-    "faq.q5": "Is Docker required?",
+      "10.4, through a typed raw adapter. grammY 1.46 and aiogram 3.31 declarations cover 10.3, so the knowledge never claims native 10.4 types.",
+    "faq.q5": "Does verify run my bot?",
     "faq.a5":
-      "No. Docker is not in the default gate. The tgfake compose profile and image builds are optional.",
-    "faq.q6": "What is out of scope for v0.2.0?",
+      "No. It reads file contents inside a bounded snapshot: 64 MiB total, 1 MiB per file. No network and no Telegram call; runtime behavior belongs to the testing skill.",
+    "faq.q6": "What is out of scope for v0.3.0?",
     "faq.a6":
       "MTProto and userbot automation. Aurifex targets the Bot API only, and it is not a sandbox: the host extension process is trusted code.",
     "faq.q7": "Can I install from a source checkout?",
     "faq.a7":
       "Yes. Clone the repository, run pnpm install and pnpm build, then node dist/cli.js install --host all. Per-host commands are listed in the README.",
 
-    "footer.tagline": "Production Telegram bots from one agent request.",
+    "footer.tagline": "The knowledge an agent needs to build a Telegram bot.",
     "footer.built": "Built for OMP, DeepSeek Harness, Claude Code, and MCP.",
     "footer.repo": "Repository",
     "footer.prs": "Pull requests",
@@ -191,26 +188,27 @@ window.AURIFEX_I18N = {
   },
 
   ru: {
-    "meta.title": "Aurifex · production-боты Telegram из одного запроса агенту",
+    "meta.title": "Aurifex · знание, которое нужно агенту для бота в Telegram",
     "meta.description":
-      "Скаффолд, проверка и деплой production-ботов Telegram прямо из кодинг-агента. grammY и aiogram, Bot API 10.4, четыре хоста.",
+      "Aurifex учит кодинг-агента расспросить вас, собрать ровно того бота Telegram, о котором вы просили, и доказать результат 29 статическими проверками. grammY и aiogram, Bot API 10.4.",
 
     "nav.skip": "Перейти к содержимому",
     "nav.home": "Главная Aurifex",
     "nav.language": "Язык",
     "nav.what": "Возможности",
-    "nav.architecture": "Архитектура",
+    "nav.how": "Как это работает",
+    "nav.skills": "Навыки",
     "nav.security": "Безопасность",
     "nav.cli": "CLI",
     "nav.install": "Установка",
     "nav.faq": "Вопросы",
 
     "hero.titleA": "Один запрос —",
-    "hero.titleB": "и защищённый бот.",
+    "hero.titleB": "и бот, который подходит.",
     "hero.lede":
-      "Aurifex даёт кодинг-агенту один путь от спецификации бота до самостоятельного проекта Telegram, с проверками безопасности, которые не пропускают релиз.",
+      "Aurifex — плагин знаний для кодинг-агентов. Он учит агента расспросить вас, собрать ровно запрошенного бота и доказать результат статической проверкой.",
     "hero.cta": "Установить Aurifex",
-    "hero.ctaAlt": "Посмотреть сгенерированный проект",
+    "hero.ctaAlt": "Как это работает",
     "hero.installLabel": "Один установщик для macOS, Linux и Windows",
     "hero.copy": "Копировать",
     "hero.copied": "Скопировано",
@@ -221,60 +219,60 @@ window.AURIFEX_I18N = {
       "Расплавленная золотая бумажная плоскость Telegram поднимается с наковальни на тёмной сетке мастерской, по краю холодный бирюзовый свет",
     "hero.markAlt": "Золотой монограмм Aurifex",
 
-    "demo.title": "Весь цикл в одном терминале",
+    "demo.title": "От вопросов до проверенного бота",
     "demo.lede":
-      "Скаффолд, тесты, проверка, деплой. Каждая команда возвращает стабильный DomainResult и принимает --json.",
+      "Агент спрашивает, затем пишет, затем проверяет. Каждая команда возвращает стабильный DomainResult и принимает --json.",
     "demo.note":
-      "Свежий скаффолд даёт одно предупреждение: закоммитьте lockfile после первой установки.",
+      "verify завершается с кодом 1 при провале проверки, поэтому агент не может объявить успех без улик.",
     "demo.replay": "Повторить сессию",
 
-    "features.title": "Что делает Aurifex",
+    "features.title": "Что плагин на самом деле даёт",
     "features.lede":
-      "Четыре хоста, одна реализация. Всё, что трогает файловую систему, существует ровно в одном месте.",
-    "features.core.title": "Одно ядро, четыре проекции",
-    "features.core.body":
-      "Расширение OMP, бандл DSH, плагин Claude Code и MCP-сервер только переводят схемы. Любая запись идёт через общие CoreOperations и PathPolicy.",
-    "features.standalone.title": "Самостоятельность по умолчанию",
-    "features.standalone.body":
-      "Сгенерированный бот не импортирует Aurifex. У него свой исходный код, lockfile, Dockerfile, Caddyfile и скрипт регистрации вебхука.",
-    "features.botapi.title": "Bot API 10.4 без догадок",
-    "features.botapi.body":
-      "Типы grammY 1.46 и aiogram 3.31 заканчиваются на 10.3. В каждом проекте есть типизированный raw-адаптер для виджетов, rich-сообщений и эфемерных ответов.",
-    "features.gate.title": "Проверка как гейт",
-    "features.gate.body":
-      "Статические проверки по ограниченному снимку. Токен в коде, отсутствующий секрет или root-контейнер дают ok: false.",
-    "features.hosts.title": "Четыре хоста, 9 инструментов",
+      "Знание, три инструмента и одна детерминированная проверка. Ни генератора, ни шаблонов, ни скрытых записей.",
+    "features.knowledge.title": "Знание, а не каркас",
+    "features.knowledge.body":
+      "Пятнадцать навыков несут процедуру: опрос, выбор стека, рецепты функций, детали фреймворков, безопасность, тесты, доставку. Агент читает их и пишет код сам.",
+    "features.interview.title": "Сначала вопросы",
+    "features.interview.body":
+      "Агент задаёт от трёх до семи вопросов одним блоком, у каждого варианты и рекомендованное значение. Каждый ответ отображается в поле BotSpec, и код не пишется до вашего подтверждения.",
+    "features.exact.title": "Ровно то, что просили",
+    "features.exact.body":
+      "Просили инлайн-кнопки — получаете инлайн-кнопки. Навык рецептов строит по одному вертикальному срезу, поэтому агент не добавляет сцены, платежи или Mini App, которых вы не просили.",
+    "features.verify.title": "Улики, а не заявления",
+    "features.verify.body":
+      "verify читает содержимое файлов в ограниченном снимке и возвращает 29 идентификаторов проверок. Провал даёт код 1, поэтому агенту приходится исправлять бота, а не утверждать успех.",
+    "features.hosts.title": "3 инструмента, 4 хоста",
     "features.hosts.body":
-      "OMP, DSH, Claude Code через MCP и другие MCP-клиенты используют общий интерфейс инструментов.",
-    "features.skills.title": "Знание предметной области",
-    "features.skills.body":
-      "Навыки по уточнению требований, Bot API, grammY, aiogram, безопасности, тестированию, деплою, платежам и Mini Apps, плюс три субагента для ревью.",
+      "OMP, DeepSeek Harness, Claude Code через MCP и любой MCP-клиент видят одни и те же три инструмента: определить закреплённый стек, осмотреть проект, запустить гейт.",
 
-    "arch.title": "Одно ядро, тонкие хосты",
-    "arch.lede": "Хосты переводят схемы. Ядро владеет путями, шаблонами и проверками.",
-    "arch.hostsLabel": "Хосты-агенты",
-    "arch.coreLabel": "Доменное ядро",
-    "arch.outLabel": "Результат",
-    "arch.nodeOmp": "Расширение OMP",
-    "arch.nodeDsh": "Бандл DSH",
-    "arch.nodeClaude": "Claude Code",
-    "arch.nodeMcp": "MCP stdio",
-    "arch.nodeCore": "CoreOperations",
-    "arch.nodePolicy": "PathPolicy",
-    "arch.nodeTemplates": "Шаблоны",
-    "arch.nodeVerify": "Verify",
-    "arch.policyNote": "авторизованный корень",
-    "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "29 проверок",
-    "arch.nodeBot": "Самостоятельный бот",
-    "arch.botNote": "без импорта Aurifex",
-    "arch.caption":
-      "Ни один хост не пишет файлы напрямую. PathPolicy ограничивает чтение и запись авторизованным корнем.",
+    "flow.title": "Как агент строит бота",
+    "flow.lede":
+      "Четыре шага именно в этом порядке. Пропуск одного — так у бота появляются функции, которых никто не просил.",
+    "flow.stepsLabel": "Процедура",
+    "flow.step1": "Вопросы",
+    "flow.step1Note": "3–7, со значениями по умолчанию",
+    "flow.step2": "BotSpec",
+    "flow.step2Note": "подтверждён вами",
+    "flow.step3": "Рецепты",
+    "flow.step3Note": "один вертикальный срез",
+    "flow.step4": "Verify",
+    "flow.step4Note": "29 статических проверок",
+    "flow.outLabel": "Результат",
+    "flow.nodeBot": "Бот, которого вы просили",
+    "flow.botNote": "работает без Aurifex",
+    "flow.caption":
+      "Плагин не пишет проект. Он даёт процедуру и доказательство; каждый файл принадлежит агенту.",
 
-    "show.title": "Что появляется в проекте",
+    "skills.title": "15 навыков, загружаются по требованию",
+    "skills.lede":
+      "Каждый навык — короткая процедура с подводными камнями и первоисточниками. Агент открывает только нужные, поэтому контекст остаётся небольшим.",
+    "skills.note":
+      "Начинайте с telegram-bot: он направляет к остальным навыкам и задаёт жёсткие правила. Файлы project-layout и references читаются только тогда, когда задача до них доходит.",
+
+    "show.title": "Что пишет агент",
     "show.lede":
-      "Скаффолд — это законченный проект, который можно читать, запускать и выкатывать без Aurifex.",
-    "show.featuresLabel": "Фичи, добавляемые по одной",
+      "Проект, собранный по рецептам, в канонической раскладке. Aurifex он не импортирует.",
+    "show.featuresLabel": "Только запрошенные функции",
     "show.verifyLabel": "Вывод проверки",
     "show.f.commands": "commands",
     "show.f.llm": "llm",
@@ -285,7 +283,8 @@ window.AURIFEX_I18N = {
     "show.f.broadcast": "broadcast",
     "show.f.widgets": "widgets",
     "show.f.rich": "rich",
-    "show.note": "Deploy пишет файлы и скрипт setWebhook. Telegram он не вызывает.",
+    "show.note":
+      "Справочник раскладки в telegram-bot-recipes перечисляет эти пути, а тест держит его в синхроне с проверкой.",
 
     "sec.title": "29 проверок до релиза",
     "sec.lede":
@@ -309,23 +308,18 @@ window.AURIFEX_I18N = {
       "ADMIN_IDS проверяется на сервере. initData Mini App валидируется через HMAC-SHA256 с ограничением свежести auth_date.",
     "sec.idsLabel": "Идентификаторы проверок",
 
-    "cli.title": "10 команд, одна форма результата",
+    "cli.title": "4 команды, одна форма результата",
     "cli.lede": "По умолчанию человекочитаемая сводка, с --json — DomainResult.",
+    "cli.target": "Определяет закреплённые фреймворк, рантайм и базовый Bot API для стека.",
+    "cli.inspect": "Определяет стек, режим и хранилище проекта, ничего не записывая.",
+    "cli.verify":
+      "Запускает статический гейт по содержимому файлов и возвращает улики по каждому идентификатору.",
+    "cli.install": "Ставит пакет в OMP, DSH и Claude Code за один интерактивный проход.",
     "cli.note": "Коды выхода: 0 — успех, 1 — доменная ошибка, 2 — неверное использование.",
-    "cli.target": "Определяет фреймворк, рантайм, Bot API и поддержку фич для стека.",
-    "cli.new": "Создаёт самостоятельный проект из строгого BotSpec.",
-    "cli.inspect": "Определяет стек и режим, ничего не записывая.",
-    "cli.verify": "Запускает статический гейт и возвращает улики по каждой проверке.",
-    "cli.add": "Добавляет один модуль фичи, не трогая остальные файлы.",
-    "cli.deploy": "Пишет файлы деплоя и скрипт setWebhook. Без вызова API.",
-    "cli.harness": "Пишет фикстуры апдейтов, фейковый транспорт и compose-профиль tgfake.",
-    "cli.upgrade": "Перечисляет шаги миграции на Bot API 10.4 для проекта.",
-    "cli.upgradeApply": "Проверяет манифест; --apply меняет только версию спецификации в манифесте.",
-    "cli.install": "Ставит пакет в OMP, DSH и Claude Code за один проход.",
 
     "install.title": "Одна установка, все хосты",
     "install.lede":
-      "v0.2.0 ставится из репозитория. npm-публикация опциональна и включается NPM_TOKEN.",
+      "v0.3.0 ставится из репозитория. Установщик спрашивает хосты и область, а затем завершается сам.",
     "install.unix": "macOS и Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "Запустите установщик",
@@ -340,34 +334,34 @@ window.AURIFEX_I18N = {
       "Ставит плагин, который через .mcp.json направляет Claude Code на встроенный MCP-сервер.",
     "install.mcp.title": "MCP-клиент",
     "install.mcp.body":
-      "Любой другой MCP-клиент подключается к собранному stdio-серверу.",
+      "Любой другой MCP-клиент подключается к собранному stdio-серверу и получает те же три инструмента.",
     "install.rootNote":
       "AURIFEX_ROOT ограничивает чтение и запись. По умолчанию равен рабочей директории.",
 
     "faq.title": "Перед установкой",
-    "faq.q1": "Сгенерированный бот зависит от Aurifex?",
+    "faq.q1": "Что поставляется в Aurifex?",
     "faq.a1":
-      "Нет. Проект не импортирует пакет и не тянет общий рантайм. У него свой код, тесты, контейнер и файлы деплоя.",
-    "faq.q2": "Какая версия Bot API поддерживается?",
+      "Пятнадцать навыков, три MCP-инструмента, четыре команды CLI и один статический проверяльщик. Генератора проектов и шаблонов нет.",
+    "faq.q2": "Генератор проектов есть?",
     "faq.a2":
-      "10.4 через типизированный raw-адаптер. Объявления grammY 1.46 и aiogram 3.31 покрывают 10.3, поэтому Aurifex не заявляет нативные типы 10.4.",
-    "faq.q3": "verify запускает моего бота?",
+      "Нет. Версия 0.3 его удалила. Бота пишет агент по навыкам-рецептам, а плагин только проверяет результат.",
+    "faq.q3": "Агент спрашивает до того, как писать код?",
     "faq.a3":
-      "Нет. Проверка статическая по ограниченному снимку: 64 МиБ всего, 1 МиБ на файл. Доказательство работы дают сгенерированные тесты и E2E под флагом.",
-    "faq.q4": "deploy вызывает Telegram?",
+      "Да. Опрос даёт от трёх до семи вопросов с рекомендованными значениями, каждый ответ отображается в поле BotSpec, и ничего не собирается до подтверждения спецификации.",
+    "faq.q4": "Какая версия Bot API поддерживается?",
     "faq.a4":
-      "Нет. Deploy пишет файлы Docker, Caddy и setWebhook. Регистрация вебхука остаётся явным действием оператора.",
-    "faq.q5": "Docker обязателен?",
+      "10.4 через типизированный raw-адаптер. Объявления grammY 1.46 и aiogram 3.31 покрывают 10.3, поэтому знание не заявляет нативные типы 10.4.",
+    "faq.q5": "verify запускает моего бота?",
     "faq.a5":
-      "Нет. Docker не входит в стандартный гейт. Compose-профиль tgfake и сборка образов опциональны.",
-    "faq.q6": "Что не входит в v0.2.0?",
+      "Нет. Он читает содержимое файлов в ограниченном снимке: 64 МиБ всего, 1 МиБ на файл. Без сети и без вызовов Telegram; поведение проверяет навык тестирования.",
+    "faq.q6": "Что не входит в v0.3.0?",
     "faq.a6":
       "MTProto и автоматизация юзерботов. Aurifex работает только с Bot API и не является песочницей: процесс расширения хоста — доверенный код.",
     "faq.q7": "Можно установить из исходников?",
     "faq.a7":
       "Да. Склонируйте репозиторий, выполните pnpm install и pnpm build, затем node dist/cli.js install --host all. Команды по каждому хосту есть в README.",
 
-    "footer.tagline": "Production-боты Telegram из одного запроса агенту.",
+    "footer.tagline": "Знание, которое нужно агенту для бота в Telegram.",
     "footer.built": "Сделано для OMP, DeepSeek Harness, Claude Code и MCP.",
     "footer.repo": "Репозиторий",
     "footer.prs": "Pull requests",
@@ -380,26 +374,27 @@ window.AURIFEX_I18N = {
   },
 
   zh: {
-    "meta.title": "Aurifex · 一句请求生成生产级 Telegram 机器人",
+    "meta.title": "Aurifex · 智能体构建 Telegram 机器人所需的知识",
     "meta.description":
-      "在编码智能体中直接生成、校验并部署生产级 Telegram 机器人。支持 grammY 与 aiogram、Bot API 10.4、四类宿主。",
+      "Aurifex 教会编码智能体先向用户提问，再构建你真正想要的 Telegram 机器人，并用 29 项静态检查给出证明。支持 grammY 与 aiogram、Bot API 10.4。",
 
     "nav.skip": "跳到正文",
     "nav.home": "Aurifex 首页",
     "nav.language": "语言",
     "nav.what": "功能",
-    "nav.architecture": "架构",
+    "nav.how": "工作方式",
+    "nav.skills": "技能",
     "nav.security": "安全",
     "nav.cli": "CLI",
     "nav.install": "安装",
     "nav.faq": "常见问题",
 
     "hero.titleA": "一句请求，",
-    "hero.titleB": "换来生产级机器人。",
+    "hero.titleB": "换来合适的机器人。",
     "hero.lede":
-      "Aurifex 让编码智能体沿一条路径完成从机器人规格到独立 Telegram 项目的全部工作，发布前由安全门禁把关。",
+      "Aurifex 是面向编码智能体的知识插件。它教智能体先向你提问，再构建你真正要求的机器人，并用静态检查给出证明。",
     "hero.cta": "安装 Aurifex",
-    "hero.ctaAlt": "查看生成的项目",
+    "hero.ctaAlt": "了解工作方式",
     "hero.installLabel": "一个安装器，覆盖 macOS、Linux 与 Windows",
     "hero.copy": "复制",
     "hero.copied": "已复制",
@@ -409,55 +404,55 @@ window.AURIFEX_I18N = {
     "hero.artAlt": "深色的工坊网格上，熔金打造的 Telegram 纸飞机从铁砧上升起，边缘泛着青色冷光",
     "hero.markAlt": "Aurifex 金色字母标记",
 
-    "demo.title": "一个终端跑完整个流程",
-    "demo.lede": "脚手架、测试、校验、部署。每条命令都返回稳定的 DomainResult，并支持 --json。",
-    "demo.note": "全新脚手架给出一项警告：首次安装后请提交 lockfile。",
+    "demo.title": "从提问到通过校验的机器人",
+    "demo.lede":
+      "智能体先提问，再写代码，最后校验。每条命令都返回稳定的 DomainResult，并支持 --json。",
+    "demo.note": "校验失败时 verify 以退出码 1 结束，智能体无法在缺少证据时宣称成功。",
     "demo.replay": "重播会话",
 
-    "features.title": "Aurifex 做什么",
-    "features.lede": "四个宿主，一套实现。所有触及文件系统的逻辑只存在一份。",
-    "features.core.title": "一个内核，四个投影",
-    "features.core.body":
-      "OMP 扩展、DSH 打包、Claude Code 插件与 MCP 服务器只负责转换 schema，所有写入都经过同一套 CoreOperations 与 PathPolicy。",
-    "features.standalone.title": "默认独立",
-    "features.standalone.body":
-      "生成的机器人不会导入 Aurifex。源码、lockfile、Dockerfile、Caddyfile 与 webhook 注册脚本都归项目自己所有。",
-    "features.botapi.title": "Bot API 10.4 说得明白",
-    "features.botapi.body":
-      "grammY 1.46 与 aiogram 3.31 的类型停在 10.3。每个项目都带一层带类型的 raw 适配器，覆盖组件、富消息与临时回复。",
-    "features.gate.title": "校验即门禁",
-    "features.gate.body":
-      "静态检查跑在受控快照上。代码里的令牌、缺失的密钥或 root 容器，都会让 verify 返回 ok: false。",
-    "features.hosts.title": "四个宿主，9 个工具",
+    "features.title": "这个插件到底是什么",
+    "features.lede": "知识、三个工具、一项确定性检查。没有生成器，没有模板，也没有隐式写入。",
+    "features.knowledge.title": "给的是知识，不是脚手架",
+    "features.knowledge.body":
+      "十五个技能承载完整流程：需求确认、技术栈选择、功能配方、框架细节、安全、测试、交付。智能体读完后自己写代码。",
+    "features.interview.title": "先提问",
+    "features.interview.body":
+      "智能体在一块里提出三到七个问题，每个都带选项与推荐值。每个回答都对应 BotSpec 字段，你确认之前不会写任何代码。",
+    "features.exact.title": "只做你要求的部分",
+    "features.exact.body":
+      "要行内按钮就只做行内按钮。配方技能一次只做一个纵向切片，智能体不会加上你没要求的场景、支付或 Mini App。",
+    "features.verify.title": "要证据，不要口号",
+    "features.verify.body":
+      "verify 在受控快照内读取文件内容，返回 29 个检查标识。任何失败都以退出码 1 结束，智能体只能去修机器人，不能宣告成功。",
+    "features.hosts.title": "3 个工具，4 类宿主",
     "features.hosts.body":
-      "OMP、DSH、经 MCP 接入的 Claude Code 与其他 MCP 客户端使用相同的工具接口。",
-    "features.skills.title": "内置领域知识",
-    "features.skills.body":
-      "覆盖需求确认、Bot API、grammY、aiogram、安全、测试、部署、支付与 Mini Apps 的技能，另加三个评审子代理。",
+      "OMP、DeepSeek Harness、经 MCP 接入的 Claude Code 与其他 MCP 客户端共享同样三个工具：解析固定版本栈、检查项目、运行门禁。",
 
-    "arch.title": "内核厚，宿主薄",
-    "arch.lede": "宿主只转换 schema，路径、模板与检查都由内核掌握。",
-    "arch.hostsLabel": "智能体宿主",
-    "arch.coreLabel": "领域内核",
-    "arch.outLabel": "产出",
-    "arch.nodeOmp": "OMP 扩展",
-    "arch.nodeDsh": "DSH 打包",
-    "arch.nodeClaude": "Claude Code",
-    "arch.nodeMcp": "MCP stdio",
-    "arch.nodeCore": "CoreOperations",
-    "arch.nodePolicy": "PathPolicy",
-    "arch.nodeTemplates": "模板渲染",
-    "arch.nodeVerify": "Verify",
-    "arch.policyNote": "授权根目录",
-    "arch.templatesNote": "grammY, aiogram",
-    "arch.verifyNote": "29 项检查",
-    "arch.nodeBot": "独立机器人项目",
-    "arch.botNote": "不导入 Aurifex",
-    "arch.caption": "宿主不直接写文件。PathPolicy 把每次读取和写入都限制在授权根目录之内。",
+    "flow.title": "智能体如何构建机器人",
+    "flow.lede": "四个步骤，顺序固定。跳过其中一步，机器人就会长出没人要求的功能。",
+    "flow.stepsLabel": "流程",
+    "flow.step1": "提问",
+    "flow.step1Note": "3–7 个，带默认值",
+    "flow.step2": "BotSpec",
+    "flow.step2Note": "由你确认",
+    "flow.step3": "配方",
+    "flow.step3Note": "一次一个纵向切片",
+    "flow.step4": "校验",
+    "flow.step4Note": "29 项静态检查",
+    "flow.outLabel": "结果",
+    "flow.nodeBot": "你要求的那个机器人",
+    "flow.botNote": "脱离 Aurifex 也能运行",
+    "flow.caption": "插件从不写项目。它提供流程与证明，每个文件都归智能体所有。",
 
-    "show.title": "生成后的项目结构",
-    "show.lede": "脚手架是一个完整项目，脱离 Aurifex 也能阅读、运行和上线。",
-    "show.featuresLabel": "功能可按需逐个加入",
+    "skills.title": "15 个技能，按需加载",
+    "skills.lede":
+      "每个技能都是一段简短流程，包含易错点与一手来源。智能体只打开当前任务需要的技能，因此上下文保持精简。",
+    "skills.note":
+      "从 telegram-bot 开始：它负责分派其他技能并给出硬性规则。只有任务走到那一步时才读 project-layout 与 references 文件。",
+
+    "show.title": "智能体写出的东西",
+    "show.lede": "按配方构建的项目，采用规范目录结构，从不导入 Aurifex。",
+    "show.featuresLabel": "只有你要求的功能",
     "show.verifyLabel": "校验输出",
     "show.f.commands": "commands",
     "show.f.llm": "llm",
@@ -468,10 +463,11 @@ window.AURIFEX_I18N = {
     "show.f.broadcast": "broadcast",
     "show.f.widgets": "widgets",
     "show.f.rich": "rich",
-    "show.note": "deploy 只写部署文件与 setWebhook 脚本，从不调用 Telegram。",
+    "show.note": "telegram-bot-recipes 中的目录规范列出这些路径，并由测试与校验器保持同步。",
 
     "sec.title": "上线前 29 项检查",
-    "sec.lede": "门禁检查受控快照中的文本标记，不运行项目代码，也不访问 Telegram；运行时行为由独立测试验证。",
+    "sec.lede":
+      "门禁检查受控快照中的文本标记，不运行项目代码，也不访问 Telegram；运行时行为由独立测试验证。",
     "sec.token.title": "仓库里没有密钥",
     "sec.token.body":
       ".env.example 只放空占位符。任何形似令牌的字面量都会让构建失败，检查器从不回显它。",
@@ -490,22 +486,16 @@ window.AURIFEX_I18N = {
       "ADMIN_IDS 在服务端校验。Mini App 的 initData 用 HMAC-SHA256 验证，并限制 auth_date 的新鲜度。",
     "sec.idsLabel": "检查标识",
 
-    "cli.title": "10 条命令，一种结果结构",
+    "cli.title": "4 条命令，一种结果结构",
     "cli.lede": "默认输出人类可读摘要，加 --json 输出 DomainResult。",
+    "cli.target": "解析某个技术栈固定的框架、运行时与 Bot API 基线。",
+    "cli.inspect": "识别项目的技术栈、运行模式与存储，不写入任何文件。",
+    "cli.verify": "运行静态文件内容门禁，并按检查标识返回证据。",
+    "cli.install": "一次交互安装到 OMP、DSH 与 Claude Code。",
     "cli.note": "退出码：0 表示成功，1 表示领域错误，2 表示用法错误。",
-    "cli.target": "解析某个栈的框架、运行时、Bot API 与功能支持。",
-    "cli.new": "按严格的 BotSpec 生成独立项目。",
-    "cli.inspect": "识别栈与运行模式，不写入任何文件。",
-    "cli.verify": "运行静态门禁，并返回每项检查的证据。",
-    "cli.add": "添加一个功能模块，不碰无关文件。",
-    "cli.deploy": "写入部署文件与 setWebhook 脚本，不调用 API。",
-    "cli.harness": "写入更新固件、假传输层与 tgfake compose 配置。",
-    "cli.upgrade": "列出项目适用的 Bot API 10.4 迁移动作。",
-    "cli.upgradeApply": "校验清单；--apply 仅更新清单中的规格版本。",
-    "cli.install": "一次安装到 OMP、DSH 与 Claude Code。",
 
     "install.title": "安装一次，覆盖所有宿主",
-    "install.lede": "v0.2.0 从仓库安装。npm 发布是可选项，由 NPM_TOKEN 控制。",
+    "install.lede": "v0.3.0 从仓库安装。安装器会询问要装到哪些宿主、哪个范围，然后自行结束。",
     "install.unix": "macOS 与 Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "运行安装器",
@@ -518,32 +508,32 @@ window.AURIFEX_I18N = {
     "install.claude.title": "Claude Code",
     "install.claude.body": "安装插件，通过 .mcp.json 让 Claude Code 使用内置的 MCP 服务器。",
     "install.mcp.title": "MCP 客户端",
-    "install.mcp.body": "其他 MCP 客户端直接连接构建好的 stdio 服务器。",
+    "install.mcp.body": "其他 MCP 客户端连接构建好的 stdio 服务器，拿到同样三个工具。",
     "install.rootNote": "AURIFEX_ROOT 限制所有读取与写入，默认取工作目录。",
 
     "faq.title": "安装之前",
-    "faq.q1": "生成的机器人依赖 Aurifex 吗？",
+    "faq.q1": "Aurifex 到底提供什么？",
     "faq.a1":
-      "不依赖。项目不会导入这个包，也不带共享运行时。源码、测试、容器与部署文件都属于它自己。",
-    "faq.q2": "支持哪个版本的 Bot API？",
-    "faq.a2":
-      "10.4，通过带类型的 raw 适配器。grammY 1.46 与 aiogram 3.31 的声明只到 10.3，所以 Aurifex 从不声称原生支持 10.4 类型。",
-    "faq.q3": "verify 会运行我的机器人吗？",
+      "十五个技能、三个 MCP 工具、四条 CLI 命令，以及一个静态校验器。没有项目生成器，也没有模板。",
+    "faq.q2": "还有项目生成器吗？",
+    "faq.a2": "没有了。0.3 版本已删除。机器人由智能体按配方技能编写，插件只校验结果。",
+    "faq.q3": "智能体会在写代码前提问吗？",
     "faq.a3":
-      "不会。校验是对受控快照的静态检查：总计 64 MiB，单文件 1 MiB。运行时的证据来自生成的测试与受开关控制的 E2E。",
-    "faq.q4": "deploy 会调用 Telegram 吗？",
+      "会。需求确认会给出三到七个带推荐值的问题，每个回答都对应 BotSpec 字段，规格确认之前不会构建任何东西。",
+    "faq.q4": "支持哪个版本的 Bot API？",
     "faq.a4":
-      "不会。deploy 只写 Docker、Caddy 与 setWebhook 文件。注册 webhook 始终是操作者的显式动作。",
-    "faq.q5": "必须用 Docker 吗？",
-    "faq.a5": "不是。Docker 不在默认门禁里。tgfake compose 配置与镜像构建都是可选项。",
-    "faq.q6": "v0.2.0 不覆盖什么？",
+      "10.4，通过带类型的 raw 适配器。grammY 1.46 与 aiogram 3.31 的声明只到 10.3，所以知识内容从不声称原生支持 10.4 类型。",
+    "faq.q5": "verify 会运行我的机器人吗？",
+    "faq.a5":
+      "不会。它在受控快照内读取文件内容：总计 64 MiB，单文件 1 MiB。不联网，也不调用 Telegram；运行时行为属于测试技能的范围。",
+    "faq.q6": "v0.3.0 不覆盖什么？",
     "faq.a6":
       "MTProto 与 userbot 自动化。Aurifex 只面向 Bot API，而且它不是沙箱：宿主扩展进程属于可信代码。",
     "faq.q7": "可以从源码检出安装吗？",
     "faq.a7":
       "可以。克隆仓库，运行 pnpm install 与 pnpm build，再执行 node dist/cli.js install --host all。每个宿主的单独命令写在 README 中。",
 
-    "footer.tagline": "一句请求，生成生产级 Telegram 机器人。",
+    "footer.tagline": "智能体构建 Telegram 机器人所需的知识。",
     "footer.built": "为 OMP、DeepSeek Harness、Claude Code 与 MCP 而做。",
     "footer.repo": "代码仓库",
     "footer.prs": "Pull requests",

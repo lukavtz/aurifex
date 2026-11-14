@@ -1,83 +1,116 @@
-# feat: Aurifex v0.2.0
+## Summary
 
-Aurifex is an MIT-licensed capability package that lets a coding agent (OMP, DeepSeek
-Harness, Claude Code, MCP) create, harden, test, and deploy production Telegram bots.
-TypeScript/grammY and Python/aiogram are first-class. Bot API 10.4 is supported through a
-typed raw adapter generated into every project.
+Aurifex 0.3.0 turns the package into a knowledge plugin. The project generator is
+deleted: no template renderers, no feature modules, no manifest, no deploy planning, no
+upgrade protocol. What remains is the part that is cheap, deterministic, and useful —
+static verification — plus 15 skills that teach an agent how to interview, choose a
+stack, build each Telegram surface, and check the result.
 
-## Implemented
+Package version: `0.3.0`. BotSpec schema: unchanged at `bot-spec-1.1.0`. Tool surface:
+3 MCP tools, 4 CLI commands, 29 checks, 15 skills.
 
-### Core domain
+Closes #
 
-- `DomainResult<T>`, `FileRef`, `Check`, canonical serialization, SHA-256 helpers.
-- Versioned `BotSpec` with strict validation, reserved feature names, deterministic hash.
-- Pinned targets: grammY `1.46.0` / Node `>=24.9.0`; aiogram `3.31.0` /
-  Python `>=3.11,<3.15`; framework types `10.3`, supported Bot API `10.4`.
-- `CoreOperations` facade shared by every adapter and the CLI.
+## Type
 
-### Security
+- [x] Core behavior (`src/core`)
+- [x] Reference project (`examples/`)
+- [x] Host adapter (OMP, DSH, MCP)
+- [x] CLI
+- [x] Skills, agents, commands, prompts, rules
+- [x] CI, packaging, docs
 
-- `PathPolicy`: root containment, symlink rejection, `wx` writes, atomic replacement,
-  1 MiB read cap, ignored build directories.
-- Token detection (including URL-embedded tokens), redaction, webhook-secret validation.
-- Scaffold/add-feature crash-safe overwrite with staging and rollback.
-- Generated bots: mandatory webhook secret, HTTPS/port checks, numeric admin allowlist,
-  Redis update dedupe, rate limiting, `retry_after`, Mini App `initData` HMAC, non-root
-  containers, Caddy TLS front end, no published bot port, no fixed DB passwords.
+## What changed
 
-### Generation and verification
+### Core
 
-- grammY, aiogram, and React/Vite Mini App renderers.
-- Nine features: commands, LLM, inline, Stars payments, Mini Apps, moderation, broadcasts,
-  Bot API 10.4 widgets, rich messages/drafts.
-- `scaffoldBot`, `addFeature`, `inspectBot`, `verifyBot`, `planDeploy`,
-  `generateTestHarness`, `upgradePlan`.
-- Public verification returns 29 static check IDs, including `token.literal`,
-  `botapi.104.types`, queue and payment schema checks, Mini App checks, and
-  `allowlist.present`.
+- Removed every renderer, template, feature module, manifest, deploy planner,
+  test-harness generator, and upgrade path.
+- `CoreOperations` is now `resolveTarget`, `inspectBot`, `verifyBot`. Nothing writes to a
+  bot project.
+- `src/core/layout.ts` is the single source of project layout paths per stack;
+  `verify.ts` derives its constants from it, and a unit test keeps the human-readable
+  copy in `skills/telegram-bot-recipes/references/project-layout.md` in sync.
+- `src/core/targets/api104-contract.ts` holds the Bot API 10.4 methods, exact params, and
+  type surface.
+- The 29 check ids are unchanged; verification is still a bounded static scan
+  (64 MiB total, 1 MiB per file), no execution, no network.
 
-### Host projections
+### Tools and CLI
 
-- CLI exposes 10 commands: `target/new/inspect/verify/add/deploy/harness/upgrade-plan/upgrade/install`.
-- OMP extension: nine `telegram_bot_*` tools and three commands.
-- DSH plugin: nine `defineTool` tools, prompt section, `cordis.patch.yml`.
-- Zero-dependency MCP stdio server: same nine tools, structured content, 256 KiB cap.
-  It ships with no runtime `node_modules` requirement, so a Claude marketplace cache
-  copy works as installed.
-- Claude Code: plugin + marketplace manifests, `.mcp.json` using
-  `${CLAUDE_PLUGIN_ROOT}/dist/adapters/mcp/server.js`.
+- MCP tools: `telegram_bot_target_resolve`, `telegram_bot_inspect`,
+  `telegram_bot_verify`. Protocol revision `2025-11-25`. Zero runtime dependencies.
+- CLI commands: `target`, `inspect`, `verify`, `install`. Exit codes `0`/`1`/`2`;
+  `--json` prints one `domain-result-1.0.0` object.
+- OMP and DSH register the same three tools and the three `aurifex-*` commands.
+  `DISCOVERY_GUIDANCE` is shared, not copied.
 
-### Content and delivery
+### Skills
 
-- Ten skills, three agents, three commands, one rule file, one review prompt; adapted
-  from Apache-2.0/MIT upstreams with attribution in `THIRD_PARTY_NOTICES.md`.
-- Deterministic CI, live E2E workflow, secret scanner, package dry-run.
+- 15 skills, all with `## Procedure`, `## Gotchas`, and `## Sources` (at least three
+  absolute `https://` URLs), bodies under 500 lines, heavy detail in `references/`.
+- Topic ownership is explicit: security, limits, delivery, 10.4, and failures each have
+  one owner; the rest cross-reference.
+- New: `telegram-bot` (router), `telegram-bot-sources`, `telegram-bot-stack-choice`,
+  `telegram-bot-recipes`, `telegram-bot-failures`.
+- Bundled offline helpers: `tg_docs.py`, `tg_text.py`, `telegram_payload.py`.
+
+### Examples and site
+
+- `examples/grammy_commands` and `examples/aiogram_commands` are hand-written reference
+  projects with no `.aurifex/` directory. They pass their own suites and `verify` with
+  zero `fail`.
+- The site describes knowledge and verification in three locales, with `data-truth`
+  markers at checks 29, tools 3, commands 4.
+- `scripts/check-skills.mjs` enforces the knowledge contract offline; `check-site.mjs`
+  pins counts and lists.
+
+### Docs
+
+- README (EN/RU), architecture, spec, BotSpec, CLI, migration, operations, test plan,
+  threat model, release, security policy, and third-party notices rewritten for the new
+  surface. Generator commands and threats are gone; install, MCP, and verification
+  threats remain.
+
+## Breaking change
+
+The 0.2 tool surface is gone. Host configurations that allowlisted the removed tools must
+be updated. A project produced by 0.2 keeps running; it never depended on the plugin at
+runtime. Remove its `.aurifex/manifest.json`. See [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## Verification
 
-Local results:
+Commands from [docs/TEST_PLAN.md](docs/TEST_PLAN.md). Paste actual output; do not claim a
+pass without it.
 
-| Command                       | Result                                                                                    |
-| ----------------------------- | ----------------------------------------------------------------------------------------- |
-| `pnpm verify`                 | pass — format, lint, typecheck, unit, security, integration, host, secret scan, pack      |
-| `AURIFEX_E2E=1 pnpm test:e2e` | 2 pass, 1 skipped (live)                                                                  |
-| Generated grammY project      | `bun install`, `bun run typecheck`, `bun test` (27 pass), `bun run build`                 |
-| Generated aiogram project     | `uv lock`, `uv sync --frozen`, `ruff`, `mypy`, `pytest` (28 pass)                         |
-| Generated Mini App            | `bun run build` — Vite output at `dist/miniapp`                                           |
-| MCP built server              | `initialize` + `tools/list` — nine tools, runs from a bare `dist/` without `node_modules` |
-| OMP                           | `omp plugin link .` + `omp plugin doctor` — plugin ok                                     |
-| DSH                           | fresh profile install + `--dump-config` — `aurifex` row present                           |
-| Claude Code                   | isolated `HOME`: marketplace add + plugin install — enabled, MCP server listed            |
-| `pnpm audit --prod`           | no known vulnerabilities                                                                  |
+- [ ] `pnpm install --frozen-lockfile`
+- [ ] `npx tsc --noEmit`
+- [ ] `node scripts/check-skills.mjs` → `check-skills: ok · 15 skills`
+- [ ] `node scripts/check-site.mjs`
+- [ ] `node --test --experimental-strip-types "tests/unit/**/*.test.ts"`
+- [ ] `node --test --experimental-strip-types "tests/security/**/*.test.ts"`
+- [ ] `node --test --experimental-strip-types "tests/integration/**/*.test.ts"`
+- [ ] `node --test --experimental-strip-types "tests/host/**/*.test.ts"`
+- [ ] `pnpm verify`
+- [ ] `(cd examples/grammy_commands && bun install --frozen-lockfile && bun run typecheck && bun test)`
+- [ ] `(cd examples/aiogram_commands && uv sync --frozen && uv run pytest -q)`
+- [ ] `node dist/cli.js verify examples/grammy_commands --json` → `"ok": true`, `fail: 0`
+- [ ] `node dist/cli.js verify examples/aiogram_commands --json` → `"ok": true`, `fail: 0`
+- [ ] `node dist/cli.js --help` → four commands
+- [ ] `node dist/adapters/mcp/server.js` → `initialize` answers `2025-11-25`;
+      `tools/list` returns three tools
+- [ ] New behavior has a failing-first test, or the reason it cannot is stated
 
-Verification and host runs must be recorded from the current release candidate; do not
-reuse results from earlier releases or claim success without their artifacts.
+```
+# commands and output
+```
 
-## Limitations
+## Security
 
-- Framework type declarations cover Bot API 10.3; 10.4-only calls use the generated typed
-  raw adapter. Native framework bindings are not claimed.
-- Generated projects are standalone; they do not depend on `aurifex` or a shared runtime.
-- Live Telegram tests are secret-gated; they require a test bot token and chat.
-- Docker image builds require a Docker daemon; generated-file checks do not replace them.
-- Interactive host smoke tests require the pinned host binaries and isolated profiles.
+- [ ] No token, webhook secret, API key, or private chat id is added, logged, or committed
+- [ ] Every filesystem read still resolves through `PathPolicy`
+- [ ] Verification output never echoes a matched secret and never executes project code
+- [ ] New dependencies are pinned to exact versions and pass `pnpm audit --prod`
+- [ ] Bot API 10.4 gaps are handled by a typed raw adapter, not claimed as native
+      framework support
+- [ ] Removed tool names do not appear in skills, docs, or prompts

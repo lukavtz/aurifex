@@ -5,6 +5,8 @@ import { domainFailure, domainSuccess } from "../results.ts";
 import { PathPolicyError } from "../security/path-policy.ts";
 import type { PathPolicy } from "../security/path-policy.ts";
 import { findTelegramTokens } from "../security/secrets.ts";
+import { LAYOUT } from "../layout.ts";
+import { API104_METHODS, API104_TYPES } from "../targets/api104-contract.ts";
 
 export interface VerifyResult {
   readonly ok: boolean;
@@ -401,18 +403,19 @@ function checkTestsPresent(files: readonly ProjectFile[], prefix: string): Check
 }
 
 function checkBotApi104(files: readonly ProjectFile[]): Check {
-  const adapter = files.find(
-    (file) =>
-      file.path.endsWith("src/telegram/api104.ts") || file.path.endsWith("app/services/api104.py"),
+  const adapterPaths = [LAYOUT.grammy.api104, LAYOUT.aiogram.api104];
+  const adapter = files.find((file) =>
+    adapterPaths.some((path) => file.path === path || file.path.endsWith(`/${path}`)),
   );
   const detail =
     "framework types cover Bot API 10.3; Bot API 10.4 is supported through the typed raw adapter";
   if (adapter === undefined) {
     return make("botapi.104", "fail", `${detail} (adapter file is missing)`);
   }
-  const required = adapter.path.endsWith(".py")
-    ? ["SendWidget", "AnswerWidgetQuery", "SendRichMessage"]
-    : ["sendWidget", "answerWidgetQuery", "sendRichMessage"];
+  const python = adapter.path.endsWith(".py");
+  const required = (["sendWidget", "answerWidgetQuery", "sendRichMessage"] as const)
+    .filter((method) => (API104_METHODS as readonly string[]).includes(method))
+    .map((method) => (python ? `${method[0]!.toUpperCase()}${method.slice(1)}` : method));
   const missing = required.filter((symbol) => !adapter.content.includes(symbol));
   return missing.length === 0
     ? make("botapi.104", "pass", detail, { path: adapter.path })
@@ -422,20 +425,17 @@ function checkBotApi104(files: readonly ProjectFile[]): Check {
 }
 
 function checkLockfile(files: readonly ProjectFile[], prefix: string): Check {
-  const names = ["bun.lock", "package-lock.json", "uv.lock"];
+  const names = [LAYOUT.grammy.lockfile, "package-lock.json", LAYOUT.aiogram.lockfile];
   const found = files.find((file) => names.some((name) => file.path === `${prefix}${name}`));
   return found === undefined
     ? make("deps.lockfile", "warn", "no bun.lock, package-lock.json, or uv.lock found")
     : make("deps.lockfile", "pass", "dependency lockfile is committed", { path: found.path });
 }
 
-const QUEUE_MODULES = ["src/runtime/queue.ts", "app/runtime/queue.py"] as const;
-const PAYMENTS_MODULES = ["src/runtime/payments.ts", "app/runtime/payments.py"] as const;
-const MINIAPP_MODULES = [
-  "src/runtime/miniapp-session.ts",
-  "app/runtime/miniapp_session.py",
-] as const;
-const WORKER_MODULES = ["src/worker.ts", "app/worker.py"] as const;
+const QUEUE_MODULES = [LAYOUT.grammy.queue, LAYOUT.aiogram.queue] as const;
+const PAYMENTS_MODULES = [LAYOUT.grammy.payments, LAYOUT.aiogram.payments] as const;
+const MINIAPP_MODULES = [LAYOUT.grammy.miniapp, LAYOUT.aiogram.miniapp] as const;
+const WORKER_MODULES = [LAYOUT.grammy.worker, LAYOUT.aiogram.worker] as const;
 
 function isTestPath(path: string): boolean {
   return /(^|\/)tests?\//.test(path) || /(^|\/)test_[^/]+\.py$/.test(path);
@@ -606,9 +606,7 @@ function checkMiniappCsp(files: readonly ProjectFile[]): Check {
 
 function checkBotApi104Types(files: readonly ProjectFile[]): Check {
   const text = files.map((file) => file.content).join("\n");
-  const missing = ["TonWalletCard", "ChatShareTheme", "RichTextTonAddress"].filter(
-    (needle) => !text.includes(needle),
-  );
+  const missing = API104_TYPES.filter((needle) => !text.includes(needle));
   return missing.length === 0
     ? make(
         "botapi.104.types",

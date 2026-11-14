@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,8 +7,8 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
 import aurifex from "../../src/adapters/omp/index.ts";
+import { REPO } from "../fixtures/reference-project.ts";
 import type { DomainResult } from "../../src/core/results.ts";
-import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
 
 interface FakeSchema {
   readonly kind: string;
@@ -127,23 +127,7 @@ function fakeContext(
   } as unknown as ExtensionContext;
 }
 
-const SPEC = {
-  schemaVersion: BOT_SPEC_VERSION,
-  name: "demo_bot",
-  displayName: "Demo Bot",
-  stack: "grammy",
-  features: ["commands"],
-  deployment: "docker",
-  storage: { postgres: false, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
-  security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
-  runtime: {
-    queue: "none",
-    telemetry: { otlp: false, prometheus: false, sentry: false },
-  },
-};
-
-test("registers nine tools and three commands without touching the filesystem", async (t) => {
+test("registers three tools and three commands without touching the filesystem", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-omp-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -155,16 +139,10 @@ test("registers nine tools and three commands without touching the filesystem", 
 
   const expected = [
     ["telegram_bot_target_resolve", "read"],
-    ["telegram_bot_scaffold", "write"],
     ["telegram_bot_inspect", "read"],
     ["telegram_bot_verify", "read"],
-    ["telegram_bot_add_feature", "write"],
-    ["telegram_bot_deploy_plan", "write"],
-    ["telegram_bot_test_harness", "write"],
-    ["telegram_bot_upgrade", "write"],
-    ["telegram_bot_upgrade_plan", "read"],
   ];
-  assert.equal(host.tools.length, 9);
+  assert.equal(host.tools.length, 3);
   for (const [name, approval] of expected) {
     const tool = host.tools.find((candidate) => candidate.name === name);
     assert.ok(tool, `missing tool ${name}`);
@@ -182,13 +160,6 @@ test("registers nine tools and three commands without touching the filesystem", 
     assert.equal(typeof command.options.handler, "function");
   }
 
-  const scaffold = host.tools.find((tool) => tool.name === "telegram_bot_scaffold");
-  assert.ok(scaffold);
-  assert.match(scaffold.description ?? "", /skills\/telegram-bot-discovery/);
-  assert.match(scaffold.description ?? "", /never invent/);
-  const addFeature = host.tools.find((tool) => tool.name === "telegram_bot_add_feature");
-  assert.match(addFeature?.description ?? "", /skills\/telegram-bot-discovery/);
-  assert.match(addFeature?.description ?? "", /confirm/i);
   assert.equal(
     host.tools.find((tool) => tool.name === "telegram_bot_verify")?.description,
     "Run static file-content checks; no project code execution, network, or Telegram calls.",
@@ -196,13 +167,13 @@ test("registers nine tools and three commands without touching the filesystem", 
 
   const guidance = host.eventHandlers.get("before_agent_start");
   assert.equal(guidance?.length, 1);
-  const prepared = guidance?.[0]?.({ systemPrompt: ["base prompt"] });
-  assert.deepEqual(prepared, {
-    systemPrompt: [
-      "base prompt",
-      "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.",
-    ],
-  });
+  const prepared = guidance?.[0]?.({ systemPrompt: ["base prompt"] }) as
+    { systemPrompt: string[] } | undefined;
+  assert.equal(prepared?.systemPrompt.length, 2);
+  const guidanceText = prepared?.systemPrompt[1] ?? "";
+  assert.match(guidanceText, /skills\/telegram-bot-discovery/);
+  assert.match(guidanceText, /never infer/);
+  assert.match(guidanceText, /telegram_bot_verify/);
   assert.deepEqual(await readdir(root), []);
 });
 
@@ -231,18 +202,23 @@ test("executes target resolve against the context cwd", async (t) => {
   assert.equal(payload.value.target.frameworkVersion, "1.46.0");
 });
 
-test("scaffolds a bot through the scaffold tool", async (t) => {
+test("verifies a reference project through the verify tool", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-omp-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const example = join(root, "bot");
+  await cp(join(REPO, "examples", "grammy_commands"), example, {
+    recursive: true,
+    filter: (path) => !path.includes("node_modules"),
+  });
 
   const host = createFakeHost();
   aurifex(host.pi);
-  const tool = host.tools.find((candidate) => candidate.name === "telegram_bot_scaffold");
+  const tool = host.tools.find((candidate) => candidate.name === "telegram_bot_verify");
   assert.ok(tool);
 
   const result = await tool.execute(
     "call-2",
-    { destination: "demo-bot", spec: SPEC },
+    { projectRoot: "bot" },
     undefined,
     undefined,
     fakeContext(root, host),
@@ -250,15 +226,14 @@ test("scaffolds a bot through the scaffold tool", async (t) => {
   assert.equal(result.details.status, "ok");
   const payload = JSON.parse(result.content[0].text) as {
     status: string;
-    value: { files: unknown[]; stack: string };
+    value: { ok: boolean; checks: unknown[] };
   };
   assert.equal(payload.status, "ok");
-  assert.equal(payload.value.stack, "grammy");
-  assert.ok(payload.value.files.length > 0);
-  assert.ok((await readdir(join(root, "demo-bot"))).length > 0);
+  assert.equal(payload.value.ok, true);
+  assert.equal(payload.value.checks.length, 29);
 });
 
-test("aurifex-new submits the discovery prompt instead of scaffolding", async (t) => {
+test("aurifex-new submits the discovery prompt instead of writing files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "aurifex-omp-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -278,7 +253,8 @@ test("aurifex-new submits the discovery prompt instead of scaffolding", async (t
   assert.match(prompt, /skills\/telegram-bot-discovery/);
   assert.match(prompt, /never infer/i);
   assert.match(prompt, /confirm/i);
-  assert.match(prompt, /telegram_bot_scaffold/);
+  assert.match(prompt, /telegram_bot_verify/);
+  assert.doesNotMatch(prompt, /telegram_bot_scaffold/);
   assert.match(prompt, /User arguments: demo-bot grammy/);
   assert.deepEqual(await readdir(root), []);
   assert.equal(host.notifications.length, 0);

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { ReadStream } from "node:tty";
 import { fileURLToPath } from "node:url";
@@ -17,21 +17,14 @@ import {
   type DomainResult,
 } from "./core/results.ts";
 import { redactSecrets } from "./core/security/secrets.ts";
-import { assertFeature, type BotFeature } from "./core/spec/bot-spec.ts";
 import { isBotStack } from "./core/targets/catalog.ts";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 
 const USAGE = `Usage:
   aurifex target --stack <grammy|aiogram> [--json]
-  aurifex new <destination> --spec <file|-> [--overwrite] [--json]
   aurifex inspect <root> [--json]
   aurifex verify <root> [--json]
-  aurifex add <root> --feature <feature> --name <name> [--overwrite] [--json]
-  aurifex deploy <root> --domain <domain> [--mode webhook|polling] [--overwrite] [--json]
-  aurifex harness <root> [--overwrite] [--json]
-  aurifex upgrade <root> [--apply] [--json]
-  aurifex upgrade-plan <root> [--json]
   aurifex install [--host omp|dsh|claude|all] [--profile <name>] [--scope user|project]
                   [--source <path>] [--dry-run] [--json] [--yes]
 
@@ -43,13 +36,6 @@ const OPTIONS = {
   root: { type: "string" },
   stack: { type: "string" },
   json: { type: "boolean" },
-  spec: { type: "string" },
-  overwrite: { type: "boolean" },
-  apply: { type: "boolean" },
-  feature: { type: "string" },
-  name: { type: "string" },
-  domain: { type: "string" },
-  mode: { type: "string" },
   host: { type: "string" },
   profile: { type: "string" },
   scope: { type: "string" },
@@ -58,30 +44,14 @@ const OPTIONS = {
   source: { type: "string" },
 } as const;
 
-type Command =
-  | "target"
-  | "new"
-  | "inspect"
-  | "verify"
-  | "add"
-  | "deploy"
-  | "harness"
-  | "upgrade"
-  | "upgrade-plan"
-  | "install";
+type Command = "target" | "inspect" | "verify" | "install";
 
-type CoreCommand = Exclude<Command, "install">;
+type CoreCommand = "target" | "inspect" | "verify";
 
 const COMMANDS: Readonly<Record<string, Command>> = {
   target: "target",
-  new: "new",
   inspect: "inspect",
   verify: "verify",
-  add: "add",
-  deploy: "deploy",
-  harness: "harness",
-  upgrade: "upgrade",
-  "upgrade-plan": "upgrade-plan",
   install: "install",
 };
 
@@ -91,13 +61,6 @@ interface OptionValues {
   readonly root?: string | boolean | undefined;
   readonly stack?: string | boolean | undefined;
   readonly json?: string | boolean | undefined;
-  readonly spec?: string | boolean | undefined;
-  readonly overwrite?: string | boolean | undefined;
-  readonly apply?: string | boolean | undefined;
-  readonly feature?: string | boolean | undefined;
-  readonly name?: string | boolean | undefined;
-  readonly domain?: string | boolean | undefined;
-  readonly mode?: string | boolean | undefined;
   readonly host?: string | boolean | undefined;
   readonly profile?: string | boolean | undefined;
   readonly scope?: string | boolean | undefined;
@@ -148,24 +111,11 @@ function required(values: Parsed["values"], key: keyof typeof OPTIONS): string {
   return value;
 }
 
-function featureValue(raw: string): BotFeature {
-  try {
-    return assertFeature(raw);
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : "unknown feature");
-  }
-}
-
 function projectRoot(parsed: Parsed): string {
   if (parsed.positionals.length !== 1) {
     throw new UsageError(`${parsed.command} requires one project root`);
   }
   return resolve(parsed.root, parsed.positionals[0]!);
-}
-
-function insideRoot(root: string, candidate: string): boolean {
-  const relativePath = relative(root, candidate);
-  return relativePath.length > 0 && !relativePath.startsWith("..") && !isAbsolute(relativePath);
 }
 
 type InstallHost = "omp" | "dsh" | "claude";
@@ -281,10 +231,7 @@ export function parseHostAnswer(
   return hosts.filter((host) => selected.has(host));
 }
 
-export function parseScopeAnswer(
-  answer: string,
-  fallback: "user" | "project",
-): "user" | "project" {
+export function parseScopeAnswer(answer: string, fallback: "user" | "project"): "user" | "project" {
   const value = answer.trim() === "" ? fallback : answer.trim();
   if (value !== "user" && value !== "project") throw new UsageError(`unknown scope: ${value}`);
   return value;
@@ -489,6 +436,8 @@ const EXECUTABLE_ALLOWLIST: ReadonlySet<string> = new Set(["omp", "dsh", "claude
 
 function isSafeExecutablePath(candidate: string): boolean {
   if (!isAbsolute(candidate)) return false;
+  // Control characters are never valid in a path we are about to execute.
+  // eslint-disable-next-line no-control-regex
   if (candidate.includes('"') || /[\u0000-\u001f]/.test(candidate)) return false;
   const extension = candidate.slice(candidate.lastIndexOf(".")).toLowerCase();
   return extension === ".exe" || extension === ".cmd" || extension === ".bat";
@@ -533,7 +482,12 @@ interface Attempt {
   readonly output: string;
 }
 
-async function tryCommand(bin: string, args: readonly string[], cwd?: string, env: NodeJS.ProcessEnv = process.env): Promise<Attempt> {
+async function tryCommand(
+  bin: string,
+  args: readonly string[],
+  cwd?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Attempt> {
   try {
     const executable = await resolveExecutable(bin);
     if (executable === undefined) {
@@ -565,14 +519,7 @@ async function ensureBuild(source: string): Promise<BuildOutcome> {
   if (!needsBuild(source, existsSync)) return { ran: false, ok: true, tool: "", output: "" };
   const installed = await tryCommand(
     "npm",
-    [
-      "install",
-      "--include=dev",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--no-progress",
-    ],
+    ["install", "--include=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-progress"],
     source,
     { ...process.env, npm_config_package_lock: "false" },
   );
@@ -757,44 +704,12 @@ async function runInstall(parsed: Parsed): Promise<number> {
   return hosts.some((entry) => entry.status === "failed") ? 1 : 0;
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-async function readSpec(file: string): Promise<unknown> {
-  let text: string;
-  try {
-    text = file === "-" ? await readStdin() : await readFile(file, "utf8");
-  } catch (error) {
-    throw new UsageError(`cannot read spec: ${error instanceof Error ? error.message : file}`);
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new UsageError("spec is not valid JSON");
-  }
-}
-
-function rebaseFiles<T extends { readonly path: string }>(
-  files: readonly T[],
-  base: string,
-  policyRoot: string,
-): T[] {
-  return files.map((file) => ({
-    ...file,
-    path: relative(base, resolve(policyRoot, file.path)).split(sep).join("/"),
-  }));
-}
-
 async function dispatch(
   command: CoreCommand,
   parsed: Parsed,
   operations: CoreOperations,
 ): Promise<DomainResult<unknown>> {
   const { values } = parsed;
-  const overwrite = values.overwrite === true ? { overwrite: true } : {};
   switch (command) {
     case "target": {
       if (parsed.positionals.length > 0) throw new UsageError("unexpected argument");
@@ -802,68 +717,10 @@ async function dispatch(
       if (!isBotStack(stack)) throw new UsageError(`unknown stack: ${stack}`);
       return operations.resolveTarget({ stack });
     }
-    case "new": {
-      if (parsed.positionals.length !== 1) throw new UsageError("new requires one destination");
-      const destination = resolve(parsed.root, parsed.positionals[0]!);
-      if (!insideRoot(parsed.root, destination)) {
-        throw new UsageError("destination must be inside --root");
-      }
-      const spec = await readSpec(required(values, "spec"));
-      const result = await operations.scaffoldBot({ destination, spec, ...overwrite });
-      if (result.status !== "ok") return result;
-      const files = rebaseFiles(result.value.files, destination, parsed.root);
-      return domainSuccess(
-        {
-          ...result.value,
-          root: relative(parsed.root, destination).split(sep).join("/"),
-          files,
-        },
-        result.evidence,
-      );
-    }
     case "inspect":
       return operations.inspectBot({ projectRoot: projectRoot(parsed) });
     case "verify":
       return operations.verifyBot({ projectRoot: projectRoot(parsed) });
-    case "add": {
-      const project = projectRoot(parsed);
-      const result = await operations.addFeature({
-        projectRoot: project,
-        feature: featureValue(required(values, "feature")),
-        name: required(values, "name"),
-        ...overwrite,
-      });
-      if (result.status !== "ok") return result;
-      return domainSuccess(
-        {
-          ...result.value,
-          root: parsed.positionals[0] === "." ? "." : relative(parsed.root, project),
-          files: rebaseFiles(result.value.files, project, parsed.root),
-        },
-        result.evidence,
-      );
-    }
-    case "deploy": {
-      const mode = stringValue(values.mode);
-      if (mode !== undefined && mode !== "webhook" && mode !== "polling") {
-        throw new UsageError(`unknown mode: ${mode}`);
-      }
-      return operations.planDeploy({
-        projectRoot: projectRoot(parsed),
-        domain: required(values, "domain"),
-        ...(mode === undefined ? {} : { mode }),
-        ...overwrite,
-      });
-    }
-    case "harness":
-      return operations.generateTestHarness({ projectRoot: projectRoot(parsed), ...overwrite });
-    case "upgrade":
-      return operations.upgradeProject({
-        projectRoot: projectRoot(parsed),
-        apply: values.apply === true,
-      });
-    case "upgrade-plan":
-      return operations.upgradePlan({ projectRoot: projectRoot(parsed) });
   }
 }
 
@@ -875,14 +732,6 @@ function field(value: unknown, key: string): unknown {
 
 function scalar(value: unknown): string | undefined {
   return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
-}
-
-function filePaths(value: unknown): string[] {
-  const files = field(value, "files");
-  if (!Array.isArray(files)) return [];
-  return files
-    .map((file) => scalar(field(file, "path")))
-    .filter((path): path is string => path !== undefined);
 }
 
 function summarize(command: Command, value: unknown): string {
@@ -898,9 +747,6 @@ function summarize(command: Command, value: unknown): string {
       );
       break;
     }
-    case "new":
-      lines.push(`scaffolded into ${scalar(field(value, "root")) ?? "?"}`);
-      break;
     case "inspect": {
       const findings = field(value, "findings");
       const count = Array.isArray(findings) ? findings.length : 0;
@@ -918,41 +764,9 @@ function summarize(command: Command, value: unknown): string {
       );
       break;
     }
-    case "add":
-      lines.push(`added ${scalar(field(value, "feature")) ?? "feature"}`);
+    case "install":
       break;
-    case "deploy": {
-      const webhook = field(value, "setWebhook");
-      lines.push(`deploy plan for ${scalar(field(webhook, "url")) ?? "?"}`);
-      break;
-    }
-    case "harness": {
-      const commands = field(value, "commands");
-      lines.push(
-        `wrote test harness${Array.isArray(commands) && commands.length > 0 ? ` (${commands.map(String).join(", ")})` : ""}`,
-      );
-      break;
-    }
-    case "upgrade": {
-      const changed = field(value, "changed");
-      lines.push(
-        `spec ${scalar(field(value, "specVersion")) ?? "?"}: ${
-          Array.isArray(changed) ? changed.length : 0
-        } changed`,
-      );
-      break;
-    }
-    case "upgrade-plan": {
-      const actions = field(value, "actions");
-      lines.push(
-        `Bot API ${scalar(field(value, "currentBotApi")) ?? "?"} -> ${scalar(field(value, "targetBotApi")) ?? "?"}, ${
-          Array.isArray(actions) ? actions.length : 0
-        } actions`,
-      );
-      break;
-    }
   }
-  lines.push(...filePaths(value).map((path) => `  ${path}`));
   return lines.join("\n");
 }
 

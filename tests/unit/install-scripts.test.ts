@@ -262,7 +262,7 @@ test(
     assert.ok((await stat(launcher)).isFile());
     const version = await run(launcher, ["--version"], { cwd: root });
     assert.equal(version.code, 0, version.stderr);
-    assert.match(version.stdout, /Aurifex 0\.2\.0/);
+    assert.match(version.stdout, /Aurifex 0\.\d+\.\d+/);
   },
 );
 
@@ -274,21 +274,45 @@ test(
     const root = await tempRoot();
     t.after(() => rm(root, { recursive: true, force: true }));
     const pkg = join(root, "пакет $dollar `tick` \\slash 'single' & ! ^ %");
-    const bin = join(root, "bin"); const launcherDir = join(root, "launcher");
-    await mkdir(pkg, { recursive: true }); await mkdir(bin);
+    const bin = join(root, "bin");
+    const launcherDir = join(root, "launcher");
+    await mkdir(pkg, { recursive: true });
+    await mkdir(bin);
     await cp(join(REPO, "package.json"), join(pkg, "package.json"));
     await cp(join(REPO, "dist"), join(pkg, "dist"), { recursive: true });
-    await writeFile(join(pkg, "package.json"), '{"name":"aurifex","version":"0.2.0","type":"commonjs"}');
-    await writeFile(join(pkg, "dist", "cli.js"), `if (process.argv[2] === "install") process.exit(0); process.stdout.write(JSON.stringify(process.argv.slice(2)) + "\\n"); process.exitCode = 17;`);
+    await writeFile(
+      join(pkg, "package.json"),
+      '{"name":"aurifex","version":"0.2.0","type":"commonjs"}',
+    );
+    await writeFile(
+      join(pkg, "dist", "cli.js"),
+      `if (process.argv[2] === "install") process.exit(0); process.stdout.write(JSON.stringify(process.argv.slice(2)) + "\\n"); process.exitCode = 17;`,
+    );
     await writeFile(join(bin, "omp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     const install = await run("/bin/sh", [INSTALL_SH], {
       cwd: root,
-      env: { PATH: `${join(process.execPath, "..")}:${bin}:/usr/bin:/bin:/opt/homebrew/bin`, AURIFEX_SOURCE_DIR: pkg, AURIFEX_BIN_DIR: launcherDir, AURIFEX_HOSTS: "omp", AURIFEX_YES: "1" },
+      env: {
+        PATH: `${join(process.execPath, "..")}:${bin}:/usr/bin:/bin:/opt/homebrew/bin`,
+        AURIFEX_SOURCE_DIR: pkg,
+        AURIFEX_BIN_DIR: launcherDir,
+        AURIFEX_HOSTS: "omp",
+        AURIFEX_YES: "1",
+      },
     });
     assert.equal(install.code, 0, install.stderr);
-    const result = await run(join(launcherDir, "aurifex"), ["arg with spaces", "$literal", "`literal`", "\\", "quote's"], { cwd: root });
+    const result = await run(
+      join(launcherDir, "aurifex"),
+      ["arg with spaces", "$literal", "`literal`", "\\", "quote's"],
+      { cwd: root },
+    );
     assert.equal(result.code, 17);
-    assert.deepEqual(JSON.parse(result.stdout), ["arg with spaces", "$literal", "`literal`", "\\", "quote's"]);
+    assert.deepEqual(JSON.parse(result.stdout), [
+      "arg with spaces",
+      "$literal",
+      "`literal`",
+      "\\",
+      "quote's",
+    ]);
   },
 );
 
@@ -486,10 +510,28 @@ test(
       );
     }
     const drive = async (mode: string) => {
-      const result = await run("python3", ["-c", PTY_DRIVER, mode, process.execPath, "--experimental-strip-types", join(REPO, "src", "cli.ts"), "install", "--source", pkg], {
-        cwd: root,
-        env: { HOME: join(root, "home"), PATH: `${bin}:${join(process.execPath, "..")}:/usr/bin:/bin:/opt/homebrew/bin`, AURIFEX_TEST_LOG: log },
-      });
+      const result = await run(
+        "python3",
+        [
+          "-c",
+          PTY_DRIVER,
+          mode,
+          process.execPath,
+          "--experimental-strip-types",
+          join(REPO, "src", "cli.ts"),
+          "install",
+          "--source",
+          pkg,
+        ],
+        {
+          cwd: root,
+          env: {
+            HOME: join(root, "home"),
+            PATH: `${bin}:${join(process.execPath, "..")}:/usr/bin:/bin:/opt/homebrew/bin`,
+            AURIFEX_TEST_LOG: log,
+          },
+        },
+      );
       assert.equal(result.code, 0, result.stderr);
       return JSON.parse(result.stdout.trim().split("\n").at(-1)!) as { code: number; out: string };
     };
@@ -499,7 +541,8 @@ test(
     assert.match(defaults.out, /Installed: OMP, DSH, Claude Code/);
     assert.match(defaults.out, /Scope \[user\/project\] \(user\)/);
     const calls = await readFile(log, "utf8");
-    for (const host of ["omp", "dsh", "claude"]) assert.ok(calls.includes(`${host}:`), `missing ${host}`);
+    for (const host of ["omp", "dsh", "claude"])
+      assert.ok(calls.includes(`${host}:`), `missing ${host}`);
 
     for (const mode of ["int", "eof"]) {
       await rm(log, { force: true });

@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { createCoreOperations, type CoreOperations } from "../../core/operations.ts";
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
-import { BOT_FEATURES, type BotFeature } from "../../core/spec/bot-spec.ts";
 
 const MAX_RESULT_BYTES = 262_144;
-const SERVER_VERSION = "0.2.0";
+const SERVER_VERSION = "0.3.0";
 const PROTOCOL_VERSION = "2025-11-25";
 
 /**
@@ -60,8 +59,6 @@ interface ToolDefinition {
 const STACKS = ["grammy", "aiogram"] as const;
 const PROJECT_ROOT: JsonSchema = { type: "string", minLength: 1 };
 
-const FEATURE_SCHEMA: JsonSchema = { type: "string", enum: BOT_FEATURES };
-
 function tool(
   name: string,
   description: string,
@@ -84,26 +81,6 @@ export const TOOLS: readonly ToolDefinition[] = [
     (operations, args) => operations.resolveTarget({ stack: args.stack as "grammy" | "aiogram" }),
   ),
   tool(
-    "telegram_bot_scaffold",
-    "Scaffold a standalone, production-grade Telegram bot project from a validated BotSpec. First ask the discovery questions from skills/telegram-bot-discovery, confirm the proposed spec with the user, and never invent stack, feature, storage, locale, or payment values.",
-    {
-      type: "object",
-      properties: {
-        destination: PROJECT_ROOT,
-        spec: { type: "object" },
-        overwrite: { type: "boolean" },
-      },
-      required: ["destination", "spec"],
-      additionalProperties: false,
-    },
-    (operations, args) =>
-      operations.scaffoldBot({
-        destination: args.destination as string,
-        spec: args.spec,
-        ...(args.overwrite === undefined ? {} : { overwrite: args.overwrite as boolean }),
-      }),
-  ),
-  tool(
     "telegram_bot_inspect",
     "Inspect an existing bot project and report its stack, mode, and findings.",
     {
@@ -124,91 +101,6 @@ export const TOOLS: readonly ToolDefinition[] = [
       additionalProperties: false,
     },
     (operations, args) => operations.verifyBot({ projectRoot: args.projectRoot as string }),
-  ),
-  tool(
-    "telegram_bot_add_feature",
-    "Add a feature module (commands, llm, inline, payments, miniapps, moderation, broadcast, widgets, rich) to an existing bot project. First ask the discovery questions from skills/telegram-bot-discovery and confirm the proposed BotSpec; never invent stack, feature, storage, locale, or payment values. Products are configured at scaffold via spec.payments.products.",
-    {
-      type: "object",
-      properties: {
-        projectRoot: PROJECT_ROOT,
-        feature: FEATURE_SCHEMA,
-        name: PROJECT_ROOT,
-        overwrite: { type: "boolean" },
-      },
-      required: ["projectRoot", "feature", "name"],
-      additionalProperties: false,
-    },
-    (operations, args) =>
-      operations.addFeature({
-        projectRoot: args.projectRoot as string,
-        feature: args.feature as BotFeature,
-        name: args.name as string,
-        ...(args.overwrite === undefined ? {} : { overwrite: args.overwrite as boolean }),
-      }),
-  ),
-  tool(
-    "telegram_bot_deploy_plan",
-    "Generate deployment files and a webhook setup plan for a bot project. Never calls Telegram.",
-    {
-      type: "object",
-      properties: {
-        projectRoot: PROJECT_ROOT,
-        domain: PROJECT_ROOT,
-        mode: { type: "string", enum: ["webhook", "polling"] },
-        overwrite: { type: "boolean" },
-      },
-      required: ["projectRoot", "domain"],
-      additionalProperties: false,
-    },
-    (operations, args) =>
-      operations.planDeploy({
-        projectRoot: args.projectRoot as string,
-        domain: args.domain as string,
-        ...(args.mode === undefined ? {} : { mode: args.mode as "webhook" | "polling" }),
-        ...(args.overwrite === undefined ? {} : { overwrite: args.overwrite as boolean }),
-      }),
-  ),
-  tool(
-    "telegram_bot_test_harness",
-    "Generate Telegram update fixtures, fake-Telegram tests, and a compose harness.",
-    {
-      type: "object",
-      properties: { projectRoot: PROJECT_ROOT, overwrite: { type: "boolean" } },
-      required: ["projectRoot"],
-      additionalProperties: false,
-    },
-    (operations, args) =>
-      operations.generateTestHarness({
-        projectRoot: args.projectRoot as string,
-        ...(args.overwrite === undefined ? {} : { overwrite: args.overwrite as boolean }),
-      }),
-  ),
-  tool(
-    "telegram_bot_upgrade",
-    "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
-    {
-      type: "object",
-      properties: { projectRoot: PROJECT_ROOT, apply: { type: "boolean" } },
-      required: ["projectRoot"],
-      additionalProperties: false,
-    },
-    (operations, args) =>
-      operations.upgradeProject({
-        projectRoot: args.projectRoot as string,
-        apply: args.apply === true,
-      }),
-  ),
-  tool(
-    "telegram_bot_upgrade_plan",
-    "List Bot API 10.4 upgrade actions for a bot project.",
-    {
-      type: "object",
-      properties: { projectRoot: PROJECT_ROOT },
-      required: ["projectRoot"],
-      additionalProperties: false,
-    },
-    (operations, args) => operations.upgradePlan({ projectRoot: args.projectRoot as string }),
   ),
 ];
 

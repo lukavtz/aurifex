@@ -34,7 +34,9 @@ test(
   "Windows installer executes .cmd host shims through cmd.exe",
   { skip: WINDOWS ? false : "Windows-only coverage" },
   async (t) => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "aurifex-win-install-кириллица % & ! ^ $-")));
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "aurifex-win-install-кириллица % & ! ^ $-")),
+    );
     t.after(() => rm(root, { recursive: true, force: true }));
     const bin = join(root, "bin");
     const pkg = join(root, "pkg");
