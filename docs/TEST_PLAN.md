@@ -1,61 +1,99 @@
 # Aurifex Test Plan
 
-This document is the authoritative test matrix for Aurifex v0.1. It defines what is
-checked, with which command, on which runtime, and what counts as a failure.
+This document is the authoritative test matrix for Aurifex `0.3.0`. It defines what is
+checked, with which command, and what counts as a failure.
 
 ## Principles
 
 - Every check is deterministic tooling: `node --test`, `oxlint`, `tsc`, `prettier`,
-  `ruff`, `mypy`, `pytest`, or the secret scanner. No subjective review gates.
-- Aurifex never executes generated project code during unit, security, integration, or
-  host suites. Generated projects are only executed in the gated E2E suites.
-- Every operation path goes through `PathPolicy`. Any path that escapes the
-  authorized root is a failure, not a warning. Scaffold staging uses `wx` plus
-  `realpath` checks in the same root as a deliberate atomic-commit exception.
-- Telegram tokens are findings. A tracked non-fixture file or generated file that
-  contains a token-shaped literal fails the build; `tests/fixtures/` is excluded from
-  the scanner, so planted-token tests build strings at runtime.
+  `bun test`, `pytest`, `uv`, or the repository check scripts. No subjective review gates.
+- The verifier under test never executes project code. Integration tests feed it fixed
+  trees and compare check ids.
+- Every filesystem read goes through `PathPolicy`. A path that escapes the authorized
+  root is a failure, not a warning.
+- Telegram tokens are findings. A tracked file containing a token-shaped literal fails
+  the build; fixtures build such strings at runtime instead of storing them.
+- Knowledge is code: `tools/check-skills.mjs` validates the 15 skills offline.
 
 ## Environments
 
-| Tool   | Version                         | Used by                                     |
-| ------ | ------------------------------- | ------------------------------------------- |
-| Node   | >= 24.9.0 (CI: 24)              | all suites; `--experimental-strip-types`    |
-| pnpm   | 12.18                           | install, scripts, `verify`                  |
-| Bun    | 1.4.2                           | generated grammY project install/build/test |
-| uv     | 0.12.23                         | generated aiogram project lock/sync/run     |
-| Python | 3.14 (supported `>=3.11,<3.15`) | generated aiogram project                   |
-| Docker | current stable                  | optional tgfake compose harness             |
+| Tool   | Version                         | Used by                                  |
+| ------ | ------------------------------- | ---------------------------------------- |
+| Node   | >= 24.9.0 (CI: 24)              | all suites; `--experimental-strip-types` |
+| pnpm   | 12.18                           | install, scripts, `verify`               |
+| Bun    | 1.4.2                           | `examples/grammy_commands`               |
+| uv     | 0.12.23                         | `examples/aiogram_commands`              |
+| Python | 3.14 (supported `>=3.11,<3.15`) | `examples/aiogram_commands`              |
+| Docker | current stable                  | optional, not in the default gate        |
 
-Unit, security, integration, and host suites require no network. Generated-project E2E
-runs package managers and therefore needs network; the live suite also needs network.
+Unit, security, integration, host, skill, site, and secret suites require no network.
+The reference-project suites install dependencies and therefore need network.
+
+## Full command list
+
+```sh
+pnpm install --frozen-lockfile
+npx tsc --noEmit
+node tools/check-skills.mjs
+node tools/check-site.mjs
+node --test --experimental-strip-types "tests/unit/**/*.test.ts"
+node --test --experimental-strip-types "tests/security/**/*.test.ts"
+node --test --experimental-strip-types "tests/integration/**/*.test.ts"
+node --test --experimental-strip-types "tests/host/**/*.test.ts"
+pnpm verify
+
+(cd examples/grammy_commands && bun install --frozen-lockfile && bun run typecheck && bun test)
+(cd examples/aiogram_commands && uv sync --frozen && uv run pytest -q)
+
+node dist/cli.js verify examples/grammy_commands --json
+node dist/cli.js verify examples/aiogram_commands --json
+node dist/cli.js --help
+node dist/adapters/mcp/server.js   # stdio: initialize -> tools/list = 3
+```
+
+Expected observations:
+
+- `check-skills: ok · 15 skills`
+- `check-site: ok · 3 locales …`
+- unit, security, integration, and host suites finish without failures
+- both reference projects install offline-only from their frozen lockfiles, typecheck,
+  and pass their own tests
+- both `verify --json` runs produce `"ok": true` and `summary.fail == 0`
+- `tools/list` returns exactly `telegram_bot_target_resolve`,
+  `telegram_bot_inspect`, `telegram_bot_verify`
+- `initialize` with a client version of `1999-01-01` answers `2025-11-25`
 
 ## Matrix
 
-| Suite           | Command                             | Scope                                                                           | Network | Skip behavior                                                                |
-| --------------- | ----------------------------------- | ------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------- |
-| Unit            | `pnpm test:unit`                    | `tests/unit/**/*.test.ts`                                                       | no      | never skipped                                                                |
-| Security        | `pnpm test:security`                | `tests/security/**/*.test.ts`                                                   | no      | never skipped                                                                |
-| Integration     | `pnpm test:integration`             | `tests/integration/**/*.test.ts`                                                | no      | never skipped                                                                |
-| Host            | `pnpm test:host`                    | `tests/host/**/*.test.ts`                                                       | no      | never skipped                                                                |
-| E2E (generated) | `AURIFEX_E2E=1 pnpm test:e2e`       | `tests/e2e/**/*.test.ts`                                                        | yes     | skipped unless `AURIFEX_E2E=1`                                               |
-| E2E (live)      | `AURIFEX_LIVE=1 pnpm test:e2e:live` | `tests/e2e/live-telegram.test.ts`                                               | yes     | skipped unless `AURIFEX_LIVE=1`; fails if secrets are absent while it is set |
-| Site            | `pnpm check:site`                   | trilingual key parity, local assets, no external scripts                        | no      | never skipped                                                                |
-| Full gate       | `pnpm verify`                       | format, lint, typecheck, unit, security, integration, host, site, secrets, pack | no      | never skipped                                                                |
+| Suite             | Command                                                          | Scope                                 | Network | Skip behavior    |
+| ----------------- | ---------------------------------------------------------------- | ------------------------------------- | ------- | ---------------- |
+| Unit              | `pnpm test:unit`                                                 | `tests/unit/**/*.test.ts`             | no      | never skipped    |
+| Security          | `pnpm test:security`                                             | `tests/security/**/*.test.ts`         | no      | never skipped    |
+| Fuzz              | `pnpm test:fuzz`                                                 | `tests/security/fuzz.test.ts`         | no      | never skipped    |
+| Integration       | `pnpm test:integration`                                          | `tests/integration/**/*.test.ts`      | no      | never skipped    |
+| Host              | `pnpm test:host`                                                 | `tests/host/**/*.test.ts`             | no      | never skipped    |
+| Skills            | `pnpm check:skills`                                              | every `skills/*/SKILL.md`             | no      | never skipped    |
+| Site              | `pnpm check:site`                                                | trilingual key parity, assets, counts | no      | never skipped    |
+| Secrets           | `pnpm check:secrets`                                             | tracked text files                    | no      | never skipped    |
+| Package           | `pnpm pack:check`                                                | declared `files` in the tarball       | no      | never skipped    |
+| Reference grammY  | `bun install --frozen-lockfile && bun run typecheck && bun test` | `examples/grammy_commands`            | yes     | separate command |
+| Reference aiogram | `uv sync --frozen && uv run pytest -q`                           | `examples/aiogram_commands`           | yes     | separate command |
 
 `pnpm verify` order is fixed:
-`format:check → lint → typecheck → test:unit → test:security → test:integration → test:host → check:secrets → pack:check`.
+`format:check → lint → typecheck → test:unit → test:security → test:fuzz →
+test:integration → test:host → check:skills → check:site → check:secrets → pack:check`.
 
 ## Deterministic checks
 
-| Check            | Command                             | Failure condition                                                                                 |
-| ---------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Formatting       | `pnpm format:check`                 | any file differs from Prettier output                                                             |
-| Lint             | `pnpm lint`                         | any `oxlint` diagnostic                                                                           |
-| Types            | `pnpm typecheck`                    | any TypeScript error (strict, NodeNext, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) |
-| Secret literals  | `node scripts/check-no-secrets.mjs` | token-shaped literal in any tracked text file                                                     |
-| Package contents | `pnpm pack:check`                   | declared `files` missing from the tarball                                                         |
-| Environment      | workflow steps                      | missing Node 24, Bun 1.4.2, or uv 0.12.23                                                         |
+| Check            | Command                           | Failure condition                                                                                                                                                                                                                                                                               |
+| ---------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Formatting       | `pnpm format:check`               | any file differs from Prettier output                                                                                                                                                                                                                                                           |
+| Lint             | `pnpm lint`                       | any `oxlint` diagnostic                                                                                                                                                                                                                                                                         |
+| Types            | `pnpm typecheck`                  | any TypeScript error (strict, NodeNext, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`)                                                                                                                                                                                               |
+| Skill structure  | `node tools/check-skills.mjs`     | missing or mismatched frontmatter, description over 1024 chars or not starting with `Use when`, body over 500 lines, missing `## Procedure`/`## Gotchas`/`## Sources`, fewer than three absolute `https://` sources, broken relative link, token-like literal, or a removed generator tool name |
+| Site truth       | `node tools/check-site.mjs`       | locale key mismatch, external script, wrong count (checks 29, tools 3, commands 4), unknown tool or command, skill chip without a `SKILL.md`                                                                                                                                                    |
+| Secret literals  | `node tools/check-no-secrets.mjs` | token-shaped literal in a tracked text file                                                                                                                                                                                                                                                     |
+| Package contents | `pnpm pack:check`                 | declared `files` missing from the tarball                                                                                                                                                                                                                                                       |
 
 ## Suite detail
 
@@ -64,132 +102,102 @@ runs package managers and therefore needs network; the live suite also needs net
 - `bot-spec.test.ts` — `validateBotSpec`, feature-name rules, duplicate rejection,
   webhook-secret rule, locale rule, control-character rejection, `botSpecHash` stability.
 - `catalog.test.ts` — exact grammY/aiogram pins, Node/Python ranges, tested Bot API `10.3`,
-  `resolveStack` warnings.
+  supported `10.4`, `resolveTarget` warnings.
+- `api104-contract.test.ts` — `API104_METHODS`, `API104_PARAMS`, and the 10.4 type surface;
+  exact params for `getUniqueGift`, `getChatShareThemeBackdrops`, and
+  `deleteBusinessAccountGift`.
+- `layout.test.ts` — the path set in
+  `skills/telegram-bot-recipes/references/project-layout.md` equals `layoutPaths()`, and no
+  layout path literal exists in TypeScript outside `src/core/layout.ts`.
 - `path-policy.test.ts` — `..`, absolute escapes, NUL bytes, backslashes, symlink escape,
-  `wx` semantics, overwrite, 1 MiB cap, ignored directories.
+  1 MiB read cap, ignored directories.
 - `secrets.test.ts` — token detection, redaction shape, placeholder ignore,
   `WEBHOOK_SECRET_RE` validation.
-- `templates-grammy.test.ts` — deterministic grammY set, Bot API 10.4 raw adapter,
-  10.4 widget/rich handlers, middleware wiring, 1 MiB cap, non-root Dockerfile.
-- `templates-aiogram.test.ts` — deterministic aiogram set, `TelegramMethod` raw
-  methods, miniapp route, retry helper, pytest `pythonpath`, non-root Dockerfile.
-- `templates-miniapp.test.ts` — React/Vite files, relative base, WebApp init, no
-  external scripts, no token literal.
-- `cli.test.ts` — exit codes `0/1/2`, JSON shape, usage errors, project-relative
-  scaffold paths.
-- `install.test.ts` — one-command installer: dry-run, all hosts, source resolution,
-  missing host, redaction (POSIX fake-host shims).
+- `cli.test.ts` — exit codes `0/1/2`, JSON shape, usage errors, project path resolution.
+- `install.test.ts` — installer: dry-run, all hosts, source resolution, missing host,
+  redaction (POSIX fake-host shims).
 - `install-scripts.test.ts` — `install.sh`/`install.ps1` flow, persistent root, Node
-  version floor, idempotent re-run; PowerShell execution is Windows-only.
+  version floor, idempotent re-run, automatic exit; PowerShell execution is Windows-only.
 - `install-windows.test.ts` — Windows-only `.cmd` host shim execution through `cmd.exe`.
-- `content.test.ts` — skill/agent/command frontmatter, name/directory agreement, body size
-  under 8 KB, Bot API 10.4 skill coverage.
-- `scripts/check-site.mjs` — EN/RU/ZH key parity, every local asset, no external scripts.
+- `check-skills.test.ts` — the script passes on the repository and fails on a temporary
+  directory with each violation.
+- `skill-scripts.test.ts` — `tg_text.py` escaping, length, and split behavior;
+  `telegram_payload.py` accepts a valid `sendMessage` and rejects `callback_data` over 64
+  bytes; `tg_docs.py changelog` works offline against a prefilled cache.
+- `reference-projects.test.ts` — key files exist and `.aurifex/` is absent in both
+  reference projects.
+- `schema.test.ts` — the JSON Schema and validator agree on accepted and rejected shapes.
+- `spec-v11.test.ts` — 1.0 normalization and 1.1 coupling rules.
+- `content.test.ts` — skill, agent, and command frontmatter and cross-references.
+- `check-bot-api.test.ts`, `workflows.test.ts` — repository checks, workflow
+  expectations, and the Bot API watcher.
 
 ### Security (`tests/security`)
 
-- `token-plant.test.ts` — planting a token-shaped literal in a scaffolded project makes
-  `verify` fail `token.literal` without echoing the token.
-- `path-traversal.test.ts` — `..`, absolute escapes, symlink files/directories, NUL,
-  backslashes, and percent-encoded dot segments; scaffold and add-feature escapes.
+- `token-plant.test.ts` — planting a token-shaped literal in a copy of a reference project
+  makes `verify` fail `token.literal` without echoing the token.
+- `path-traversal.test.ts` — `..`, absolute escapes, symlink files and directories, NUL,
+  backslashes, and percent-encoded dot segments against inspect, verify, and the CLI.
 - `webhook-constants.test.ts` — framework secret-token options pass
-  `webhook.constant_time`; custom `==`/`===` header compares fail; output never echoes
+  `webhook.constant_time`; a custom `==`/`===` header compare fails; output never echoes
   the secret.
+- `fuzz.test.ts` — `BotSpec` totality and unknown-key rejection, path escape attempts,
+  payload splitting.
 
 ### Integration (`tests/integration`)
 
-- `scaffold.test.ts` — file set, hashes, `.env.example` emptiness, destination refusal,
-  overwrite semantics, rollback after a mid-write failure, spec errors, path escape.
-- `verify.test.ts` — clean grammY and aiogram scaffolds pass; planted token, missing
-  webhook secret, missing `.gitignore`, removed 10.4 adapter, and symlink root fail.
-- `add-feature.test.ts` — all nine features for both stacks, duplicate refusal, invalid
-  names, single `miniapp` add, nested project roots.
-- `deploy.test.ts` — domain validation, deployment files, set-webhook scripts, harness
-  fixtures/fake transport, upgrade plan; no Telegram call is made.
+`verify.test.ts` runs the verifier against complete trees:
+
+- both reference projects produce `ok: true` and zero `fail`;
+- a copy with a token literal fails `token.literal`;
+- a copy with `queue: postgres` but no worker fails `queue.worker`;
+- a copy without `answerCallbackQuery` fails `tests.infrastructure`;
+- a copy parsing `initData` without key sorting fails `miniapp.session`.
+
+Each mutation asserts the exact check id, so a renamed or removed check is caught.
 
 ### Host (`tests/host`)
 
-- `omp-adapter.test.ts` — 9 tools, approval tiers, strict schemas, no filesystem I/O at
-  registration, `details.status` for target resolve and scaffold.
-- `dsh-adapter.test.ts` — no default export, `name`/`inject`/`Config`/`apply`, 8 registered
-  tools, disposal removes them.
-- `mcp-server.test.ts` — stdio `initialize`, `tools/list` (9 tools), `tools/call`, no
-  stdout noise.
+- `omp-adapter.test.ts` — three tools, `read` approval, strict schemas, no filesystem I/O
+  at registration, three commands registered.
+- `dsh-adapter.test.ts` — no default export, `name`/`inject`/`Config`/`apply`, three
+  registered tools, disposal removes them.
+- `mcp-server.test.ts` — stdio `initialize` (protocol `2025-11-25`), `tools/list` (three
+  tools), `tools/call`, no stdout noise.
 
-### E2E (`tests/e2e`, gated)
+### Reference projects
 
-- `generated-grammy.test.ts` — scaffold, `bun install`, `bun run typecheck`, `bun test`,
-  `bun run build`, config parse with a dummy environment.
-- `generated-aiogram.test.ts` — scaffold, `uv lock`, `uv sync --frozen`,
-  `uv run ruff check .`, `uv run mypy app`, `uv run pytest -q`.
-- `live-telegram.test.ts` — `getMe`, `getWebhookInfo`, one `sendMessage` to the test chat.
+`examples/grammy_commands`:
 
-Unless `AURIFEX_E2E=1` is set, generated-project suites emit an explicit skip message and
-exit successfully. CI sets it for the `e2e` job.
+- `bun install --frozen-lockfile`, `bun run typecheck`, `bun test`;
+- `/start` replies with an inline button; the callback handler acknowledges;
+- configuration comes from environment variables; tests run offline.
 
-### Pages
+`examples/aiogram_commands`:
 
-`.github/workflows/pages.yml` runs `node scripts/check-site.mjs`, uploads `site/`, and
-deploys with the official Pages actions. The live URL is
-<https://lukavtz.github.io/aurifex/>.
+- `uv sync --frozen`, `uv run pytest -q`;
+- the same surface, with `dp.feed_update(bot, update)` as the test entry point.
 
-### Live suite
+Both are then passed to `aurifex verify` via the CLI, which is the end-to-end proof that
+knowledge, code, and gate agree.
 
-Environment variables:
+## What this plan does not cover
 
-| Variable                  | Definition                                               |
-| ------------------------- | -------------------------------------------------------- |
-| `AURIFEX_LIVE`            | Set to `1` to enable live Telegram calls.                |
-| `TELEGRAM_TEST_BOT_TOKEN` | Token of a dedicated test bot. Never a production token. |
-| `TELEGRAM_TEST_CHAT_ID`   | Chat id owned by the test operator.                      |
-
-- The live suite skips with an explicit message when `AURIFEX_LIVE` is unset.
-- When `AURIFEX_LIVE=1` but either secret is missing, the suite fails loudly.
-- The live workflow `.github/workflows/live-e2e.yml` runs on `workflow_dispatch` only and
-  fails before the tests if secrets are absent.
-- The suite never calls `setWebhook`, never prints the token, and never writes it to disk.
+- **Runtime behaviour.** No test starts a bot, receives a real update, or calls Telegram.
+  Behavioural evidence comes from a project's own tests and a real deployment.
+- **Docker image builds.** Not in the default gate; optional and environment-dependent.
+- **Live Telegram API checks.** `tools/check-bot-api.mjs --check` and
+  `tg_docs.py` require network and are not part of `pnpm verify`. The docs tool exits `3`
+  when the network is unavailable; that is a reported state, not a test failure.
+- **Agent compliance.** Whether the agent actually asks before building is instruction
+  content, not something a unit test can prove. `content.test.ts` asserts the discovery
+  text exists and is referenced; it does not observe a model.
 
 ## Security invariants asserted by the suites
 
 1. No operation resolves a path outside its authorized root, including through symlinks.
-2. Generated files never contain a real or token-shaped secret; `.env.example` is empty.
-3. Webhook mode requires `secretToken`/`secret_token`, HTTPS, an allowed port, and a
-   constant-time comparison.
-4. Update deduplication (`update_id`) and `allowed_updates` are present in generated bots.
-5. Logging redacts `BOT_TOKEN`, `WEBHOOK_SECRET`, `LLM_API_KEY`, and authorization headers.
-6. Containers run as a non-root user.
-7. Generated compose files use `.env` credentials, do not publish the bot port,
-   and put Caddy in front of the bot.
-8. `verify` reports tokens as failures even in API URLs or oversized files, and its
-   output never includes the full token.
-
-## Bot API 10.4 support
-
-grammY 1.46.0 and aiogram 3.31.0 type declarations cover Bot API `10.3`. Aurifex
-supports `10.4` first-class through a typed raw adapter generated into every
-project (`src/telegram/api104.ts`, `app/services/api104.py`). The adapter covers
-`sendWidget`, `sendSharedWidget`, `answerWidgetQuery`, `editMessageWidgetData`,
-`editSharedWidgetData`, `sendRichMessage`, `sendRichMessageDraft`, ephemeral
-ephemeral callback replies, and rich messages/drafts. Other 10.4 data surfaces
-remain reachable through the raw transport.
-
-Generated tests assert the raw method names and payload bounds. `verify` check
-`botapi.104` fails when the adapter is removed. The package never claims that
-framework types themselves cover 10.4.
-
-Raw-method use is also subject to the platform limits the catalog reports: `update_id` is
-unique per bot, updates are retained for 24 hours, and a webhook and a polling loop must
-not consume the same bot concurrently.
-
-## Infrastructure, fuzz, Docker, and load
-
-| Command                             | Gate                   | Coverage                                                                                                                                   |
-| ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AURIFEX_INFRA=1 pnpm test:infra`   | Postgres 18 + Redis 8  | queue idempotency/claim exclusivity/dead-letter/recovery, payment uniqueness/refund/reconcile, broadcast resume, readiness, backup/restore |
-| `pnpm test:fuzz`                    | 10,000 fast-check runs | `BotSpec` totality, unknown-key rejection, path escape, generated Hypothesis initData parser                                               |
-| `AURIFEX_DOCKER=1 pnpm test:docker` | Docker daemon          | generated images: non-root user and `/healthz` 200                                                                                         |
-| `AURIFEX_LOAD=1 pnpm test:load`     | generated webhook      | p95 < 250 ms, error rate < 0.1%, no 5xx                                                                                                    |
-
-The default `pnpm verify` gate does not require Docker. CI runs infrastructure, Docker,
-fuzz, and load jobs on Ubuntu; the infrastructure job receives service containers, the
-Docker job uses buildx.
+2. Verification never writes, never executes, and never echoes a matched secret.
+3. The MCP server answers `2025-11-25` and publishes exactly three tools.
+4. Installer output redacts tokens and secrets and never prompts for credentials.
+5. Removed generator tool names do not reappear in skills or documentation.
+6. Both reference projects contain no token-shaped literal and no manifest.

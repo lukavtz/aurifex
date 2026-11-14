@@ -1,12 +1,24 @@
 ---
 name: telegram-deploy
-description: Use when deploying a Telegram bot, writing Docker or Caddy files, registering a webhook, planning a rollout, or diagnosing webhook delivery failures.
+description: Use when deploying a Telegram bot, writing Docker or Caddy files, registering a webhook, planning a rollout, backup, or diagnosing webhook delivery failures. Русские триггеры: деплой бота, вебхук не работает, докер для бота, откат релиза, бэкап базы бота.
 ---
 
 # Deploying a Telegram bot
 
 A deploy is a sequence of explicit checks, not a file copy. The bot must start with
 validated config, receive only intended updates, and fail closed on a bad secret.
+
+## Procedure
+
+1. Run the project's full verification and record the image digest.
+2. Confirm secrets come from the host store, and TLS resolves for the domain.
+3. Run migrations as a one-shot job, then start the new container.
+4. Wait for `/healthz` 200 and a clean `getMe`.
+5. `getWebhookInfo` before switching anything: record the current URL, pending
+   count, and `last_error_message`.
+6. Register the webhook (or delete it for polling) as one explicit operator action.
+7. Send one test update, watch errors, 429s, and queue depth.
+8. Remove the old container after the soak window.
 
 ## Preflight
 
@@ -19,6 +31,7 @@ validated config, receive only intended updates, and fail closed on a bad secret
 - [ ] `allowed_updates` matches the handler set.
 - [ ] Exactly one consumer exists for the token.
 - [ ] A rollback image and the previous environment are recorded.
+- [ ] A backup exists and a restore has been rehearsed.
 
 ## Dockerfile
 
@@ -122,6 +135,24 @@ bot.example.com {
 Caddy obtains and renews TLS. The webhook path must reach the bot without a redirect
 and without an extra body parser.
 
+## Delivery semantics
+
+- **Confirm only after the durable commit.** In webhook mode return 2xx after the
+  update is persisted or its work committed. In polling mode advance the `offset`
+  only after the same commit. A 2xx or an offset sent before commit turns a crash
+  into lost work; after commit, a redelivery becomes a deduplicated no-op.
+- Every retry path needs an idempotent handler. Telegram retries non-2xx, users
+  double-tap, and a restore can replay. Claim `update_id` or a business key before
+  side effects.
+- `getWebhookInfo` first when switching transport. It shows the registered URL,
+  `pending_update_count`, `last_error_date`, and `last_error_message`. Switching
+  blind can leave two consumers or an old secret.
+- `deleteWebhook({ drop_pending_updates: true })` discards every queued update,
+  including paid ones. It is not a startup step and not part of a normal polling
+  start; the default is `false`.
+- Graceful shutdown: stop accepting new updates, finish or requeue in-flight work,
+  close storage, exit non-zero only on failure. Do not kill the process mid-grant.
+
 ## Webhook registration
 
 Run this as an explicit operator action after the new version is healthy:
@@ -147,8 +178,8 @@ Rules:
 Polling alternative:
 
 ```ts
-await bot.api.deleteWebhook({ drop_pending_updates: true });
-await bot.start({ allowed_updates: ["message", "callback_query"] });
+await bot.api.deleteWebhook({ drop_pending_updates: false });
+await bot.start({ allowed_updates });
 ```
 
 Never run polling while a webhook is active.
@@ -158,13 +189,24 @@ Never run polling while a webhook is active.
 1. Build and push an immutable image tag. Record the digest.
 2. Run migrations as a one-shot job, not in every replica.
 3. Start the new container; wait for `/healthz` to return 200.
-4. Register or confirm the webhook.
+4. Read `getWebhookInfo`, then register or confirm the webhook.
 5. Send one test update to a test chat.
 6. Watch error rate, 429 count, webhook `last_error_message`, and queue depth.
 7. Remove the old container after the soak window.
 
 Use one replica per token unless updates are deduplicated in shared storage. A load
 balancer alone does not deduplicate; handlers must claim `update_id` atomically.
+
+## Backup and restore
+
+- Back up the database on a schedule and before every migration; keep the dump off
+  the same host.
+- Redis holds dedupe keys and queue state: `appendonly yes`, and treat a lost Redis
+  as lost leases, not lost money.
+- A restore must be rehearsed: restore into a staging database, run migrations, and
+  start a bot against a test token.
+- Never restore production data into a shared environment.
+- Record the restore command next to the backup job.
 
 ## Rollback
 
@@ -184,8 +226,24 @@ balancer alone does not deduplicate; handlers must claim `update_id` atomically.
 - A valid update produces exactly one handler execution.
 - Logs contain no token, secret, or full webhook URL.
 
+## Gotchas
+
+- A 2xx returned before commit looks healthy and loses the update on restart.
+  Telegram will not retry what it saw acknowledged.
+- `drop_pending_updates=true` on a token with a backlog deletes the backlog,
+  including `successful_payment` updates.
+- Omitting `allowed_updates` in `setWebhook` keeps the previous list. Changing the
+  handlers without re-registering silently drops the new types.
+- Two replicas behind a load balancer each receive updates unless the handler
+  claims `update_id` atomically.
+- A healthcheck that calls Telegram fails during an outage and restarts a healthy
+  bot.
+- Restoring a database without restoring the dedupe keys replays recent updates;
+  handlers must tolerate that.
+
 ## Sources
 
-Adapted from `nyxandro/telegram-bot-development-skill` (MIT),
-`nzhulikov/telegram-bot-skills` (Apache-2.0), and Telegram Bot API documentation.
-See `THIRD_PARTY_NOTICES.md`.
+- https://core.telegram.org/bots/api#setwebhook
+- https://core.telegram.org/bots/webhooks
+- https://core.telegram.org/bots/api#getwebhookinfo
+- https://caddyserver.com/docs/caddyfile/directives/reverse_proxy

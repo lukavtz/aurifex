@@ -7,9 +7,9 @@ from aiohttp import web
 
 from app.bot import create_bot, create_dispatcher, create_redis
 from app.config import Settings, get_settings
+from app.http.server import create_webhook_app
+from app.http.telemetry import init_telemetry, shutdown_telemetry
 from app.logger import configure_logging
-from app.runtime.telemetry import init_telemetry, shutdown_telemetry
-from app.webhook import create_webhook_app
 
 SERVICE_NAME = "aiogram Commands"
 

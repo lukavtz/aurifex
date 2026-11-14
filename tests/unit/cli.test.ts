@@ -1,31 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
-
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const CLI = join(REPO, "src", "cli.ts");
-
-const SPEC = {
-  schemaVersion: BOT_SPEC_VERSION,
-  name: "demo_bot",
-  displayName: "Demo Bot",
-  stack: "grammy",
-  features: ["commands"],
-  deployment: "docker",
-  storage: { postgres: false, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
-  security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
-  runtime: {
-    queue: "none",
-    telemetry: { otlp: false, prometheus: false, sentry: false },
-  },
-};
 
 interface RunResult {
   readonly code: number;
@@ -53,23 +35,38 @@ async function tempRoot(): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), "aurifex-cli-")));
 }
 
-async function writeSpec(root: string, spec: unknown = SPEC): Promise<string> {
-  const path = join(root, "spec.json");
-  await writeFile(path, JSON.stringify(spec));
-  return path;
-}
+test("--help lists exactly the four canonical commands", async () => {
+  const result = await run(["--help"]);
+  assert.equal(result.code, 0, result.stderr);
+  const commands = [...result.stdout.matchAll(/aurifex ([a-z-]+)/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(commands)].toSorted(), ["inspect", "install", "target", "verify"]);
+  for (const removed of ["scaffold", "upgrade", "harness", "deploy"]) {
+    assert.equal(result.stdout.includes(`aurifex ${removed}`), false, removed);
+  }
+});
 
-function parseJson<T = Record<string, unknown>>(output: string): T {
-  return JSON.parse(output) as T;
-}
+test("install documents local sources and rejects package or git sources", async () => {
+  const help = await run(["--help"]);
+  assert.match(help.stdout, /--source <path>/);
+  for (const source of ["aurifex", "git+https://example.com/aurifex.git"]) {
+    const result = await run(["install", "--source", source, "--yes"]);
+    assert.equal(result.code, 2);
+    assert.ok(
+      result.stderr.includes(
+        `unsupported install source: ${source}: pass an absolute path or a ./relative path to an Aurifex checkout`,
+      ),
+      result.stderr,
+    );
+  }
+});
 
 test("target --json resolves the grammY framework version", async () => {
   const result = await run(["target", "--stack", "grammy", "--json"]);
   assert.equal(result.code, 0, result.stderr);
-  const payload = parseJson<{
+  const payload = JSON.parse(result.stdout) as {
     status: string;
     value: { stack: string; target: { frameworkVersion: string } };
-  }>(result.stdout);
+  };
   assert.equal(payload.status, "ok");
   assert.equal(payload.value.stack, "grammy");
   assert.equal(payload.value.target.frameworkVersion, "1.46.0");
@@ -84,7 +81,6 @@ test("target without --json prints a one-line summary", async () => {
 test("usage errors exit 2", async (t) => {
   const root = await tempRoot();
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeSpec(root);
 
   const cases: readonly (readonly string[])[] = [
     [],
@@ -92,11 +88,9 @@ test("usage errors exit 2", async (t) => {
     ["target", "--stack", "grammy", "--bogus"],
     ["target"],
     ["target", "--stack", "telegraf"],
-    ["new", "--spec", join(root, "spec.json")],
-    ["new", "demo", "--spec", join(root, "spec.json"), "extra"],
-    ["new", "../escape", "--spec", join(root, "spec.json"), "--root", root],
-    ["add", "--root", root, "--feature", "nope", "--name", "demo"],
-    ["deploy", "--root", root, "--domain", "bot.example.com", "--mode", "carrier-pigeon"],
+    ["verify"],
+    ["verify", "one", "two"],
+    ["inspect"],
     ["install", "--host", "bogus"],
     ["install", "--scope", "global"],
     ["install", "extra"],
@@ -108,93 +102,23 @@ test("usage errors exit 2", async (t) => {
   }
 });
 
-test("invalid spec exits 1 with a domain error", async (t) => {
-  const root = await tempRoot();
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const spec = await writeSpec(root, { schemaVersion: "bot-spec-1.0.0" });
-
-  const result = await run(["new", "demo", "--spec", spec, "--root", root, "--json"]);
-  assert.equal(result.code, 1, result.stderr);
-  const payload = parseJson<{ status: string; error: { code: string } }>(result.stdout);
-  assert.equal(payload.status, "error");
-  assert.equal(payload.error.code, "invalid_request");
-});
-
-test("new then verify round trip", { timeout: 120_000 }, async (t) => {
-  const root = await tempRoot();
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const spec = await writeSpec(root);
-
-  const created = await run(["new", "demo", "--spec", spec, "--root", root, "--json"]);
-  assert.equal(created.code, 0, created.stderr);
-  const createdPayload = parseJson<{
-    status: string;
-    value: { root: string; files: Array<{ path: string }> };
-  }>(created.stdout);
-  assert.equal(createdPayload.status, "ok");
-  assert.equal(createdPayload.value.root, "demo");
-  assert.ok(createdPayload.value.files.length > 0);
-  assert.ok(createdPayload.value.files.some((file) => file.path === "src/server.ts"));
-  assert.ok(createdPayload.value.files.every((file) => !file.path.startsWith("demo/")));
-  await access(join(root, "demo", "src", "server.ts"));
-
-  const verified = await run(["verify", "demo", "--root", root, "--json"]);
-  assert.equal(verified.code, 0, verified.stderr);
-  const verifiedPayload = parseJson<{
-    status: string;
-    value: { checks: Array<{ id: string; status: string }> };
-  }>(verified.stdout);
-  assert.equal(verifiedPayload.status, "ok");
-  assert.ok(verifiedPayload.value.checks.length > 0);
-  assert.equal(
-    verifiedPayload.value.checks.find((check) => check.id === "webhook.secret")?.status,
-    "pass",
-  );
-});
-
-test("new reads the spec from stdin with --spec -", { timeout: 120_000 }, async (t) => {
-  const root = await tempRoot();
-  t.after(() => rm(root, { recursive: true, force: true }));
-
-  const result = await run(
-    ["new", "demo", "--spec", "-", "--root", root, "--json"],
-    JSON.stringify(SPEC),
-  );
+test("verify reports the reference project as ok", { timeout: 120_000 }, async () => {
+  const result = await run(["verify", "examples/grammy_commands", "--json"]);
   assert.equal(result.code, 0, result.stderr);
-  const payload = parseJson<{ status: string; value: { files: unknown[] } }>(result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    status: string;
+    value: { ok: boolean; summary: { fail: number } };
+  };
   assert.equal(payload.status, "ok");
-  assert.ok(payload.value.files.length > 0);
+  assert.equal(payload.value.ok, true);
+  assert.equal(payload.value.summary.fail, 0);
 });
 
-test("add rebases feature paths to the project root", { timeout: 120_000 }, async (t) => {
-  const root = await tempRoot();
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const spec = await writeSpec(root);
-
-  const created = await run(["new", "demo", "--spec", spec, "--root", root, "--json"]);
-  assert.equal(created.code, 0, created.stderr);
-
-  const added = await run([
-    "add",
-    "demo",
-    "--feature",
-    "commands",
-    "--name",
-    "echo",
-    "--root",
-    root,
-    "--json",
-  ]);
-  assert.equal(added.code, 0, added.stderr);
-  const payload = parseJson<{
-    status: string;
-    value: { root: string; files: Array<{ path: string }> };
-  }>(added.stdout);
-  assert.equal(payload.status, "ok");
-  assert.equal(payload.value.root, "demo");
-  assert.ok(payload.value.files.some((file) => file.path === "src/features/echo.ts"));
-  assert.ok(payload.value.files.every((file) => !file.path.startsWith("demo/")));
-  await access(join(root, "demo", "src", "features", "echo.ts"));
+test("verify of a missing project exits 1 with a domain error", async () => {
+  const result = await run(["verify", "does-not-exist", "--json"]);
+  assert.equal(result.code, 1, result.stderr);
+  const payload = JSON.parse(result.stdout) as { status: string; error: { code: string } };
+  assert.equal(payload.status, "error");
 });
 
 test("entry guard follows a symlinked bin", { skip: process.platform === "win32" }, async (t) => {

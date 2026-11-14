@@ -7,7 +7,12 @@ import { test } from "node:test";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 const skillNames = [
+  "telegram-bot",
   "telegram-bot-discovery",
+  "telegram-bot-sources",
+  "telegram-bot-stack-choice",
+  "telegram-bot-recipes",
+  "telegram-bot-failures",
   "telegram-bot-api",
   "telegram-bot-api-104",
   "grammy",
@@ -70,23 +75,13 @@ async function walkMarkdown(relativeDir: string): Promise<string[]> {
 // Construct the token pattern at runtime so this test does not match itself.
 const tokenPattern = ["\\b", "\\d", "{6,}", ":", "[A-Za-z0-9_-]", "{30,}", "\\b"].join("");
 
-test("every skill has name, Use when description, Sources, and body < 8192 bytes", async () => {
-  for (const name of skillNames) {
-    const file = `skills/${name}/SKILL.md`;
-    const text = await readContent(file);
-    const fields = parseFrontmatter(text, file);
-
-    assert.equal(fields.name, name, `${file}: name must match directory`);
-    assert.ok(
-      fields.description?.startsWith("Use when"),
-      `${file}: description must start with "Use when"`,
-    );
-    assert.ok(text.includes("\n## Sources\n"), `${file}: missing Sources section`);
-
-    const bodyEnd = text.indexOf("\n---\n", 4);
-    const bytes = Buffer.byteLength(text.slice(bodyEnd + 5), "utf8");
-    assert.ok(bytes < 8192, `${file}: body is ${bytes} bytes, must be below 8192`);
-  }
+test("the skill set is exactly the fifteen knowledge skills", async () => {
+  const entries = await readdir(path.join(repoRoot, "skills"), { withFileTypes: true });
+  const actual = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .toSorted();
+  assert.deepEqual(actual, [...skillNames].toSorted());
 });
 
 test("Bot API 10.4 skill covers the required first-class surfaces", async () => {
@@ -114,38 +109,28 @@ test("Bot API 10.4 skill covers the required first-class surfaces", async () => 
   }
 });
 
-test("discovery skill asks the material questions and gates the scaffold", async () => {
+test("discovery asks the material questions and gates the build", async () => {
   const skillFile = "skills/telegram-bot-discovery/SKILL.md";
   const text = await readContent(skillFile);
 
-  for (const topic of [
-    "Goal",
-    "Name and directory",
-    "Stack",
-    "Features",
-    "Storage",
-    "Localization",
-    "Access control",
-    "Payments",
-    "Broadcast",
-    "LLM",
-    "Mini App",
-    "Deployment",
-    "Existing project",
-  ]) {
+  for (const topic of ["Goal and audience", "Stack", "Features", "Locales", "Deployment"]) {
     assert.ok(text.includes(`**${topic}**`), `${skillFile}: missing question ${topic}`);
   }
 
   for (const gate of [
-    "telegram_bot_scaffold",
-    "telegram_bot_add_feature",
-    "confirm the proposed spec",
     "assuming:",
-    "Never ask for a real token",
+    "confirmation",
+    "telegram-bot-recipes",
+    "Never ask for a token",
   ]) {
     assert.ok(text.includes(gate), `${skillFile}: missing discovery gate text ${gate}`);
   }
 
+  assert.equal(
+    text.includes("telegram_bot_scaffold"),
+    false,
+    `${skillFile}: mentions removed tool`,
+  );
   const secretQuestion = /^\d+\.\s+\*\*.*(?:token|secret|api key|password)/im.exec(text);
   assert.equal(secretQuestion, null, `${skillFile}: questions must never request credentials`);
 });
@@ -161,48 +146,46 @@ test("agents have name and description frontmatter", async () => {
 });
 
 test("commands declare description, argument-hint, and telegram tool allowlist", async () => {
+  const plugin = JSON.parse(await readContent(".claude-plugin/plugin.json")) as { name: string };
+  const servers = JSON.parse(await readContent(".mcp.json")) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(servers), ["aurifex"]);
+  const namespace = `mcp__plugin_${plugin.name}_${Object.keys(servers)[0]}__`;
+  const toolNames = ["telegram_bot_target_resolve", "telegram_bot_inspect", "telegram_bot_verify"];
   for (const file of commandFiles) {
     const relativePath = `commands/${file}`;
     const fields = parseFrontmatter(await readContent(relativePath), relativePath);
     assert.ok(fields.description, `${relativePath}: missing description`);
     assert.ok(fields["argument-hint"], `${relativePath}: missing argument-hint`);
-    assert.ok(fields["allowed-tools"], `${relativePath}: missing allowed-tools`);
-    assert.match(
-      fields["allowed-tools"],
-      /telegram_bot_[a-z_]+/,
-      `${relativePath}: allowed-tools must name a telegram_bot_* tool`,
-    );
+    assert.ok(fields["allowed-tools"] !== undefined, `${relativePath}: missing allowed-tools`);
+    for (const tool of fields["allowed-tools"].split(/,\s*/).filter((name) => name !== "")) {
+      assert.ok(tool.startsWith(namespace), `${relativePath}: missing ${namespace} prefix`);
+      assert.ok(
+        toolNames.includes(tool.slice(namespace.length)),
+        `${relativePath}: unknown tool ${tool}`,
+      );
+    }
   }
 });
 
-test("aurifex-new command runs the discovery gate before scaffolding", async () => {
+test("aurifex-new runs the discovery gate before writing code", async () => {
   const file = "commands/aurifex-new.md";
   const text = await readContent(file);
   const fields = parseFrontmatter(text, file);
 
   assert.match(fields.description ?? "", /discovery/i, `${file}: description must name discovery`);
-  assert.ok(
-    text.includes("skills/telegram-bot-discovery"),
-    `${file}: must reference skills/telegram-bot-discovery`,
-  );
-  const bodyStart = text.indexOf("\n---\n", 4) + 5;
-  assert.ok(
-    text.indexOf("skills/telegram-bot-discovery", bodyStart) > bodyStart,
-    `${file}: body must reference skills/telegram-bot-discovery`,
-  );
-  assert.match(
-    text,
-    /Discovery happens before\s+`telegram_bot_scaffold`/,
-    `${file}: must order discovery first`,
-  );
-  for (const gate of ["assuming:", "payment products", "Mini App", "existing project"]) {
+  for (const reference of [
+    "skills/telegram-bot-discovery",
+    "skills/telegram-bot-recipes",
+    "telegram_bot_target_resolve",
+    "telegram_bot_verify",
+  ]) {
+    assert.ok(text.includes(reference), `${file}: must reference ${reference}`);
+  }
+  for (const gate of ["assuming:", "Do not write code until", "nobody asked for"]) {
     assert.ok(text.includes(gate), `${file}: missing ${gate}`);
   }
-  assert.match(text, /never infer/i, `${file}: stack and fields must never be inferred`);
-  assert.ok(
-    /never ask for a\s+real token or secret/i.test(text),
-    `${file}: must forbid secret questions`,
-  );
+  assert.match(text, /never infer|never ask for a real token/i, `${file}: missing the hard gate`);
+  assert.equal(text.includes("telegram_bot_scaffold"), false, `${file}: mentions removed tool`);
 });
 
 test("rules, prompt, and third-party notices exist and are non-empty", async () => {

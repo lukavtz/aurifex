@@ -8,8 +8,7 @@ import type {
 
 import type { CoreOperations } from "../../core/operations.ts";
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
-import { BOT_FEATURES } from "../../core/spec/bot-spec.ts";
-import { createHostCoreOperations } from "../shared.ts";
+import { createHostCoreOperations, DISCOVERY_GUIDANCE } from "../shared.ts";
 
 interface ToolOutput {
   readonly content: [{ readonly type: "text"; readonly text: string }];
@@ -42,16 +41,15 @@ async function runTool(
   };
 }
 
-const DISCOVERY_GUIDANCE =
-  "Before telegram_bot_scaffold or telegram_bot_add_feature, run the discovery questions in skills/telegram-bot-discovery and confirm the proposed BotSpec; never infer the stack, features, storage, locales, or payment products for the user. Never ask for or print bot tokens, webhook secrets, API keys, or passwords. Own generated projects through the aurifex tools, and run telegram_bot_verify after changing a generated bot.";
-
 const NEW_COMMAND_PROMPT = [
-  "Start a new Aurifex Telegram bot project.",
+  "Start a new Telegram bot project.",
   "",
-  "1. Read skills/telegram-bot-discovery and ask its material questions in one compact message: goal and audience, name and destination, stack (grammY or aiogram; never infer it), features, storage (Postgres/Redis), locales, admin IDs, payment products, broadcast audience, LLM provider, Mini App, deployment target, and whether an existing project must be preserved.",
-  "2. Never ask for a bot token, webhook secret, API key, or password; those belong in .env or *_FILE after generation.",
-  "3. Summarize the bot, list every `assuming:` value, and get confirmation of the proposed BotSpec.",
-  "4. Only after that confirmation call telegram_bot_target_resolve, then telegram_bot_scaffold. Do not create project files by hand.",
+  "1. Read the skills/telegram-bot and skills/telegram-bot-stack-choice skills before writing anything.",
+  "2. Read skills/telegram-bot-discovery and ask its questions in one compact message: goal and audience, stack (grammY or aiogram; never infer it), the exact features the user wants (inline buttons, scenes, media, payments, Mini App, LLM answers, broadcast), storage, locales, admin ids, and whether an existing project must be preserved.",
+  "3. Never ask for a bot token, webhook secret, API key, or password; those belong in the environment.",
+  "4. Summarize the bot, list every `assuming:` value, and get confirmation of the proposed BotSpec.",
+  "5. Only after that confirmation write the code yourself, following skills/telegram-bot-recipes for exactly the confirmed features. Do not add features nobody asked for.",
+  "6. Finish with telegram_bot_verify and fix every failing check.",
 ].join("\n");
 
 async function commandVerify(_args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -70,20 +68,6 @@ async function commandVerify(_args: string, ctx: ExtensionCommandContext): Promi
     .filter((check) => check.status === "fail")
     .map((check) => check.id);
   ctx.ui.notify(`Aurifex: verification failed: ${failed.join(", ")}`, "error");
-}
-
-async function commandDeploy(_args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const domain = (await ctx.ui.input("Domain", "bot.example.com")) ?? "bot.example.com";
-  const operations = await operationsFor(ctx.cwd);
-  const result = await operations.planDeploy({ projectRoot: ".", domain });
-  if (result.status === "error") {
-    ctx.ui.notify(`Aurifex: ${result.error.detail}`, "error");
-    return;
-  }
-  ctx.ui.notify(
-    `Aurifex: ${result.value.files.length} deploy files; WEBHOOK_URL=${result.value.setWebhook.url}`,
-    "info",
-  );
 }
 
 export default function aurifex(pi: ExtensionAPI): void {
@@ -112,29 +96,6 @@ export default function aurifex(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "telegram_bot_scaffold",
-    label: "Scaffold Telegram Bot",
-    description:
-      "Scaffold a production Telegram bot project from a validated BotSpec. First ask the discovery questions from skills/telegram-bot-discovery, confirm the proposed spec with the user, and never invent stack, feature, storage, locale, or payment values.",
-    parameters: z
-      .object({
-        destination: z.string().describe("Destination directory inside the project root"),
-        spec: z.unknown().describe("Bot spec object"),
-        overwrite: z.boolean().optional().describe("Overwrite files rendered by this operation"),
-      })
-      .strict(),
-    approval: "write",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.scaffoldBot(
-          params.overwrite === undefined
-            ? { destination: params.destination, spec: params.spec }
-            : { destination: params.destination, spec: params.spec, overwrite: params.overwrite },
-        ),
-      ),
-  });
-
-  pi.registerTool({
     name: "telegram_bot_inspect",
     label: "Inspect Telegram Bot",
     description: "Inspect an existing bot project for stack, mode, and security findings.",
@@ -153,7 +114,8 @@ export default function aurifex(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "telegram_bot_verify",
     label: "Verify Telegram Bot",
-    description: "Run the security and production-readiness verification gate for a bot project.",
+    description:
+      "Run static file-content checks; no project code execution, network, or Telegram calls.",
     parameters: z
       .object({
         projectRoot: z.string().describe("Project root relative to the workspace root"),
@@ -163,123 +125,6 @@ export default function aurifex(pi: ExtensionAPI): void {
     execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
       runTool(ctx, signal, (operations) =>
         operations.verifyBot({ projectRoot: params.projectRoot }),
-      ),
-  });
-
-  pi.registerTool({
-    name: "telegram_bot_add_feature",
-    label: "Add Bot Feature",
-    description: "Generate a feature module and tests for an existing bot project.",
-    parameters: z
-      .object({
-        projectRoot: z.string().describe("Project root relative to the workspace root"),
-        feature: z.enum(BOT_FEATURES).describe("Feature to add"),
-        name: z.string().describe("Feature module name"),
-        overwrite: z.boolean().optional().describe("Overwrite existing feature files"),
-      })
-      .strict(),
-    approval: "write",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.addFeature(
-          params.overwrite === undefined
-            ? {
-                projectRoot: params.projectRoot,
-                feature: params.feature,
-                name: params.name,
-              }
-            : {
-                projectRoot: params.projectRoot,
-                feature: params.feature,
-                name: params.name,
-                overwrite: params.overwrite,
-              },
-        ),
-      ),
-  });
-
-  pi.registerTool({
-    name: "telegram_bot_deploy_plan",
-    label: "Plan Bot Deployment",
-    description: "Render deployment files and a setWebhook plan without calling Telegram.",
-    parameters: z
-      .object({
-        projectRoot: z.string().describe("Project root relative to the workspace root"),
-        domain: z.string().describe("Public bot domain"),
-        mode: z.enum(["webhook", "polling"]).optional().describe("Update delivery mode"),
-        overwrite: z.boolean().optional().describe("Overwrite existing deploy files"),
-      })
-      .strict(),
-    approval: "write",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.planDeploy({
-          projectRoot: params.projectRoot,
-          domain: params.domain,
-          ...(params.mode === undefined ? {} : { mode: params.mode }),
-          ...(params.overwrite === undefined ? {} : { overwrite: params.overwrite }),
-        }),
-      ),
-  });
-
-  pi.registerTool({
-    name: "telegram_bot_test_harness",
-    label: "Generate Bot Test Harness",
-    description: "Generate update fixtures, a fake Telegram server, and security tests.",
-    parameters: z
-      .object({
-        projectRoot: z.string().describe("Project root relative to the workspace root"),
-        overwrite: z.boolean().optional().describe("Overwrite existing harness files"),
-      })
-      .strict(),
-    approval: "write",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.generateTestHarness(
-          params.overwrite === undefined
-            ? { projectRoot: params.projectRoot }
-            : { projectRoot: params.projectRoot, overwrite: params.overwrite },
-        ),
-      ),
-  });
-
-  pi.registerTool({
-    name: "telegram_bot_upgrade",
-    label: "Upgrade Bot Project",
-    description:
-      "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
-    parameters: z
-      .object({
-        projectRoot: z.string().describe("Project root relative to the workspace root"),
-        apply: z
-          .boolean()
-          .optional()
-          .describe("Write the migrated manifest. Defaults to false (dry run)."),
-      })
-      .strict(),
-    approval: "write",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.upgradeProject({
-          projectRoot: params.projectRoot,
-          apply: params.apply === true,
-        }),
-      ),
-  });
-
-  pi.registerTool({
-    name: "telegram_bot_upgrade_plan",
-    label: "Plan Bot API Upgrade",
-    description: "List Bot API 10.4 raw-method actions for an existing bot project.",
-    parameters: z
-      .object({
-        projectRoot: z.string().describe("Project root relative to the workspace root"),
-      })
-      .strict(),
-    approval: "read",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      runTool(ctx, signal, (operations) =>
-        operations.upgradePlan({ projectRoot: params.projectRoot }),
       ),
   });
 
@@ -298,6 +143,17 @@ export default function aurifex(pi: ExtensionAPI): void {
   });
   pi.registerCommand("aurifex-deploy", {
     description: "Plan a Telegram bot deployment",
-    handler: commandDeploy,
+    handler: async (args) => {
+      const trimmed = args.trim();
+      const prompt = [
+        "Plan the delivery of this Telegram bot.",
+        "",
+        "Read the skills/telegram-deploy skill and follow it: confirm the offset or the HTTP response only after the durable commit, check getWebhookInfo before switching transport, keep handlers idempotent because Telegram retries, and shut down gracefully.",
+        trimmed === "" ? "" : `User arguments: ${trimmed}`,
+      ]
+        .filter((line, index, lines) => line !== "" || lines[index - 1] !== "")
+        .join("\n");
+      await pi.sendUserMessage(prompt);
+    },
   });
 }

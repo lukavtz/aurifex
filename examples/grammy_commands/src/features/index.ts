@@ -27,8 +27,7 @@ export async function registerFeatures(deps: FeatureDeps): Promise<void> {
     (entry) =>
       FEATURE_FILE_RE.test(entry) && SKIPPED[entry] === undefined && !entry.endsWith(".d.ts"),
   );
-  entries.toSorted();
-  for (const entry of entries) {
+  for (const entry of entries.toSorted()) {
     // Feature modules are a runtime registry, so the specifier is selected at run time.
     const loaded = (await import(
       pathToFileURL(join(directory, entry)).href
@@ -37,8 +36,6 @@ export async function registerFeatures(deps: FeatureDeps): Promise<void> {
       logger.warn({ entry }, "feature module has no register export");
       continue;
     }
-    // Most features take the full deps object; the LLM module only needs the queue.
-    const register = loaded.register as (bot: Bot, argument: unknown) => void | Promise<void>;
-    await register(deps.bot, entry === "llm.js" || entry === "llm.ts" ? deps.queue : deps);
+    await loaded.register(deps.bot, deps);
   }
 }

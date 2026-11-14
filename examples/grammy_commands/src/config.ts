@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readSecret, requireSecrets } from "./runtime/secrets.js";
+import { readSecret, requireSecrets } from "./http/secrets.js";
 
 const tokenSchema = z
   .string()
@@ -66,7 +66,7 @@ const FILE_BACKED_SECRETS = [
   "LLM_API_KEY",
 ] as const;
 
-const REQUIRED_SECRETS: readonly string[] = ["BOT_TOKEN", "WEBHOOK_SECRET"];
+export const REQUIRED_SECRETS: readonly string[] = ["BOT_TOKEN", "WEBHOOK_SECRET"];
 
 // aurifex:config
 // aurifex:config-end

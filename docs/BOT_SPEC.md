@@ -1,12 +1,27 @@
-# BotSpec 1.1
+# BotSpec 1.1 — the interview contract
 
 Status: current for `bot-spec-1.1.0`.
 Sources: [`src/core/spec/bot-spec.ts`](../src/core/spec/bot-spec.ts),
 [`schema/bot-spec-1.1.schema.json`](../schema/bot-spec-1.1.schema.json).
 
-`BotSpec` is the input document for `aurifex new` and the shared contract for every
-generated file. The TypeScript validator is authoritative. The JSON Schema mirrors it
-for editors and CI; it does not replace validation.
+`BotSpec` is the document the agent proposes after questioning the user and the user
+confirms before any code is written. It records the stack, the requested surfaces, the
+storage, the locales, the security posture, and the payment catalogue. The agent builds
+only what the document says. The TypeScript validator is authoritative; the JSON Schema
+mirrors it for editors and CI.
+
+## Interview rules
+
+- Ask 3–7 questions in one block. Every question offers options and a recommended value.
+- Every question maps to a field below. If an answer cannot be mapped, the field is not
+  ready.
+- Ask separately which surfaces the user wants: inline buttons, multi-step
+  conversations, media, payments, Mini App, broadcasts. Do not add a surface to
+  "complete" the bot.
+- State assumptions explicitly (`assuming: postgres because horizontal workers are
+wanted`) instead of inventing values.
+- Do not write code before confirmation. If the user changes an answer, update the
+  document and confirm again.
 
 ## Fields
 
@@ -73,8 +88,24 @@ These rules are checked by `validateBotSpec`, not merely documented:
 | duplicate feature or product id                       | rejected                                                       |
 
 Mismatched combinations fail with `invalid_request`; the error carries
-`details.path`. A 1.0 document that fails validation adds the migration hint
-`run aurifex upgrade --apply`.
+`details.path`. The agent must fix the document or the user's decision — not bypass the
+validator.
+
+## Surface mapping
+
+| User asked for                    | Feature / field                                                      |
+| --------------------------------- | -------------------------------------------------------------------- |
+| slash commands, `/start`          | `commands` (always present)                                          |
+| inline buttons and callback flows | part of `commands`; `callback_data` design follows the recipes skill |
+| multi-step conversations          | no dedicated enum value; `commands` plus a server-side state store   |
+| AI answers                        | `llm` plus `storage.postgres` and a queue                            |
+| files, photos, albums             | `commands` plus media handling; no dedicated enum value              |
+| Telegram Stars                    | `payments` with a `payments.products` catalogue                      |
+| web app inside Telegram           | `miniapps` plus `storage.redis`                                      |
+| channel or group moderation       | `moderation`                                                         |
+| messages to all users             | `broadcast` plus `storage.postgres` and a queue                      |
+| Bot API 10.4 widgets              | `widgets`                                                            |
+| rich messages and drafts          | `rich`                                                               |
 
 ## 1.0 to 1.1 normalization
 
@@ -93,8 +124,7 @@ Synthesized 1.0 queue: `postgres` when `features` contains `llm`, `broadcast`, o
 `payments` and `storage.postgres` is true; otherwise `none`. The resulting document
 must still pass the coupling rules above.
 
-A 1.1 document without `runtime` fails. `aurifex new` accepts either version and
-writes the normalized 1.1 shape.
+A 1.1 document without `runtime` fails.
 
 ## Minimal document
 
@@ -136,8 +166,9 @@ JSON Schema can express. The validator additionally:
   schema pattern is still rejected.
 
 Consequence: a document that passes the schema can still be rejected by
-`validateBotSpec`. Always validate with the TypeScript function before scaffolding.
-The reverse mismatch is limited to raw string length: a value padded with spaces can
-pass the validator after trimming but fail the schema's `maxLength`.
+`validateBotSpec`. Always validate with the TypeScript function before treating the
+document as confirmed. The reverse mismatch is limited to raw string length: a value
+padded with spaces can pass the validator after trimming but fail the schema's
+`maxLength`.
 
 Schema tests: [`tests/unit/schema.test.ts`](../tests/unit/schema.test.ts).

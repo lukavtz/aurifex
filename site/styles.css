@@ -765,20 +765,11 @@ pre {
 }
 
 @media (min-width: 830px) {
-  .feature--5 {
-    grid-column: span 5;
+  .feature--6 {
+    grid-column: span 6;
   }
 
-  .feature--7 {
-    grid-column: span 7;
-  }
-
-  .feature--4 {
-    grid-column: span 4;
-  }
-
-  .feature--5 + .feature--7 p,
-  .feature--4 p {
+  .feature--6 p {
     max-width: 34em;
   }
 }

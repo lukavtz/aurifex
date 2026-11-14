@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { isAdmin, parseAdminIds } from "../src/security/allowlist.js";
-import { claimUpdate } from "../src/security/dedupe.js";
-import { allowChat } from "../src/security/rate-limit.js";
+import { isAdmin, parseAdminIds } from "../src/guard/allowlist.js";
+import { claimUpdate } from "../src/guard/dedupe.js";
+import { allowChat } from "../src/guard/rate-limit.js";
 
 test("parseAdminIds keeps only positive safe integers", () => {
   expect(parseAdminIds("10, 20,bad,-3")).toEqual([10, 20]);

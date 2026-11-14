@@ -1,6 +1,6 @@
 ---
 name: telegram-bot-api
-description: Use when calling the Telegram Bot API directly, handling updates, webhooks, rate limits, or a method newer than the framework supports.
+description: Use when calling the Telegram Bot API directly, handling updates, webhooks, rate limits, text escaping, or a method newer than the installed SDK supports. Русские триггеры: Bot API, лимиты телеграма, вебхук телеграма, экранирование текста, ошибка 429.
 ---
 
 # Telegram Bot API
@@ -9,11 +9,26 @@ Current API: **10.4** (released 2026-11-09). Target frameworks test **10.3**
 (grammY 1.46.0, aiogram 3.31.0). Treat 10.4-only methods as raw API calls, never as
 native framework support.
 
+## Procedure
+
+1. Open the method page on `core.telegram.org/bots/api` before writing the call.
+   Absence from a summary page is not proof that a parameter does not exist; check
+   the changelog too. `telegram-bot-sources` owns the retrieval procedure.
+2. Decide the transport once: `getUpdates` or `setWebhook`, never both.
+3. Build the payload with the smallest set of documented fields. Do not invent
+   fields; unknown fields are ignored or rejected, and both cases hide the bug.
+4. Escape inserted values with `tg_text.py` (below), then check the payload shape
+   offline with `telegram_payload.py` before a real send.
+5. Send, then branch on the error: retry only `429` (after `retry_after`) and
+   network errors; `400` and `403` need a changed request.
+6. Record `update_id` and any business key before side effects, so a redelivery
+   cannot repeat work.
+
 ## Endpoint and auth
 
 - Base URL: `https://api.telegram.org/bot<BOT_TOKEN>/<method>`.
 - The token is a credential. Read it from the environment, never from source.
-- Never log the URL, the token, or the request body that contains it.
+- Never log the URL, the token, or a request body that contains it.
 - Redact responses before logging. Bot API errors may echo parameters.
 
 ## Updates
@@ -57,14 +72,69 @@ Rules that prevent duplicate side effects:
 - Telegram retries non-2xx responses. Return 200 quickly and move slow work to a
   queue; keep handler time under 10 seconds where possible.
 
-## Limits and backoff
+## Limits
 
-- `429` includes `parameters.retry_after` in seconds. Sleep that long, then retry.
-- Do not retry `400` or `403` without changing the request.
-- Practical bulk limit: about 30 messages per second overall; about 1 per second
-  per chat. Queue per chat to preserve order.
-- Text limit 4096 characters; caption limit 1024. Split long text deliberately.
-- `sendChatAction` lasts about 5 seconds.
+Units matter. "Characters" means after entity parsing; byte limits are UTF-8.
+
+| Surface                      | Limit                                                           |
+| ---------------------------- | --------------------------------------------------------------- |
+| Message text                 | 4096 characters                                                 |
+| Media caption                | 1024 characters                                                 |
+| Rich message                 | 32768 bytes; 500 blocks; nesting depth 16; 50 media; 20 columns |
+| `callback_data`              | 1–64 bytes                                                      |
+| `answerCallbackQuery.text`   | 200 characters                                                  |
+| Command name                 | 1–32 characters                                                 |
+| `setMyCommands`              | ≤100 commands per scope                                         |
+| Deep-link payload            | 64 characters                                                   |
+| Inline query results         | 50 per answer; `next_offset` ≤64 bytes                          |
+| Media album                  | 2–10 items                                                      |
+| Upload                       | 50 MB per file; 10 MB per photo                                 |
+| `getFile` download           | 20 MB                                                           |
+| `getUpdates.limit`           | 1–100                                                           |
+| Server-side update retention | ≤24 hours                                                       |
+| Webhook ports                | 443, 80, 88, 8443                                               |
+| `max_connections`            | 1–100                                                           |
+| `secret_token`               | 1–256 characters                                                |
+| Throughput (rough)           | 1/second per chat; 20/minute per group; 30/second for broadcast |
+| `sendChatAction` effect      | 5 seconds                                                       |
+| Ephemeral message lifetime   | 15 seconds to reply                                             |
+| `pre_checkout_query` answer  | 10 seconds                                                      |
+| `deleteMessage` window       | 48 hours                                                        |
+| Mini App `sendData`          | 4096 bytes                                                      |
+| CloudStorage                 | 1024 keys; 4096 characters per value                            |
+
+Widget payloads have their own limits (`html` 32768 bytes raw, 4096 bytes after zlib
+level 9); see `telegram-bot-api-104`.
+
+## Text and payload helpers
+
+Two stdlib-only scripts ship with this skill. They never touch the network.
+
+`python3 skills/telegram-bot-api/scripts/tg_text.py`:
+
+- `escape-html` — escape `&`, `<`, `>` for `parse_mode=HTML`.
+- `escape-html-attr` — escape a value used inside an attribute (`"` too).
+- `escape-mdv2 --context text|code|url` — MarkdownV2 escaping per context.
+- `length` — visible length in UTF-16 code units (emoji outside the BMP count 2).
+- `split --html --limit 4096 --json` — split into chunks, closing and reopening
+  balanced HTML tags at chunk boundaries.
+- `neutralize-markdown-html` — make model output safe to show as plain text.
+
+Input comes from stdin or `--file`. Escape inserted values only, then place them in
+a finished template.
+
+`python3 skills/telegram-bot-api/scripts/telegram_payload.py`:
+
+```bash
+python3 skills/telegram-bot-api/scripts/telegram_payload.py \
+  --method sendMessage --file request.json --json
+```
+
+Validates request shapes for seven methods: `sendMessage`, `sendRichMessage`,
+`editMessageText`, `editEphemeralMessageText`, `answerCallbackQuery`,
+`sendMessageDraft`, `sendRichMessageDraft`. Exit codes: 0 clean, 1 findings, 2
+invocation or JSON failure. It catches length, byte, and markup-shape errors offline;
+the server parser remains authoritative.
 
 ## Message shape
 
@@ -118,22 +188,31 @@ class SendWidget(TelegramMethod[dict]):
 await bot(SendWidget(chat_id=message.chat.id, html="<b>hi</b>"))
 ```
 
-Check the official method page before sending fields. If a field is not documented
-for 10.4, do not guess it. Widget limits, query types, and exact fields are in
+Exact 10.4 fields, including the empty-parameter methods, are in
 [`telegram-bot-api-104`](../telegram-bot-api-104/SKILL.md).
 
-## Preflight
+## Gotchas
 
-- `getMe` works and the token is valid.
-- `getWebhookInfo` shows the intended URL, no `last_error_message`, and pending
-  update count near zero.
-- `allowed_updates` matches the handlers that exist.
-- Secret-token rejection is covered by a test.
-- A planted token is caught by verification.
+- `429` carries `parameters.retry_after` in seconds. Sleeping a fixed backoff
+  instead still gets the next call rejected.
+- Retrying `400` or `403` without changing the request burns the rate limit and
+  never succeeds.
+- A 200 response means "accepted", not "the user saw it". A blocked bot returns
+  `403` on send.
+- `getUpdates` with an offset acknowledges everything below it. Advancing the
+  offset before the work commits loses updates on a crash.
+- `drop_pending_updates=true` discards queued updates, including paid ones. It is
+  not a startup step.
+- Redelivery is normal: webhook retries, `getUpdates` re-fetch, and user double
+  taps are all real. Deduplicate before side effects.
+- `parse_mode` applies to the whole text. One unescaped `<` from user input breaks
+  the send with `400 can't parse entities`.
+- Length is counted in UTF-16 units, so an emoji outside the BMP costs 2. Measure
+  with `tg_text.py length`, not `len()`.
 
 ## Sources
 
-Adapted from Telegram Bot API 10.4 documentation (`core.telegram.org/bots/api`),
-`nzhulikov/telegram-bot-skills` (Apache-2.0), `nyxandro/telegram-bot-development-skill`
-(MIT), and the official grammY and aiogram repositories. See
-`THIRD_PARTY_NOTICES.md`.
+- https://core.telegram.org/bots/api
+- https://core.telegram.org/bots/api-changelog
+- https://core.telegram.org/bots/webhooks
+- https://core.telegram.org/bots/faq

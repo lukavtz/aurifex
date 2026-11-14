@@ -148,7 +148,7 @@ function rejectUnknown(
 }
 
 const LEGACY_SPEC_VERSION = "bot-spec-1.0.0" as const;
-const MIGRATION_HINT = "run aurifex upgrade --apply";
+const MIGRATION_HINT = "update the document to bot-spec-1.1.0";
 const PAYMENT_ID_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const QUEUE_FEATURES: Readonly<Record<string, true>> = {
   llm: true,
@@ -402,9 +402,6 @@ function parseSpec(root: Record<string, unknown>, legacy: boolean): BotSpec {
       "spec.runtime.queue",
       'must be "none" without llm, broadcast, or payments',
     );
-  }
-  if (features.includes("payments") && payments === undefined) {
-    throw new BotSpecError("spec.payments", "payments requires products");
   }
   if ((idempotency || rateLimit) && !redis) {
     throw new BotSpecError("spec.storage.redis", "idempotency and rate limiting require redis");

@@ -7,7 +7,6 @@ Closes #
 ## Type
 
 - [ ] Core behavior (`src/core`)
-- [ ] Template or generated project
 - [ ] Host adapter (OMP, DSH, MCP)
 - [ ] CLI
 - [ ] Skills, agents, commands, prompts, rules
@@ -19,7 +18,7 @@ Closes #
 
 - [ ] `pnpm verify` passes
 - [ ] `pnpm build` passes
-- [ ] Generated projects still pass their own suites (`AURIFEX_E2E=1 pnpm test:e2e`)
+- [ ] Reference projects still pass (`bun test` in `examples/grammy_commands`, `uv run pytest` in `examples/aiogram_commands`) and `aurifex verify` reports zero failures
 - [ ] New behavior has a failing-first test, or the reason it cannot is stated
 
 ```

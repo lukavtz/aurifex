@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
 
-const SCRIPT = fileURLToPath(new URL("../../scripts/check-bot-api.mjs", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("../../tools/check-bot-api.mjs", import.meta.url));
 const CONTRACT = fileURLToPath(
   new URL("../../src/core/targets/bot-api-contract.json", import.meta.url),
 );
@@ -167,7 +170,7 @@ describe("check-bot-api --check", () => {
       "--contract-file",
       CONTRACT,
     ]);
-    assert.equal(result.status, 1);
+    assert.equal(result.status, 3);
     assert.match(result.stderr, /network_unavailable/);
   });
 });
@@ -204,5 +207,155 @@ describe("check-bot-api --update", () => {
     ]);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), "10.4");
+  });
+});
+
+const API_INDEX = [
+  "# Telegram Bot API",
+  "",
+  "- [getMe](/bots/api/methods/getme.md): get basic information about the bot.",
+  "",
+].join("\n");
+
+interface RunResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function runServed(args: readonly string[]): Promise<RunResult> {
+  const { promise, resolve, reject } = Promise.withResolvers<RunResult>();
+  const child = spawn(process.execPath, [SCRIPT, ...args]);
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  child.once("error", reject);
+  child.once("close", (status) => resolve({ status, stdout, stderr }));
+  return promise;
+}
+
+async function withServedDocs(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  body: (baseUrl: string) => Promise<void>,
+): Promise<void> {
+  const server = createServer(handler);
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(0, "127.0.0.1", listening.resolve);
+  await listening.promise;
+  try {
+    const address = server.address() as AddressInfo;
+    await body(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.closeAllConnections();
+    const closed = Promise.withResolvers<void>();
+    server.close(() => closed.resolve());
+    await closed.promise;
+  }
+}
+
+describe("check-bot-api source guards", () => {
+  it("refuses a redirect to another origin", async () => {
+    await withServedDocs(
+      (request, response) => {
+        if (request.url === "/api-changelog.md") {
+          response.writeHead(302, { location: "https://evil.example/api-changelog.md" });
+          response.end();
+          return;
+        }
+        response.writeHead(404);
+        response.end();
+      },
+      async (baseUrl) => {
+        const result = await runServed([
+          "--check",
+          "--base-url",
+          baseUrl,
+          "--contract-file",
+          CONTRACT,
+        ]);
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /source_rejected: changelog: .*different origin/);
+        assert.doesNotMatch(result.stderr, /network_unavailable/);
+      },
+    );
+  });
+
+  it("refuses an oversized response body", async () => {
+    await withServedDocs(
+      (request, response) => {
+        if (request.url === "/api-changelog.md") {
+          response.writeHead(200, { "content-type": "text/markdown" });
+          response.end("x".repeat(2 * 1024 * 1024 + 1));
+          return;
+        }
+        response.writeHead(404);
+        response.end();
+      },
+      async (baseUrl) => {
+        const result = await runServed([
+          "--check",
+          "--base-url",
+          baseUrl,
+          "--contract-file",
+          CONTRACT,
+        ]);
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /body_too_large: changelog: /);
+      },
+    );
+  });
+
+  it("refuses a changelog without a version line", async () => {
+    await withServedDocs(
+      (request, response) => {
+        response.writeHead(200, { "content-type": "text/markdown" });
+        response.end(
+          request.url === "/api.md" ? API_INDEX : "# Bot API changelog\n\nNo releases.\n",
+        );
+      },
+      async (baseUrl) => {
+        const result = await runServed([
+          "--check",
+          "--base-url",
+          baseUrl,
+          "--contract-file",
+          CONTRACT,
+        ]);
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /parse_failed: changelog: no \*\*Bot API X\.Y\*\*/);
+      },
+    );
+  });
+
+  it("refuses to write a contract with an empty method list", async () => {
+    const target = join(dir, "empty.contract.json");
+    await withServedDocs(
+      (request, response) => {
+        response.writeHead(200, { "content-type": "text/markdown" });
+        response.end(
+          request.url === "/api.md"
+            ? API_INDEX
+            : "# Bot API changelog\n\n### 2026\n\n#### November 9, 2026\n\n**Bot API 10.4**\n\n- No links.\n",
+        );
+      },
+      async (baseUrl) => {
+        const result = await runServed([
+          "--update",
+          "--base-url",
+          baseUrl,
+          "--contract-file",
+          target,
+        ]);
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /parse_failed: changelog: no method links/);
+      },
+    );
+    assert.equal(existsSync(target), false);
   });
 });

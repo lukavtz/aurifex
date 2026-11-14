@@ -158,19 +158,24 @@ fi
 
 [ -f "$SOURCE_DIR/package.json" ] ||
   fail "no package.json in $SOURCE_DIR; refusing to install."
+SOURCE_DIR=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$SOURCE_DIR")
+node -e 'if (require(process.argv[1] + "/package.json").name !== "aurifex") process.exit(1)' "$SOURCE_DIR" ||
+  fail "invalid install source: $SOURCE_DIR: expected an Aurifex checkout with package.json \"name\": \"aurifex\""
 
 build_dependencies() {
   cd "$SOURCE_DIR" &&
-    npm_config_update_notifier=false npm_config_loglevel=error \
-      npm install --silent --no-audit --no-fund --no-progress
+    npm_config_update_notifier=false npm_config_loglevel=error npm_config_package_lock=false \
+      npm install --include=dev --ignore-scripts --no-audit --no-fund --no-progress &&
+    npm run build
 }
 
-if [ ! -f "$SOURCE_DIR/dist/cli.js" ]; then
+if [ ! -f "$SOURCE_DIR/dist/cli.js" ] || [ ! -f "$SOURCE_DIR/dist/adapters/mcp/server.js" ]; then
   run_with_spinner "Building Aurifex" build_dependencies ||
-    fail "npm install failed in $SOURCE_DIR."
+    fail "npm install --include=dev && npm run build failed in $SOURCE_DIR."
 fi
-[ -f "$SOURCE_DIR/dist/cli.js" ] ||
-  fail "the build did not produce dist/cli.js in $SOURCE_DIR."
+for artifact in dist/cli.js dist/adapters/mcp/server.js; do
+  [ -f "$SOURCE_DIR/$artifact" ] || fail "the build did not produce $artifact in $SOURCE_DIR."
+done
 
 DETECTED=""
 MISSING=""
@@ -209,15 +214,13 @@ fi
 
 if [ "$DRY_RUN" != "1" ]; then
   case "$SOURCE_DIR" in
-    *'"'* | *'
+    *'
 '*) fail "install path contains an unsafe character for the launcher." ;;
   esac
   BIN_DIR="${AURIFEX_BIN_DIR:-$HOME/.local/bin}"
   mkdir -p "$BIN_DIR" || fail "could not create $BIN_DIR."
-  cat >"$BIN_DIR/aurifex" <<EOF
-#!/bin/sh
-exec node "$SOURCE_DIR/dist/cli.js" "\$@"
-EOF
+  QUOTED_CLI=$(node -e 'const q = String.fromCharCode(39); process.stdout.write(q + process.argv[1].replaceAll(q, q + "\\" + q + q) + q)' "$SOURCE_DIR/dist/cli.js")
+  printf '%s\n' '#!/bin/sh' "exec node $QUOTED_CLI \"\$@\"" >"$BIN_DIR/aurifex"
   chmod 755 "$BIN_DIR/aurifex" || fail "could not make $BIN_DIR/aurifex executable."
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

@@ -142,7 +142,7 @@ test("1.0 normalization failure keeps the path and adds the migration hint", () 
   } catch (error) {
     assert.ok(error instanceof BotSpecError);
     assert.equal(error.path, "spec.name");
-    assert.match(error.message, /run aurifex upgrade --apply/);
+    assert.match(error.message, /update the document to bot-spec-1\.1\.0/);
   }
 });
 
@@ -256,6 +256,14 @@ test("rejects payments without the payments feature", () => {
   spec.storage.postgres = true;
   spec.payments = { products: [STARS_OK] };
   assert.throws(() => validateBotSpec(spec), isSpecError("spec.payments"));
+});
+
+test("accepts the payments feature without a payments block", () => {
+  const spec = baseSpec();
+  spec.features = ["commands", "payments"];
+  spec.storage.postgres = true;
+  spec.runtime.queue = "postgres";
+  assert.equal(validateBotSpec(spec).payments, undefined);
 });
 
 test("rejects empty or missing payment products", () => {

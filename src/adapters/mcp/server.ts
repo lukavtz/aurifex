@@ -1,16 +1,26 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-
-import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
-import { serveStdio, type StdioServerHandle } from "@modelcontextprotocol/server/stdio";
-import { z } from "zod";
 
 import { createCoreOperations, type CoreOperations } from "../../core/operations.ts";
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
-import { BOT_FEATURES } from "../../core/spec/bot-spec.ts";
 
 const MAX_RESULT_BYTES = 262_144;
+const SERVER_VERSION = "0.3.0";
+const PROTOCOL_VERSION = "2025-11-25";
+
+/**
+ * Tool result shape. Mirrors the MCP `CallToolResult` structurally so the
+ * plugin keeps working when installed without node_modules (Claude plugin
+ * cache copies never carry runtime dependencies).
+ */
+export interface CallToolResult {
+  [key: string]: unknown;
+  content: { type: "text"; text: string }[];
+  structuredContent?: Record<string, unknown>;
+  isError: boolean;
+}
 
 export function toolResult(result: DomainResult<unknown>): CallToolResult {
   let text = serializeDomainResult(result);
@@ -30,170 +40,203 @@ export function toolResult(result: DomainResult<unknown>): CallToolResult {
   };
 }
 
-const stackSchema = z.enum(["grammy", "aiogram"]);
-const featureSchema = z.enum(BOT_FEATURES);
-
-export function createMcpServer(operations: CoreOperations): McpServer {
-  const server = new McpServer({ name: "aurifex", version: "0.2.0" });
-
-  server.registerTool(
-    "telegram_bot_target_resolve",
-    {
-      description:
-        "Resolve the pinned framework and runtime versions for a Telegram bot stack (grammY or aiogram).",
-      inputSchema: z.object({ stack: stackSchema }).strict(),
-    },
-    async ({ stack }) => toolResult(await operations.resolveTarget({ stack })),
-  );
-
-  server.registerTool(
-    "telegram_bot_scaffold",
-    {
-      description:
-        "Scaffold a standalone, production-grade Telegram bot project from a validated BotSpec. First ask the discovery questions from skills/telegram-bot-discovery, confirm the proposed spec with the user, and never invent stack, feature, storage, locale, or payment values.",
-      inputSchema: z
-        .object({
-          destination: z.string().min(1),
-          spec: z.record(z.string(), z.unknown()),
-          overwrite: z.boolean().optional(),
-        })
-        .strict(),
-    },
-    async ({ destination, spec, overwrite }) =>
-      toolResult(
-        await operations.scaffoldBot({
-          destination,
-          spec,
-          ...(overwrite === undefined ? {} : { overwrite }),
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "telegram_bot_inspect",
-    {
-      description: "Inspect an existing bot project and report its stack, mode, and findings.",
-      inputSchema: z.object({ projectRoot: z.string().min(1) }).strict(),
-    },
-    async ({ projectRoot }) => toolResult(await operations.inspectBot({ projectRoot })),
-  );
-
-  server.registerTool(
-    "telegram_bot_verify",
-    {
-      description: "Run the security and production-readiness verification gate on a bot project.",
-      inputSchema: z.object({ projectRoot: z.string().min(1) }).strict(),
-    },
-    async ({ projectRoot }) => toolResult(await operations.verifyBot({ projectRoot })),
-  );
-
-  server.registerTool(
-    "telegram_bot_add_feature",
-    {
-      description:
-        "Add a feature module (commands, llm, inline, payments, miniapps, moderation, broadcast, widgets, rich) to an existing bot project.",
-      inputSchema: z
-        .object({
-          projectRoot: z.string().min(1),
-          feature: featureSchema,
-          name: z.string().min(1),
-          overwrite: z.boolean().optional(),
-        })
-        .strict(),
-    },
-    async ({ projectRoot, feature, name, overwrite }) =>
-      toolResult(
-        await operations.addFeature({
-          projectRoot,
-          feature,
-          name,
-          ...(overwrite === undefined ? {} : { overwrite }),
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "telegram_bot_deploy_plan",
-    {
-      description:
-        "Generate deployment files and a webhook setup plan for a bot project. Never calls Telegram.",
-      inputSchema: z
-        .object({
-          projectRoot: z.string().min(1),
-          domain: z.string().min(1),
-          mode: z.enum(["webhook", "polling"]).optional(),
-          overwrite: z.boolean().optional(),
-        })
-        .strict(),
-    },
-    async ({ projectRoot, domain, mode, overwrite }) =>
-      toolResult(
-        await operations.planDeploy({
-          projectRoot,
-          domain,
-          ...(mode === undefined ? {} : { mode }),
-          ...(overwrite === undefined ? {} : { overwrite }),
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "telegram_bot_test_harness",
-    {
-      description: "Generate Telegram update fixtures, fake-Telegram tests, and a compose harness.",
-      inputSchema: z
-        .object({
-          projectRoot: z.string().min(1),
-          overwrite: z.boolean().optional(),
-        })
-        .strict(),
-    },
-    async ({ projectRoot, overwrite }) =>
-      toolResult(
-        await operations.generateTestHarness({
-          projectRoot,
-          ...(overwrite === undefined ? {} : { overwrite }),
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "telegram_bot_upgrade",
-    {
-      description:
-        "Verify generated files against .aurifex/manifest.json, then bump the manifest spec version. Dry-run unless apply is true; user files are never rewritten.",
-      inputSchema: z
-        .object({
-          projectRoot: z.string().min(1),
-          apply: z.boolean().optional(),
-        })
-        .strict(),
-    },
-    async ({ projectRoot, apply }) =>
-      toolResult(
-        await operations.upgradeProject({
-          projectRoot,
-          apply: apply === true,
-        }),
-      ),
-  );
-
-  server.registerTool(
-    "telegram_bot_upgrade_plan",
-    {
-      description: "List Bot API 10.4 upgrade actions for a bot project.",
-      inputSchema: z.object({ projectRoot: z.string().min(1) }).strict(),
-    },
-    async ({ projectRoot }) => toolResult(await operations.upgradePlan({ projectRoot })),
-  );
-
-  return server;
+interface JsonSchema {
+  readonly type?: "object" | "string" | "boolean";
+  readonly enum?: readonly string[];
+  readonly minLength?: number;
+  readonly properties?: Readonly<Record<string, JsonSchema>>;
+  readonly required?: readonly string[];
+  readonly additionalProperties?: boolean;
 }
 
-export function startMcpServer(operations: CoreOperations): StdioServerHandle {
-  return serveStdio(() => createMcpServer(operations), {
-    onerror: (error) => console.error(`aurifex-mcp: ${error.message}`),
+interface ToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: JsonSchema;
+  run(operations: CoreOperations, args: Record<string, unknown>): Promise<DomainResult<unknown>>;
+}
+
+const STACKS = ["grammy", "aiogram"] as const;
+const PROJECT_ROOT: JsonSchema = { type: "string", minLength: 1 };
+
+function tool(
+  name: string,
+  description: string,
+  inputSchema: JsonSchema,
+  run: ToolDefinition["run"],
+): ToolDefinition {
+  return { name, description, inputSchema, run };
+}
+
+export const TOOLS: readonly ToolDefinition[] = [
+  tool(
+    "telegram_bot_target_resolve",
+    "Resolve the pinned framework and runtime versions for a Telegram bot stack (grammY or aiogram).",
+    {
+      type: "object",
+      properties: { stack: { type: "string", enum: STACKS } },
+      required: ["stack"],
+      additionalProperties: false,
+    },
+    (operations, args) => operations.resolveTarget({ stack: args.stack as "grammy" | "aiogram" }),
+  ),
+  tool(
+    "telegram_bot_inspect",
+    "Inspect an existing bot project and report its stack, mode, and findings.",
+    {
+      type: "object",
+      properties: { projectRoot: PROJECT_ROOT },
+      required: ["projectRoot"],
+      additionalProperties: false,
+    },
+    (operations, args) => operations.inspectBot({ projectRoot: args.projectRoot as string }),
+  ),
+  tool(
+    "telegram_bot_verify",
+    "Run static file-content checks; no project code execution, network, or Telegram calls.",
+    {
+      type: "object",
+      properties: { projectRoot: PROJECT_ROOT },
+      required: ["projectRoot"],
+      additionalProperties: false,
+    },
+    (operations, args) => operations.verifyBot({ projectRoot: args.projectRoot as string }),
+  ),
+];
+
+function validateValue(schema: JsonSchema, value: unknown, path: string): void {
+  if (schema.type === "object") {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error(`${path} must be an object`);
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of schema.required ?? []) {
+      if (!(key in record)) throw new Error(`${path}.${key} is required`);
+    }
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      if (key in record) validateValue(child, record[key], `${path}.${key}`);
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(record)) {
+        if (!(key in (schema.properties ?? {}))) throw new Error(`${path}.${key} is not allowed`);
+      }
+    }
+    return;
+  }
+  if (schema.type === "string") {
+    if (typeof value !== "string") throw new Error(`${path} must be a string`);
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      throw new Error(`${path} must not be empty`);
+    }
+  } else if (schema.type === "boolean" && typeof value !== "boolean") {
+    throw new Error(`${path} must be a boolean`);
+  }
+  if (schema.enum !== undefined && !schema.enum.includes(value as string)) {
+    throw new Error(`${path} must be one of: ${schema.enum.join(", ")}`);
+  }
+}
+
+export function validateArguments(
+  definition: ToolDefinition,
+  args: unknown,
+): Record<string, unknown> {
+  validateValue(definition.inputSchema, args, definition.name);
+  return args as Record<string, unknown>;
+}
+
+interface JsonRpcRequest {
+  readonly jsonrpc?: string;
+  readonly id?: number | string;
+  readonly method?: string;
+  readonly params?: Record<string, unknown>;
+}
+
+async function handleRequest(
+  operations: CoreOperations,
+  request: JsonRpcRequest,
+): Promise<Record<string, unknown> | undefined> {
+  if (request.id === undefined) return undefined; // notification, never answered
+  const respond = (result: unknown): Record<string, unknown> => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    result,
   });
+  const fail = (code: number, message: string): Record<string, unknown> => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    error: { code, message },
+  });
+
+  switch (request.method) {
+    case "initialize": {
+      // Exactly one supported revision. A client may request any string; always
+      // answer with the supported revision rather than echoing an unknown one.
+      return respond({
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "aurifex", version: SERVER_VERSION },
+      });
+    }
+    case "ping":
+      return respond({});
+    case "tools/list":
+      return respond({
+        tools: TOOLS.map((definition) => ({
+          name: definition.name,
+          description: definition.description,
+          inputSchema: definition.inputSchema,
+        })),
+      });
+    case "tools/call": {
+      const name = request.params?.name;
+      const definition = TOOLS.find((candidate) => candidate.name === name);
+      if (definition === undefined) return fail(-32602, `unknown tool: ${String(name)}`);
+      try {
+        const args = validateArguments(definition, request.params?.arguments ?? {});
+        return respond(toolResult(await definition.run(operations, args)));
+      } catch (error) {
+        return respond(
+          toolResult(
+            domainFailure({
+              code: "invalid_request",
+              detail: error instanceof Error ? error.message : "unexpected failure",
+              retryable: false,
+            }),
+          ),
+        );
+      }
+    }
+    default:
+      return fail(-32601, `unknown method: ${String(request.method)}`);
+  }
+}
+
+export function startMcpServer(operations: CoreOperations): { close(): Promise<void> } {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  let queue: Promise<void> = Promise.resolve();
+  lines.on("line", (line) => {
+    const text = line.trim();
+    if (text === "") return;
+    queue = queue.then(async () => {
+      let request: JsonRpcRequest;
+      try {
+        request = JSON.parse(text) as JsonRpcRequest;
+      } catch {
+        process.stdout.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`,
+        );
+        return;
+      }
+      const response = await handleRequest(operations, request);
+      if (response !== undefined) process.stdout.write(`${JSON.stringify(response)}\n`);
+    });
+  });
+  return {
+    close: async () => {
+      lines.close();
+      await queue;
+    },
+  };
 }
 
 export async function runCli(): Promise<void> {

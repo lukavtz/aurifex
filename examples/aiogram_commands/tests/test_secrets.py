@@ -4,11 +4,10 @@ import json
 
 import pytest
 
-from app.config import load_settings
-from app.runtime.secrets import read_secret, require_secrets
+from app.config import REQUIRED_SECRETS, load_settings
+from app.http.secrets import read_secret, require_secrets
 
 VALID_TOKEN = "123456:" + "A" * 30
-REQUIRED = ["BOT_TOKEN","WEBHOOK_SECRET"]
 
 
 def secret_file(tmp_path, name: str, value: str):
@@ -48,7 +47,7 @@ def test_settings_resolve_files_before_validation(tmp_path) -> None:
 def test_missing_configuration_lists_names_only() -> None:
     with pytest.raises(RuntimeError) as excinfo:
         load_settings({})
-    assert str(excinfo.value) == "missing required configuration: " + ", ".join(REQUIRED)
+    assert str(excinfo.value) == "missing required configuration: " + ", ".join(REQUIRED_SECRETS)
 
 
 def test_require_secrets_reports_every_missing_name() -> None:

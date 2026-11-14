@@ -1,30 +1,27 @@
 ---
 name: aiogram
-description: Use when building, hardening, or debugging a Python Telegram bot on aiogram 3.31 with Python 3.11 to 3.14.
+description: Use when building, hardening, or debugging a Python Telegram bot on aiogram 3.31 with Python 3.11 to 3.14. Русские триггеры: aiogram, бот на Python, диспетчер aiogram, middleware, initData Python.
 ---
 
 # aiogram 3.31
 
-Target: Python `>=3.11,<3.15`, aiogram `3.31.0`, Bot API tested at 10.3. Use the raw
-method class for 10.4-only calls.
+Target: Python `>=3.11,<3.15`, aiogram `3.31.0`, Bot API typed at 10.3. Use a raw
+`TelegramMethod` for 10.4-only calls. File layout belongs to `telegram-bot-recipes`;
+this skill covers aiogram behaviour only.
 
-## Project shape
+## Procedure
 
-```text
-app/config.py          pydantic-settings, no secret defaults
-app/bot.py             Bot and Dispatcher factory
-app/main.py            webhook or polling, graceful shutdown
-app/webhook.py         aiohttp app, body cap, /healthz
-app/handlers/          routers, one module per command group
-app/middlewares/       allowlist, dedupe, rate limit
-app/db/                async SQLAlchemy session and models
-tests/                 offline handlers and webhook secret tests
-```
-
-Pin exact versions in `pyproject.toml`. Required runtime packages:
-`aiogram==3.31.0`, `pydantic-settings==2.16.2`, `asyncpg==0.32.0`,
-`sqlalchemy==2.1.8`, `redis==8.1.0`, `alembic==1.20.1`,
-`structlog==26.1.0`, `httpx==0.28.1`.
+1. Pin `aiogram==3.31.0` and the rest of the runtime in `pyproject.toml`; commit
+   `uv.lock`.
+2. Load settings once through `pydantic-settings`; secrets are `SecretStr`.
+3. Build `Bot` and `Dispatcher`, then include each router exactly once.
+4. Register middleware in the order given below, on the dispatcher, not on a
+   router that never sees the update.
+5. Choose one transport: `dp.start_polling(...)` or `SimpleRequestHandler` with
+   `setWebhook`.
+6. Pass `allowed_updates=dp.resolve_used_update_types()` in both transports.
+7. Handle `SIGTERM`/`SIGINT`, stop polling, close the session.
+8. Run `uv run ruff check . && uv run mypy app && uv run pytest` before deploying.
 
 ## Configuration
 
@@ -43,8 +40,9 @@ class Settings(BaseSettings):
 ```
 
 Validate `bot_mode` as `webhook|polling`, `webhook_url` as HTTPS when set, and
-`WEBHOOK_SECRET` as `[A-Za-z0-9_-]{1,256}`. Parse `ADMIN_IDS` to a set of ints.
-Never log `bot_token` or `webhook_secret`; `SecretStr` prints as `**********`.
+`WEBHOOK_SECRET` as `[A-Za-z0-9_-]{1,256}`. Parse `ADMIN_IDS` to a set of ints;
+empty means no admins. Never log `bot_token` or `webhook_secret`; `SecretStr` prints
+as `**********`.
 
 ## Handlers and routers
 
@@ -72,6 +70,22 @@ async def confirm(callback: CallbackQuery) -> None:
 
 Include routers once: `dp.include_router(router)`. Use `F.from_user.id.in_(admin_ids)`
 only as a fast path; the handler still checks the allowlist.
+
+## Middleware order
+
+Register on the dispatcher so every update passes through:
+
+```python
+dp.update.outer_middleware(dedupe)        # claim update_id first
+dp.update.outer_middleware(rate_limit)    # throttle per chat
+dp.update.outer_middleware(allowlist)     # reject unlisted users
+dp.update.outer_middleware(moderation)    # drop banned chats
+```
+
+Order is dedupe → rate-limit → allowlist → moderation → handlers. A middleware file
+that is never registered is dead code: the update reaches handlers unfiltered. Keep
+the registration next to the middleware definition or in one `register_middlewares`
+function called from `main`.
 
 ## Webhook mode
 
@@ -110,18 +124,24 @@ Use HTTPS only, on port 443, 80, 88, or 8443.
 ## Polling mode
 
 ```python
-await bot.delete_webhook(drop_pending_updates=True)
+await bot.delete_webhook(drop_pending_updates=False)
 await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 ```
 
-One consumer per token. Delete the webhook before polling, or Telegram returns
+One consumer per token. Delete an active webhook before polling, or Telegram returns
 `409 Conflict`. Shut down with `await dp.stop_polling()` and `await bot.session.close()`.
+
+## Task handling and retries
+
+`dp.run_polling(..., handle_as_tasks=False)` awaits the handler inside the polling
+loop. It does **not** guarantee a retry: an exception is logged and the update is
+gone once the offset advances. Webhook mode has the same shape. If an update must
+survive handler failure, make the handler write to durable storage first, or run the
+work in a queue keyed by `update_id`.
 
 ## Raw API for Bot API 10.4
 
-aiogram 3.31.0 typed methods cover 10.3. Define a `TelegramMethod` for `sendWidget`,
-`answerWidgetQuery`, ephemeral callback replies, rich-message quotes, and TON wallet
-cards:
+aiogram 3.31.0 typed methods cover 10.3. Define a `TelegramMethod` per 10.4 method:
 
 ```python
 from aiogram.methods.base import TelegramMethod
@@ -130,17 +150,22 @@ class SendWidget(TelegramMethod[dict]):
     __returning__ = dict
     __api_method__ = "sendWidget"
     chat_id: int
+    html: str
+    allow_queries: bool = True
 
-result = await bot(SendWidget(chat_id=message.chat.id))
+result = await bot(SendWidget(chat_id=message.chat.id, html="<b>hi</b>", allow_queries=True))
 ```
 
-`TelegramMethod` allows extra fields. Add only fields documented for the 10.4
-method, and type the return value as `dict` until aiogram ships a model.
+`bot(method, **params)` is the same call path; either form passes through the
+session and its middleware. `TelegramMethod` allows extra fields. Add only fields
+documented for the 10.4 method, and type the return value as `dict` until aiogram
+ships a model. Exact parameters are in `telegram-bot-api-104`.
 
 ## Update safety
 
 - Dedupe `update_id` with Redis `SET key 1 NX EX 86400` in an outer middleware.
-  Missing Redis may fail open only in local mode, with a warning.
+  Missing Redis may fail open only in local mode, with a warning. On webhook, an
+  exception there means a 500 and a redelivery.
 - Rate-limit per chat, about one message per second.
 - On `TelegramRetryAfter`, read `e.retry_after` and sleep before retrying.
 - Keep admin checks server-side on numeric Telegram user ids.
@@ -148,15 +173,39 @@ method, and type the return value as `dict` until aiogram ships a model.
 
 ## Tests
 
-Use `pytest` with `pytest-asyncio`, `AsyncMock`, and hand-built `Message` and
-`CallbackQuery` fixtures. Assert handler replies and method calls; never call
-Telegram. Add an `aiohttp.test_utils` test that posts a wrong secret to
-`/webhook` and asserts 401.
+Use `dp.feed_update(bot, update)` as the only entry into the dispatcher; calling a
+handler function directly skips filters and middleware and proves nothing.
 
-Run `uv run ruff check .`, `uv run mypy app`, and `uv run pytest` in the project.
+```python
+from unittest.mock import AsyncMock
+
+async def test_start_replies(monkeypatch):
+    bot = make_bot()
+    update = make_message_update(text="/start")
+    bot.session = AsyncMock()
+    await dp.feed_update(bot, update)
+    bot.session.assert_awaited()  # sendMessage reached the fake session
+```
+
+For the webhook, use `aiohttp.test_utils.TestClient` and assert 401 on a missing or
+wrong secret, 200 and one dispatch on the right one, and 413 over
+`client_max_size`. Do not call Telegram.
+
+## Gotchas
+
+- `safe_parse_webapp_init_data` verifies the HMAC but does not validate `auth_date`.
+  Check the age yourself; a captured `initData` is otherwise valid forever.
+- `dp.feed_update` requires the bot you pass to be the dispatcher's bot; passing a
+  second instance loses the session and middleware.
+- Middleware registered on `router.message` never sees callback queries. Register
+  update-level middleware on `dp.update`.
+- `handle_as_tasks=True` runs handlers concurrently, so per-chat ordering is lost.
+- `callback.message` is optional in types. Guard it.
+- `MemoryStorage` loses conversation state on restart and per replica.
 
 ## Sources
 
-Adapted from the official aiogram repository and documentation
-(`github.com/aiogram/aiogram`, MIT), `nzhulikov/telegram-bot-skills` (Apache-2.0),
-and `nyxandro/telegram-bot-development-skill` (MIT). See `THIRD_PARTY_NOTICES.md`.
+- https://docs.aiogram.dev/en/latest/
+- https://docs.aiogram.dev/en/latest/dispatcher/webhook.html
+- https://docs.aiogram.dev/en/latest/utils/web_app.html
+- https://github.com/aiogram/aiogram

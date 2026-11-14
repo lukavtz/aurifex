@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
-      - "scripts/check-site.mjs"
+      - "tools/check-site.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Check site content
-        run: node scripts/check-site.mjs
+        run: node tools/check-site.mjs
 
       - uses: actions/configure-pages@v6
 

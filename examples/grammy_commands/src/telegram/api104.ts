@@ -1,5 +1,15 @@
 import type { Bot } from "grammy";
 import type { Message } from "grammy/types";
+import type {
+  DeleteBusinessAccountGiftParams,
+  GetChatShareThemeBackdropsParams,
+  GetUniqueGiftParams,
+} from "./api104-types.js";
+export type {
+  GetUniqueGiftParams,
+  GetChatShareThemeBackdropsParams,
+  DeleteBusinessAccountGiftParams,
+} from "./api104-types.js";
 
 // Bot API 10.4 methods are newer than the grammY 1.46.0 types, so every call
 // goes through bot.api.raw behind one narrow cast. Native framework support is
@@ -140,16 +150,6 @@ export interface SendMessageEphemeralParams {
   reply_markup?: ReplyMarkup;
 }
 
-export interface GetUniqueGiftParams {
-  gift_id: string;
-}
-export interface GetChatShareThemeBackdropsParams {
-  chat_id: number | string;
-}
-export interface DeleteBusinessAccountGiftParams {
-  business_connection_id: string;
-  gift_id: string;
-}
 export interface VerifyUserParams {
   user_id: number;
   custom_description?: string;
@@ -189,7 +189,7 @@ export interface Api104 {
   sendRichMessageDraft(payload: SendRichMessageDraftParams): Promise<true>;
   sendMessageEphemeral(payload: SendMessageEphemeralParams): Promise<Message>;
   getUniqueGift(payload: GetUniqueGiftParams): Promise<unknown>;
-  getChatShareThemeBackdrops(payload: GetChatShareThemeBackdropsParams): Promise<unknown>;
+  getChatShareThemeBackdrops(): Promise<unknown>;
   deleteBusinessAccountGift(payload: DeleteBusinessAccountGiftParams): Promise<true>;
   verifyUser(payload: VerifyUserParams): Promise<true>;
   verifyChat(payload: VerifyChatParams): Promise<true>;
@@ -209,7 +209,7 @@ export function api104(bot: Bot): Api104 {
     // sendMessage with ephemeral_message_parameters.
     sendMessageEphemeral: (payload) => raw.sendMessage(payload),
     getUniqueGift: (payload) => raw.getUniqueGift(payload),
-    getChatShareThemeBackdrops: (payload) => raw.getChatShareThemeBackdrops(payload),
+    getChatShareThemeBackdrops: () => raw.getChatShareThemeBackdrops({}),
     deleteBusinessAccountGift: (payload) => raw.deleteBusinessAccountGift(payload),
     verifyUser: (payload) => raw.verifyUser(payload),
     verifyChat: (payload) => raw.verifyChat(payload),

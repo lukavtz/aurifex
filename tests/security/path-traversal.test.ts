@@ -1,29 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { createCoreOperations } from "../../src/core/operations.ts";
 import { createPathPolicy, PathPolicyError } from "../../src/core/security/path-policy.ts";
 import type { PathPolicy } from "../../src/core/security/path-policy.ts";
-import { BOT_SPEC_VERSION } from "../../src/core/spec/bot-spec.ts";
-
-const SPEC: Record<string, unknown> = {
-  schemaVersion: BOT_SPEC_VERSION,
-  name: "traversal_bot",
-  displayName: "Traversal Bot",
-  stack: "grammy",
-  features: ["commands"],
-  deployment: "docker",
-  storage: { postgres: false, redis: true },
-  i18n: { defaultLocale: "en", en: true, ru: false, zh: false },
-  security: { webhookSecret: true, adminAllowlist: true, rateLimit: true, idempotency: true },
-  runtime: {
-    queue: "none",
-    telemetry: { otlp: false, prometheus: false, sentry: false },
-  },
-};
 
 const ESCAPE_CODES: Readonly<Record<string, true>> = {
   unauthorized_path: true,
@@ -169,52 +152,33 @@ test("treats percent-encoded dot segments as literal in-root names", async () =>
   }
 });
 
-test("scaffold and add-feature reject destinations outside the policy root", async (t) => {
+test("operations reject project roots outside the policy root", async (t) => {
   const { root, outside } = await setup("operations");
   try {
     const operations = await createCoreOperations({ root });
     await mkdir(join(outside, "keep"));
     const before = (await readdir(outside)).toSorted();
 
-    for (const destination of ["../ops-escape", join(outside, "scaffold"), "a/../../up"]) {
-      const result = await operations.scaffoldBot({ destination, spec: SPEC });
-      assert.ok(result.status === "error", `${destination}: ${JSON.stringify(result)}`);
-      assert.equal(result.error.code, "unauthorized_path", destination);
+    for (const projectRoot of ["../outside-bot", join(outside, "project"), "a/../../up"]) {
+      for (const result of [
+        await operations.inspectBot({ projectRoot }),
+        await operations.verifyBot({ projectRoot }),
+      ]) {
+        assert.ok(result.status === "error", `${projectRoot}: ${JSON.stringify(result)}`);
+        assert.equal(result.error.code, "unauthorized_path", projectRoot);
+      }
     }
 
-    if (!(await symlinkOrSkip(t, outside, join(root, "linked-dest")))) return;
-    const throughLink = await operations.scaffoldBot({ destination: "linked-dest", spec: SPEC });
-    assert.ok(throughLink.status === "error");
-    assert.equal(throughLink.error.code, "unauthorized_path");
-
-    const created = await operations.scaffoldBot({ destination: "bot", spec: SPEC });
-    assert.ok(created.status === "ok", JSON.stringify(created));
-    assert.deepEqual((await readdir(outside)).toSorted(), before);
-
-    for (const projectRoot of [
-      "../outside-bot",
-      join(outside, "project"),
-      "bot/../../outside-bot",
+    if (!(await symlinkOrSkip(t, outside, join(root, "linked-project")))) return;
+    for (const result of [
+      await operations.inspectBot({ projectRoot: "linked-project" }),
+      await operations.verifyBot({ projectRoot: "linked-project" }),
     ]) {
-      const result = await operations.addFeature({
-        projectRoot,
-        feature: "llm",
-        name: "llm",
-      });
-      assert.ok(result.status === "error", `${projectRoot}: ${JSON.stringify(result)}`);
-      assert.equal(result.error.code, "unauthorized_path", projectRoot);
+      assert.ok(result.status === "error");
+      assert.equal(result.error.code, "unauthorized_path");
     }
 
-    const traversalName = await operations.addFeature({
-      projectRoot: "bot",
-      feature: "llm",
-      name: "../../evil",
-    });
-    assert.ok(traversalName.status === "error");
-    assert.equal(traversalName.error.code, "invalid_request");
-
     assert.deepEqual((await readdir(outside)).toSorted(), before);
-    await assert.rejects(readFile(join(dirname(root), "ops-escape")));
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });

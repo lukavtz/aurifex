@@ -1,12 +1,23 @@
 ---
 name: telegram-mini-apps
-description: Use when building or reviewing a Telegram Mini App, validating initData on the server, wiring a session endpoint, theming, or launching from a bot.
+description: Use when building or reviewing a Telegram Mini App, validating initData on the server, wiring a session endpoint, theming, CloudStorage, or launching the app from a bot. Русские триггеры: мини-приложение, Mini App, initData, веб-апп телеграма, CloudStorage.
 ---
 
 # Telegram Mini Apps
 
-A Mini App is a web page opened inside Telegram. The page is untrusted. The bot
-token stays on the server, and every sensitive action is authorized there.
+A Mini App is a web page opened inside Telegram. The page is untrusted. The bot token
+stays on the server, and every sensitive action is authorized there.
+
+## Procedure
+
+1. Read the launch section and wire `ready()`/`expand()` behind a guard.
+2. On the server, validate `initData`: parse, strip `hash`, sort by key, HMAC-SHA256,
+   compare in constant time, then check your own `auth_date` TTL.
+3. Issue your own short-lived session token from `POST /api/miniapp/session`.
+4. Authorize every data-changing endpoint with that session, not with `initData`.
+5. Set CSP, HTTPS, and the BotFather origin allowlist.
+6. Route Bot API calls through the server; the bundle carries no token.
+7. Test the validation failure cases and both themes on a 320 px phone.
 
 ## Launch and client API
 
@@ -30,6 +41,8 @@ Useful members:
   database remains the source of truth.
 - `openLink`, `openTelegramLink`, `shareToStory`, `requestContact`,
   `requestWriteAccess`.
+- `sendData` — returns a string to the bot as a `web_app_data` message; the payload
+  is at most **4096 bytes**.
 
 Call `ready()` when the first screen is usable, not before the app renders. Respect
 safe-area insets and design for a 320 px phone in both themes.
@@ -43,8 +56,9 @@ Algorithm:
 
 1. Parse the raw query string. Keep all fields except `hash` (and `signature` if you
    use the Ed25519 third-party path).
-2. Build `data_check_string`: `key=value` for every remaining field, sorted by key,
-   joined with `\n`.
+2. Build `data_check_string`: `key=value` for every remaining field, **sorted by
+   key**, joined with `\n`. Sort keys, not whole `key=value` lines: the orders differ
+   as soon as one key is a prefix of another.
 3. `secret_key = HMAC_SHA256(key="WebAppData", message=bot_token)`.
 4. `expected = HMAC_SHA256(key=secret_key, message=data_check_string)` as hex.
 5. Compare `expected` with `hash` in constant time.
@@ -63,7 +77,7 @@ export function validateInitData(raw: string, botToken: string, maxAge = 86400) 
   params.delete("signature");
 
   const check = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k}=${v}`)
     .join("\n");
 
@@ -107,6 +121,9 @@ def validate_init_data(raw: str, bot_token: str, max_age: int = 86400):
     return pairs
 ```
 
+`auth_date` is not validated by the signature path or by any SDK helper. The TTL is
+yours: without it, a captured `initData` string authorizes forever.
+
 After validation, issue your own short-lived session cookie or token. Do not resend
 `initData` forever, and do not trust a client-generated user id.
 
@@ -130,7 +147,7 @@ it.
 - Restrict the Mini App origin in BotFather; do not load the page through redirects
   or untrusted third-party origins.
 - Add a Content-Security-Policy that allows only your own scripts, styles, images,
-  and connect targets.
+  and connect targets. No `unsafe-eval`, no wildcard `connect-src`.
 - Do not put the bot token, API keys, or admin secrets in the bundle. Route Bot API
   calls through the server.
 - Treat form data, `start_param`, `sendData`, query parameters, and storage values as
@@ -138,7 +155,16 @@ it.
 - Escape text before inserting it into HTML. Prefer `textContent` over `innerHTML`.
 - Payments inside the Mini App follow the bot's Stars flow; grant only on the bot's
   `successful_payment`, never on a page callback.
-- If the app sends data back, handle `web_app_data` on the bot as untrusted input.
+- If the app sends data back, handle `web_app_data` on the bot as untrusted input and
+  check `web_app_data.button_text` only for display.
+
+## CloudStorage limits
+
+- 1024 keys per user per bot.
+- 4096 characters per value.
+- Writes are asynchronous and can fail; never make them the only copy of data the
+  user paid for.
+- `SecureStorage` is client-side, not a secret store. Keep secrets server-side.
 
 ## Testing
 
@@ -151,11 +177,25 @@ it.
 - Test in real Telegram clients on Android, iOS, and desktop, in both themes.
 - Test environment allows HTTP; production requires HTTPS.
 
+## Gotchas
+
+- `initDataUnsafe.user` is attacker-controlled. It is fine for a greeting, never for
+  authorization.
+- Sorting `key=value` strings instead of keys passes most fixtures and fails on real
+  payloads. Sort keys.
+- `URLSearchParams` decodes `+` as a space; signatures do not. Preserve the raw
+  string when hashing.
+- `auth_date` is seconds, not milliseconds. A millisecond comparison rejects every
+  valid launch.
+- `sendData` over 4096 bytes is dropped silently; chunk or store server-side.
+- A Mini App opened outside Telegram has empty `initData`; render a clear fallback
+  instead of a half-working page.
+
 ## Checklist
 
 - [ ] `ready()` and `expand()` called.
 - [ ] `initData` validated server-side with HMAC-SHA256 and a constant-time compare.
-- [ ] `auth_date` bounded.
+- [ ] `auth_date` bounded by your own TTL.
 - [ ] Own short-lived session issued.
 - [ ] Bot token absent from the bundle.
 - [ ] HTTPS and origin restriction.
@@ -164,6 +204,7 @@ it.
 
 ## Sources
 
-Adapted from `nyxandro/telegram-bot-development-skill` (MIT),
-`nzhulikov/telegram-bot-skills` (Apache-2.0), and Telegram Mini Apps documentation.
-See `THIRD_PARTY_NOTICES.md`.
+- https://core.telegram.org/bots/webapps
+- https://core.telegram.org/bots/api#validating-data-received-via-the-mini-app
+- https://docs.telegram-mini-apps.com/
+- https://core.telegram.org/bots/api#webappdata

@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from app.middlewares.allowlist import is_admin
+from app.guard.allowlist import is_admin
 
 router = Router(name="admin")
 

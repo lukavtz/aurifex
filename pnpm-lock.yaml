@@ -209,13 +209,6 @@ overrides:
 
 importers:
   .:
-    dependencies:
-      "@modelcontextprotocol/server":
-        specifier: 2.4.0
-        version: 2.4.0
-      zod:
-        specifier: 4.6.7
-        version: 4.6.7
     devDependencies:
       "@deepseek-ai/cordis":
         specifier: 4.1.0
@@ -226,6 +219,9 @@ importers:
       "@deepseek-ai/schemastery":
         specifier: 3.19.0
         version: 3.19.0
+      "@modelcontextprotocol/server":
+        specifier: 2.4.0
+        version: 2.4.0
       "@oh-my-pi/pi-coding-agent":
         specifier: 18.18.3
         version: 18.18.3
@@ -250,6 +246,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
 packages:
   "@assemblyscript/loader@0.19.23":

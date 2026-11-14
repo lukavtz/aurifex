@@ -1,7 +1,7 @@
 ---
 description: Verify a Telegram bot against Aurifex security and production checks
 argument-hint: [project-root]
-allowed-tools: telegram_bot_inspect, telegram_bot_verify
+allowed-tools: mcp__plugin_aurifex_aurifex__telegram_bot_inspect, mcp__plugin_aurifex_aurifex__telegram_bot_verify
 ---
 
 # /aurifex-verify

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { request } from "node:http";
 import type { Bot } from "grammy";
-import { createServer } from "../src/server.js";
+import { createServer } from "../src/http/server.js";
 
 function fakeBot(): Bot {
   return {

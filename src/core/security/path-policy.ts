@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -10,7 +11,16 @@ import {
   stat,
   unlink,
 } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
+import type { FileHandle } from "node:fs/promises";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve as resolvePath,
+  sep,
+} from "node:path";
 
 import type { FileRef } from "../results.ts";
 import { sha256Hex } from "../results.ts";
@@ -89,6 +99,79 @@ async function isDirectory(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+const WRITE_FLAGS =
+  constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
+
+interface FileIdentity {
+  readonly dev: number;
+  readonly ino: number;
+}
+
+// O_EXCL refuses an existing entry and O_NOFOLLOW refuses a symlink, so the
+// final path component can never be followed. EEXIST/ELOOP is translated to the
+// policy's own codes so callers see the reason instead of a raw errno.
+async function openExclusive(path: string, mode: number, label: string): Promise<FileHandle> {
+  try {
+    return await open(path, WRITE_FLAGS, mode);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EEXIST" && code !== "ELOOP") throw error;
+    const info = await lstat(path).catch(() => undefined);
+    if (info?.isSymbolicLink() === true) {
+      throw new PathPolicyError("unauthorized_path", `symlink is not allowed: ${label}`);
+    }
+    if (code === "EEXIST") {
+      if (info?.isDirectory() === true) {
+        throw new PathPolicyError("not_a_file", `is a directory: ${label}`);
+      }
+      throw new PathPolicyError("file_exists", `file exists: ${label}`);
+    }
+    throw error;
+  }
+}
+
+async function writeExclusive(
+  target: string,
+  bytes: Buffer,
+  mode: number,
+  label: string,
+): Promise<FileIdentity> {
+  const handle = await openExclusive(target, mode, label);
+  try {
+    await handle.writeFile(bytes);
+    const info = await handle.stat();
+    return { dev: info.dev, ino: info.ino };
+  } finally {
+    await handle.close();
+  }
+}
+
+// The check-then-use window is closed by comparing the committed directory
+// entry with the inode this call actually wrote; a swapped or symlinked entry
+// fails closed instead of reporting a digest for bytes nobody wrote.
+async function assertCommitted(
+  target: string,
+  label: string,
+  identity: FileIdentity,
+  expectedBytes: number,
+): Promise<void> {
+  let info;
+  try {
+    info = await lstat(target);
+  } catch {
+    throw new PathPolicyError("not_a_file", `file missing after write: ${label}`);
+  }
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new PathPolicyError("unauthorized_path", `unsafe write target: ${label}`);
+  }
+  if (info.ino !== identity.ino || info.dev !== identity.dev) {
+    throw new PathPolicyError("unauthorized_path", `write target was swapped: ${label}`);
+  }
+  if (info.size !== expectedBytes) {
+    throw new PathPolicyError("unauthorized_path", `write target changed size: ${label}`);
   }
 }
 
@@ -202,63 +285,59 @@ export async function createPathPolicy(rootInput: string): Promise<PathPolicy> {
     options: { readonly overwrite?: boolean; readonly mode?: number } = {},
   ): Promise<FileRef> {
     const target = resolve(relativePath);
-    const parent = resolvePath(target, "..");
+    const parent = dirname(target);
     if (parent === target) throw new PathPolicyError("invalid_path", "cannot write to root");
     await ensureDirectoryPath(root, parent);
 
-    let existing;
-    try {
-      existing = await lstat(target);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    if (existing) {
-      if (existing.isSymbolicLink()) {
+    const bytes = Buffer.from(content, "utf8");
+    const mode = options.mode ?? 0o644;
+    let identity: FileIdentity;
+    if (options.overwrite !== true) {
+      identity = await writeExclusive(target, bytes, mode, relativePath);
+    } else {
+      let existing;
+      try {
+        existing = await lstat(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (existing?.isSymbolicLink() === true) {
         throw new PathPolicyError("unauthorized_path", `symlink is not allowed: ${relativePath}`);
       }
-      if (existing.isDirectory()) {
+      if (existing?.isDirectory() === true) {
         throw new PathPolicyError("not_a_file", `is a directory: ${relativePath}`);
       }
-      if (options.overwrite !== true) {
-        throw new PathPolicyError("file_exists", `file exists: ${relativePath}`);
-      }
-    }
-
-    const mode = options.mode ?? 0o644;
-    if (existing) {
-      const tempPath = join(
-        parent,
-        `.${target.split(sep).at(-1)}.tmp-${process.pid}-${Date.now()}`,
-      );
-      const handle = await open(tempPath, "wx", mode);
+      const tempPath = join(parent, `.${basename(target)}.tmp-${process.pid}-${Date.now()}`);
+      identity = await writeExclusive(tempPath, bytes, mode, relativePath);
       try {
-        await handle.writeFile(content, "utf8");
-      } finally {
-        await handle.close();
-      }
-      try {
+        // Re-check immediately before committing: rename replaces a directory
+        // entry without following it, but a symlink that appeared after the
+        // first check is refused rather than replaced.
+        await ensureDirectoryPath(root, parent);
+        let current;
+        try {
+          current = await lstat(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        if (current?.isSymbolicLink() === true) {
+          throw new PathPolicyError("unauthorized_path", `symlink is not allowed: ${relativePath}`);
+        }
+        if (current?.isDirectory() === true) {
+          throw new PathPolicyError("not_a_file", `is a directory: ${relativePath}`);
+        }
         await rename(tempPath, target);
       } catch (error) {
         await unlink(tempPath).catch(() => undefined);
         throw error;
       }
-    } else {
-      const handle = await open(target, "wx", mode);
-      try {
-        await handle.writeFile(content, "utf8");
-      } finally {
-        await handle.close();
-      }
     }
 
-    const info = await lstat(target);
-    if (info.isSymbolicLink() || !info.isFile()) {
-      throw new PathPolicyError("unauthorized_path", `unsafe write target: ${relativePath}`);
-    }
+    await assertCommitted(target, relativePath, identity, bytes.byteLength);
     return {
       path: relative(root, target).split(sep).join("/"),
-      bytes: info.size,
-      sha256: sha256Hex(content),
+      bytes: bytes.byteLength,
+      sha256: sha256Hex(bytes),
     };
   }
 

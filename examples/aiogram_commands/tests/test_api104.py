@@ -7,7 +7,7 @@ import pytest
 from aiogram.types import Message
 from pydantic import ValidationError
 
-from app.services import api104
+from app.telegram import api104
 
 
 def test_widget_method_metadata() -> None:
@@ -78,3 +78,32 @@ async def test_answer_widget_query_helper_calls_bot() -> None:
     method = bot.await_args.args[0]
     assert isinstance(method, api104.AnswerWidgetQuery)
     assert method.widget_query_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_gift_helpers_serialize_exact_payloads() -> None:
+    bot: Any = AsyncMock(return_value={})
+
+    await api104.get_unique_gift(bot, "gift-name")
+    unique = bot.await_args.args[0]
+    assert isinstance(unique, api104.GetUniqueGift)
+    assert unique.model_dump(exclude_none=True) == {"name": "gift-name"}
+
+    await api104.get_chat_share_theme_backdrops(bot)
+    backdrops = bot.await_args.args[0]
+    assert isinstance(backdrops, api104.GetChatShareThemeBackdrops)
+    assert api104.GetChatShareThemeBackdrops.model_fields == {}
+    assert backdrops.model_dump(exclude_none=True) == {}
+
+    bot.return_value = True
+    await api104.delete_business_account_gift(bot, "bc", "owned")
+    delete = bot.await_args.args[0]
+    assert isinstance(delete, api104.DeleteBusinessAccountGift)
+    assert set(api104.DeleteBusinessAccountGift.model_fields) == {
+        "business_connection_id",
+        "owned_gift_id",
+    }
+    assert delete.model_dump(exclude_none=True) == {
+        "business_connection_id": "bc",
+        "owned_gift_id": "owned",
+    }

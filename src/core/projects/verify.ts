@@ -5,6 +5,8 @@ import { domainFailure, domainSuccess } from "../results.ts";
 import { PathPolicyError } from "../security/path-policy.ts";
 import type { PathPolicy } from "../security/path-policy.ts";
 import { findTelegramTokens } from "../security/secrets.ts";
+import { LAYOUT } from "../layout.ts";
+import { API104_METHODS, API104_TYPES } from "../targets/api104-contract.ts";
 
 export interface VerifyResult {
   readonly ok: boolean;
@@ -91,6 +93,29 @@ function make(
   return evidence === undefined
     ? { id, status, detail: clip(detail) }
     : { id, status, detail: clip(detail), evidence };
+}
+
+function isTestPath(path: string): boolean {
+  return /(^|\/)tests?\//.test(path) || /(^|\/)test_[^/]+\.py$/.test(path);
+}
+
+/**
+ * Behavioural checks read code, config, and deployment files only. Tests and
+ * prose must never satisfy a marker: a project whose route was deleted but
+ * still described in `README.md` or asserted in a test has lost the behaviour.
+ */
+function isBehaviourPath(path: string): boolean {
+  return !isTestPath(path) && !/\.md$/i.test(path) && !/(^|\/)docs\//.test(path);
+}
+
+function behaviourFiles(files: readonly ProjectFile[]): readonly ProjectFile[] {
+  return files.filter((file) => isBehaviourPath(file.path));
+}
+
+function behaviourText(files: readonly ProjectFile[]): string {
+  return behaviourFiles(files)
+    .map((file) => file.content)
+    .join("\n");
 }
 
 function toFailure(error: unknown, policy: PathPolicy): DomainFailure {
@@ -219,7 +244,7 @@ function checkEnvIgnored(files: readonly ProjectFile[], prefix: string): Check {
 function checkWebhookSecret(files: readonly ProjectFile[]): Check {
   const marker = files.find(
     (file) =>
-      !/\.md$/i.test(file.path) &&
+      isBehaviourPath(file.path) &&
       (file.content.includes("secretToken") ||
         /\bsecret_token\s*=/.test(file.content) ||
         file.content.includes("X-Telegram-Bot-Api-Secret-Token")),
@@ -240,7 +265,7 @@ function scanWebhookUrls(files: readonly ProjectFile[]): {
   const urls: WebhookUrl[] = [];
   const assignments: WebhookUrl[] = [];
   for (const file of files) {
-    if (/(^|\/)tests?\//.test(file.path) || /(^|\/)test_[^/]+\.py$/.test(file.path)) continue;
+    if (!isBehaviourPath(file.path)) continue;
     const lines = file.content.split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
       if (/webhook/i.test(line)) {
@@ -315,7 +340,7 @@ function checkWebhookPort(files: readonly ProjectFile[]): Check {
 
 function checkConstantTime(files: readonly ProjectFile[]): Check {
   for (const file of files) {
-    if (/(^|\/)tests?\//.test(file.path) || /(^|\/)test_[^/]+\.py$/.test(file.path)) continue;
+    if (!isBehaviourPath(file.path)) continue;
     const lines = file.content.split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
       if (
@@ -334,8 +359,9 @@ function checkConstantTime(files: readonly ProjectFile[]): Check {
   }
   const framework = files.find(
     (file) =>
-      (file.content.includes("webhookCallback") && file.content.includes("secretToken")) ||
-      (file.content.includes("SimpleRequestHandler") && file.content.includes("secret_token")),
+      isBehaviourPath(file.path) &&
+      ((file.content.includes("webhookCallback") && file.content.includes("secretToken")) ||
+        (file.content.includes("SimpleRequestHandler") && file.content.includes("secret_token"))),
   );
   if (framework !== undefined) {
     return make(
@@ -372,7 +398,9 @@ function checkMarker(
   failDetail: string,
   passDetail: string,
 ): Check {
-  const found = files.find((file) => patterns.some((pattern) => pattern.test(file.content)));
+  const found = files.find(
+    (file) => isBehaviourPath(file.path) && patterns.some((pattern) => pattern.test(file.content)),
+  );
   return found === undefined
     ? make(id, "fail", failDetail)
     : make(id, "pass", passDetail, { path: found.path });
@@ -385,15 +413,21 @@ function checkWarnMarker(
   passDetail: string,
   warnDetail: string,
 ): Check {
-  const found = files.find((file) => patterns.some((pattern) => pattern.test(file.content)));
+  const found = files.find(
+    (file) => isBehaviourPath(file.path) && patterns.some((pattern) => pattern.test(file.content)),
+  );
   return found === undefined
     ? make(id, "warn", warnDetail)
     : make(id, "pass", passDetail, { path: found.path });
 }
 
+const TESTS_DIRS = [...new Set([LAYOUT.grammy.tests, LAYOUT.aiogram.tests])];
+
 function checkTestsPresent(files: readonly ProjectFile[], prefix: string): Check {
   const found = files.find(
-    (file) => file.path.startsWith(`${prefix}tests/`) || /(^|\/)test_[^/]+\.py$/.test(file.path),
+    (file) =>
+      TESTS_DIRS.some((dir) => file.path.startsWith(`${prefix}${dir}`)) ||
+      /(^|\/)test_[^/]+\.py$/.test(file.path),
   );
   return found === undefined
     ? make("tests.present", "fail", "no tests directory or test_*.py file found")
@@ -401,18 +435,19 @@ function checkTestsPresent(files: readonly ProjectFile[], prefix: string): Check
 }
 
 function checkBotApi104(files: readonly ProjectFile[]): Check {
-  const adapter = files.find(
-    (file) =>
-      file.path.endsWith("src/telegram/api104.ts") || file.path.endsWith("app/services/api104.py"),
+  const adapterPaths = [LAYOUT.grammy.api104, LAYOUT.aiogram.api104];
+  const adapter = files.find((file) =>
+    adapterPaths.some((path) => file.path === path || file.path.endsWith(`/${path}`)),
   );
   const detail =
     "framework types cover Bot API 10.3; Bot API 10.4 is supported through the typed raw adapter";
   if (adapter === undefined) {
     return make("botapi.104", "fail", `${detail} (adapter file is missing)`);
   }
-  const required = adapter.path.endsWith(".py")
-    ? ["SendWidget", "AnswerWidgetQuery", "SendRichMessage"]
-    : ["sendWidget", "answerWidgetQuery", "sendRichMessage"];
+  const python = adapter.path.endsWith(".py");
+  const required = (["sendWidget", "answerWidgetQuery", "sendRichMessage"] as const)
+    .filter((method) => (API104_METHODS as readonly string[]).includes(method))
+    .map((method) => (python ? `${method[0]!.toUpperCase()}${method.slice(1)}` : method));
   const missing = required.filter((symbol) => !adapter.content.includes(symbol));
   return missing.length === 0
     ? make("botapi.104", "pass", detail, { path: adapter.path })
@@ -422,24 +457,17 @@ function checkBotApi104(files: readonly ProjectFile[]): Check {
 }
 
 function checkLockfile(files: readonly ProjectFile[], prefix: string): Check {
-  const names = ["bun.lock", "package-lock.json", "uv.lock"];
+  const names = [LAYOUT.grammy.lockfile, "package-lock.json", LAYOUT.aiogram.lockfile];
   const found = files.find((file) => names.some((name) => file.path === `${prefix}${name}`));
   return found === undefined
-    ? make("deps.lockfile", "warn", "no bun.lock, package-lock.json, or uv.lock found")
+    ? make("deps.lockfile", "warn", `no ${names.join(", ")} found`)
     : make("deps.lockfile", "pass", "dependency lockfile is committed", { path: found.path });
 }
 
-const QUEUE_MODULES = ["src/runtime/queue.ts", "app/runtime/queue.py"] as const;
-const PAYMENTS_MODULES = ["src/runtime/payments.ts", "app/runtime/payments.py"] as const;
-const MINIAPP_MODULES = [
-  "src/runtime/miniapp-session.ts",
-  "app/runtime/miniapp_session.py",
-] as const;
-const WORKER_MODULES = ["src/worker.ts", "app/worker.py"] as const;
-
-function isTestPath(path: string): boolean {
-  return /(^|\/)tests?\//.test(path) || /(^|\/)test_[^/]+\.py$/.test(path);
-}
+const QUEUE_MODULES = [LAYOUT.grammy.queue, LAYOUT.aiogram.queue] as const;
+const PAYMENTS_MODULES = [LAYOUT.grammy.payments, LAYOUT.aiogram.payments] as const;
+const MINIAPP_MODULES = [LAYOUT.grammy.miniapp, LAYOUT.aiogram.miniapp] as const;
+const WORKER_MODULES = [LAYOUT.grammy.worker, LAYOUT.aiogram.worker] as const;
 
 function findModule(
   files: readonly ProjectFile[],
@@ -453,31 +481,27 @@ function findModule(
 }
 
 function checkQueueWorker(files: readonly ProjectFile[]): Check {
-  const configured = files.some(
-    (file) =>
-      findModule([file], QUEUE_MODULES) !== undefined ||
-      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
-  );
+  const configured =
+    findModule(files, QUEUE_MODULES) !== undefined ||
+    findModule(files, WORKER_MODULES) !== undefined;
   if (!configured) return make("queue.worker", "pass", "no queue configured");
   const worker = findModule(files, WORKER_MODULES);
   return worker === undefined
     ? make(
         "queue.worker",
         "fail",
-        "queue is configured but no src/worker.ts or app/worker.py entrypoint exists",
+        `queue is configured but no ${WORKER_MODULES.join(" or ")} entrypoint exists`,
         { path: findModule(files, QUEUE_MODULES)?.path ?? "unknown" },
       )
     : make("queue.worker", "pass", "queue worker entrypoint is present", { path: worker.path });
 }
 
 function checkQueueSchema(files: readonly ProjectFile[]): Check {
-  const configured = files.some(
-    (file) =>
-      findModule([file], QUEUE_MODULES) !== undefined ||
-      (!isTestPath(file.path) && file.content.includes("QUEUE_POLL_MS")),
-  );
+  const configured =
+    findModule(files, QUEUE_MODULES) !== undefined ||
+    findModule(files, WORKER_MODULES) !== undefined;
   if (!configured) return make("queue.schema", "pass", "no queue configured");
-  const text = files.map((file) => file.content).join("\n");
+  const text = behaviourText(files);
   const missing = [
     ["jobs table", /\bjobs\b/],
     ["idempotency_key", /idempotency_key/],
@@ -493,7 +517,7 @@ function checkQueueSchema(files: readonly ProjectFile[]): Check {
 function checkPaymentsSchema(files: readonly ProjectFile[]): Check {
   const runtime = findModule(files, PAYMENTS_MODULES);
   if (runtime === undefined) return make("payments.schema", "pass", "payments are not enabled");
-  const text = files.map((file) => file.content).join("\n");
+  const text = behaviourText(files);
   const missing = ["charge_id", "refunds", "subscriptions"].filter(
     (needle) => !text.includes(needle),
   );
@@ -509,7 +533,7 @@ function checkPaymentsSchema(files: readonly ProjectFile[]): Check {
 function checkPaymentsValidation(files: readonly ProjectFile[]): Check {
   const runtime = findModule(files, PAYMENTS_MODULES);
   if (runtime === undefined) return make("payments.validation", "pass", "payments are not enabled");
-  const text = files.map((file) => file.content).join("\n");
+  const text = behaviourText(files);
   const missing = ["invoice_payload", "currency", "total_amount"].filter(
     (needle) => !text.includes(needle),
   );
@@ -546,7 +570,7 @@ function checkSecretsFile(files: readonly ProjectFile[]): Check {
 }
 
 function checkTelemetryReadiness(files: readonly ProjectFile[]): Check {
-  const text = files.map((file) => file.content).join("\n");
+  const text = behaviourText(files);
   const missing = (
     [
       ["/readyz", /\/readyz/],
@@ -561,7 +585,7 @@ function checkTelemetryReadiness(files: readonly ProjectFile[]): Check {
 }
 
 function checkTelemetryMetrics(files: readonly ProjectFile[]): Check {
-  const found = files.find((file) => file.content.includes("/metrics"));
+  const found = behaviourFiles(files).find((file) => file.content.includes("/metrics"));
   return found === undefined
     ? make("telemetry.metrics", "warn", "metrics disabled: no /metrics route")
     : make("telemetry.metrics", "pass", "/metrics route is exposed", { path: found.path });
@@ -570,7 +594,7 @@ function checkTelemetryMetrics(files: readonly ProjectFile[]): Check {
 function checkMiniappSession(files: readonly ProjectFile[]): Check {
   const module = findModule(files, MINIAPP_MODULES);
   if (module === undefined) return make("miniapp.session", "pass", "miniapp is not enabled");
-  const text = files.map((file) => file.content).join("\n");
+  const text = behaviourText(files);
   const missing = (
     [
       ["HttpOnly cookie", "HttpOnly"],
@@ -596,10 +620,7 @@ function checkMiniappSession(files: readonly ProjectFile[]): Check {
 function checkMiniappCsp(files: readonly ProjectFile[]): Check {
   const module = findModule(files, MINIAPP_MODULES);
   if (module === undefined) return make("miniapp.csp", "pass", "miniapp is not enabled");
-  return files
-    .map((file) => file.content)
-    .join("\n")
-    .includes("Content-Security-Policy")
+  return behaviourText(files).includes("Content-Security-Policy")
     ? make("miniapp.csp", "pass", "miniapp responses set Content-Security-Policy", {
         path: module.path,
       })
@@ -609,10 +630,8 @@ function checkMiniappCsp(files: readonly ProjectFile[]): Check {
 }
 
 function checkBotApi104Types(files: readonly ProjectFile[]): Check {
-  const text = files.map((file) => file.content).join("\n");
-  const missing = ["TonWalletCard", "ChatShareTheme", "RichTextTonAddress"].filter(
-    (needle) => !text.includes(needle),
-  );
+  const text = behaviourText(files);
+  const missing = API104_TYPES.filter((needle) => !text.includes(needle));
   return missing.length === 0
     ? make(
         "botapi.104.types",
@@ -729,7 +748,7 @@ export async function verifyBot(
       checkWarnMarker(
         files,
         "logs.redaction",
-        [/\bredact\b/, /redact_keys/],
+        [/redact/i],
         "logger redacts secrets",
         "logger redaction not detected",
       ),

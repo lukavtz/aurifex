@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.runtime.secrets import read_secret, require_secrets
+from app.http.secrets import read_secret, require_secrets
 
 TOKEN_PATTERN = re.compile(r"^\d{6,}:[A-Za-z0-9_-]{30,}$")
 SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")

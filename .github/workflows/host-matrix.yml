@@ -26,6 +26,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      # omp 18.18.3 needs Bun >= 1.4.4; the repo's own dev pin is 1.4.2.
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.host == 'omp'
+        with:
+          bun-version: "1.4.4"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Pack
@@ -34,23 +39,34 @@ jobs:
           pnpm pack --pack-destination "$RUNNER_TEMP/pkg"
       - name: OMP
         if: matrix.host == 'omp'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @oh-my-pi/pi-coding-agent@18.18.3
-          omp plugin link .
-          omp plugin doctor
-          pnpm test:host
+          node --experimental-strip-types tools/smoke-hosts.ts --host omp --package "$RUNNER_TEMP"/pkg/*.tgz
       - name: DeepSeek Harness
         if: matrix.host == 'dsh'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @deepseek-ai/dsh@0.2.2-rc.1
-          dsh plugin --profile aurifex-ci add "$RUNNER_TEMP"/pkg/*.tgz
-          dsh plugin --profile aurifex-ci --dump-config
-          AURIFEX_DSH_PROFILE=1 pnpm test:host
+          node --experimental-strip-types tools/smoke-hosts.ts --host dsh --package "$RUNNER_TEMP"/pkg/*.tgz
       - name: Claude Code
         if: matrix.host == 'claude'
+        env:
+          # The upload step reads this exact path; without it the smoke script
+          # falls back to an unpredictable mkdtemp directory.
+          AURIFEX_ARTIFACT_DIR: ${{ runner.temp }}/aurifex-artifacts
         run: |
           npm install --global @anthropic-ai/claude-code@2.1.308
-          claude plugin validate .
-          HOME="$RUNNER_TEMP/claude-home" claude plugin marketplace add "$PWD"
-          HOME="$RUNNER_TEMP/claude-home" claude plugin install aurifex@aurifex
-          HOME="$RUNNER_TEMP/claude-home" claude plugin details aurifex
+          node --experimental-strip-types tools/smoke-hosts.ts --host claude --package "$RUNNER_TEMP"/pkg/*.tgz
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: host-${{ matrix.host }}
+          path: ${{ runner.temp }}/aurifex-artifacts/
+          if-no-files-found: error

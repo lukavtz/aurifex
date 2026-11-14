@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.i18n import DEFAULT_LOCALE, t
+from app.i18n import DEFAULT_LOCALE, t
 
 
 def test_renders_every_locale() -> None:

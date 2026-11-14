@@ -1,22 +1,25 @@
 # Aurifex — Architecture
 
-Status: v0.2.0
-Last verified: 2026-11-09
+Status: v0.3.0
+Last verified: 2026-11-15
 
 ## 1. Shape
 
-One npm package, one domain core, three thin host adapters.
+One npm package, one domain core, three projections, zero project generator.
 
 ```text
 model / user
    │
    ├── OMP ExtensionAPI ──┐
-   ├── DSH Cordis tools ──┼──> CoreOperations ──> filesystem / templates
-   └── MCP stdio server ──┘
+   ├── DSH Cordis tools ──┼──> CoreOperations ──> filesystem (read-only inspection,
+   └── MCP stdio server ──┘                        bounded verification)
+                                   ▲
+                              CLI (`aurifex`)
 ```
 
 Adapters translate schemas and result projections. They never implement Telegram
-logic, path policy, or verification rules.
+knowledge, path policy, or verification rules. The package produces no project files:
+the agent writes the bot, and Aurifex explains how and checks the result.
 
 ## 2. Module map
 
@@ -24,40 +27,54 @@ logic, path policy, or verification rules.
 src/
   core/
     results.ts            DomainResult<T>, stable error codes, canonical JSON
+    layout.ts             the single source of project layout paths per stack
     spec/
       bot-spec.ts         BotSpec validation, normalization, hash
     targets/
-      catalog.ts          exact target data and feature matrix
+      catalog.ts          pinned target data and feature matrix
+      api104-contract.ts  Bot API 10.4 methods, params, and type surface
     security/
       secrets.ts          token/secret detection and redaction
-      path-policy.ts      authorized-root containment and safe writes
+      path-policy.ts      authorized-root containment and bounded reads
     projects/
-      scaffold.ts         scaffold operation
       inspect.ts          read-only project inspection
-      verify.ts           deterministic checks
-      add-feature.ts      feature module generation
-      deploy.ts           deploy plan and webhook script
-      test-harness.ts     offline fixtures and fake transport
-      upgrade.ts          Bot API migration plan
-      features/
-        grammy.ts         grammY feature renderers (incl. widgets, rich)
-        aiogram.ts        aiogram feature renderers
-      templates/
-        shared.ts         base files, Docker, Caddy, CI
-        grammy.ts         grammY file map + Bot API 10.4 raw adapter
-        aiogram.ts        aiogram file map + Bot API 10.4 raw methods
-        miniapp.ts        React/Vite Mini App
+      verify.ts           the 29 deterministic checks
     operations.ts         CoreOperations facade
   adapters/
-    shared.ts             host configuration and path authorization
+    shared.ts             host configuration, discovery guidance, path authorization
     omp/index.ts          ExtensionAPI projection
     dsh/index.ts          Cordis plugin projection
     mcp/server.ts         MCP server projection
-  cli.ts                  CLI + one-command installer
+  cli.ts                  CLI (`target`, `inspect`, `verify`, `install`)
   index.ts                public exports
+skills/                   the knowledge: 15 SKILL.md trees, references, offline scripts
+agents/                   bot-architect, bot-security-reviewer, bot-test-writer
+commands/                 aurifex-new, aurifex-verify, aurifex-deploy
+tools/                  repository checks, Bot API watcher, host smoke
+examples/                 grammy_commands, aiogram_commands (hand-written)
+site/                     trilingual product site
 ```
 
-## 3. Core contracts
+## 3. Why there is no generator
+
+Version 0.2 shipped template renderers for every feature. The cost was structural: each
+template had to be kept correct against a moving Bot API, each feature doubled that
+surface for two stacks, and the output still needed a human to finish it. The agent
+already has file tools and can write code; what it lacked was procedure and current
+facts.
+
+Version 0.3 keeps the part that is cheap and deterministic — verification — and replaces
+rendering with knowledge:
+
+- `skills/` states what to do, in what order, with which API, and where to check.
+- The agent writes the project in the confirmed stack.
+- `verify` checks the result against the 29 invariants.
+- `examples/` proves the combination works.
+
+There is no `.aurifex/manifest.json`, no upgrade protocol, and no template set. Nothing
+in the repository claims to have generated the reference projects.
+
+## 4. Core contracts
 
 ### DomainResult
 
@@ -76,122 +93,90 @@ type DomainResult<T> =
 
 `serializeDomainResult` uses canonical JSON so adapter output is byte-stable.
 
-Stable error codes:
+Stable error codes used by the remaining operations:
 
 - `invalid_request`
 - `invalid_path`
 - `unauthorized_path`
-- `destination_exists`
-- `file_too_large`
-- `file_exists` (mapped to `destination_exists` by the facade)
 - `not_a_file`
 - `not_a_directory`
+- `file_too_large`
 - `output_too_large`
 - `target_unsupported`
 - `project_unreadable`
 - `verification_failed`
-- `feature_exists`
+- `build_failed`
 - `internal_error`
+
+### Operations
+
+`CoreOperations` exposes exactly three operations:
+
+```ts
+interface CoreOperations {
+  resolveTarget(input: { stack: BotStack }): Promise<DomainResult<TargetResolution>>;
+  inspectBot(input: { projectRoot: string }): Promise<DomainResult<InspectResult>>;
+  verifyBot(input: { projectRoot: string }): Promise<DomainResult<VerificationReport>>;
+}
+```
+
+`install` is a CLI and adapter concern (host integration commands), not a core
+operation.
 
 ### BotSpec
 
-```ts
-interface BotSpec {
-  schemaVersion: "bot-spec-1.1.0";
-  name: string; // ^[a-z][a-z0-9_]{1,63}$
-  displayName: string;
-  stack: "grammy" | "aiogram";
-  features: readonly BotFeature[];
-  deployment: "docker";
-  storage: { postgres: boolean; redis: boolean };
-  i18n: {
-    defaultLocale: "en" | "ru" | "zh";
-    en: boolean;
-    ru: boolean;
-    zh: boolean;
-  };
-  security: {
-    webhookSecret: true;
-    adminAllowlist: boolean;
-    rateLimit: boolean;
-    idempotency: boolean;
-  };
-  runtime: {
-    queue: "postgres" | "none";
-    telemetry: { otlp: boolean; prometheus: boolean; sentry: boolean };
-  };
-  miniapps?: {
-    sessionTtlSeconds: number; // 300..2592000, default 86400
-    allowedOrigins: readonly string[];
-  };
-  payments?: {
-    products: readonly {
-      id: string; // ^[a-z][a-z0-9_]{1,31}$
-      title: string; // 1..32
-      description: string; // 1..255
-      stars: number; // 1..10000
-      subscription: boolean;
-    }[];
-  };
-}
-```
+`BotSpec` is the agreement between the user and the agent, not a template input. The
+schema is `bot-spec-1.1.0`; the validator is authoritative and the JSON Schema mirrors it
+for editors. Fields and coupling rules are in [BOT_SPEC.md](BOT_SPEC.md).
 
-Validation is strict: unknown keys, duplicate features, empty strings, and a
-missing webhook secret are rejected.
+### layout.ts
 
-## 4. Path and write policy
+A _role_ names one file whose position is fixed for the stack. `src/core/layout.ts`
+declares 18 roles, identical for both stacks: `entry`, `bot`, `config`, `logger`,
+`httpServer`, `httpHealth`, `httpTelemetry`, `httpSecrets`, `api104`, `dedupe`, `store`,
+`queue`, `worker`, `payments`, `miniapp`, `migration`, `tests`, `lockfile`. Four of them —
+`queue`, `worker`, `payments`, `miniapp` — are optional: they exist only when the
+confirmed `BotSpec` enables that feature, and the verifier treats an absent file as a pass
+for a feature that is not configured.
 
-All operations that touch the filesystem are created from `CoreOperationsOptions`:
+`LAYOUT` maps each role to its concrete path per stack (`src/…ts` for grammY, `app/…py`
+for aiogram); `layoutPaths()` returns the deduplicated, sorted set of all 35 paths.
+Callers ask for a role (`LAYOUT[stack].worker`) instead of spelling a path, so no module
+outside `layout.ts` names a layout path — `verify.ts` derives every candidate it checks
+from `LAYOUT`.
 
-```ts
-interface CoreOperationsOptions {
-  root: string;
-  now?: () => Date;
-}
-```
+`skills/telegram-bot-recipes/references/project-layout.md` owns the human-readable table,
+which is why it is not repeated here. The reference and `LAYOUT` change together:
+`tests/unit/layout.test.ts` fails when the path set in the reference diverges from
+`layoutPaths()`.
 
-`createCoreOperations` resolves `root` with `realpath` and builds one `PathPolicy`
-that every operation receives. There is no second filesystem authority.
+## 5. Path and read policy
+
+All operations that touch the filesystem are created from
+`CoreOperationsOptions { root, now? }`. `createCoreOperations` resolves `root` with
+`realpath` and builds one `PathPolicy` that every operation receives. There is no second
+filesystem authority.
 
 Rules:
 
 1. Resolve the real root with `realpath`.
 2. For reads, `realpath(candidate)` must be inside the root.
-3. For writes, resolve the parent with `realpath`; the target must not be a
-   symlink; the lexical and real paths must both be inside the root.
-4. Create files with `flag: "wx"` unless `overwrite` is explicit.
-5. Never follow a symlink while creating intermediate directories.
-6. Cap file reads at 1 MiB and total verification input at 64 MiB; an
-   unscannable oversized file fails `token.literal`.
-7. Generated compose files never hardcode database passwords, publish the bot
-   port directly, or expose Redis without a password; Caddy terminates TLS.
+3. The project root of `inspect` and `verify` must be a directory inside the root and
+   must not be a symlink escape.
+4. Operations never write to a bot project. The installer alone writes build output and
+   host registrations, outside the `PathPolicy` root.
+5. Cap file reads at 1 MiB and total verification input at 64 MiB. A file that cannot be
+   scanned because it is oversized fails `scan.bounded`.
 
-The host adapters use `createPathPolicy`. OMP authorizes `ctx.cwd`; DSH authorizes
-the configured `root`; MCP authorizes `AURIFEX_ROOT` (default `cwd`); the CLI
-authorizes `--root` (default `cwd`).
-
-## 5. Templates
-
-Templates are TypeScript functions returning `TemplateFile[]`.
-No template engine and no runtime dependency.
-
-Bot API 10.4 is first-class even though grammY 1.46 and aiogram 3.31 types stop at
-10.3: generated projects include `src/telegram/api104.ts` or
-`app/services/api104.py`, a typed raw adapter for widgets, widget queries,
-ephemeral callback replies, and rich messages/drafts. Remaining 10.4 data
-surfaces (TON wallet cards, share themes, rich quotes) stay available through the
-raw transport. Verification check `botapi.104` fails when the adapter is removed.
-
-- Generated files are deterministic: same spec and target produce identical bytes.
-- All dynamic values are escaped for their target context (JSON via
-  `JSON.stringify`, TOML via quoted strings, Docker via allowlisted values).
-- User-provided names are validated before interpolation.
-- The token placeholder is always empty.
+The host adapters use `createPathPolicy`. OMP authorizes `ctx.cwd`; DSH authorizes the
+configured `root`; MCP authorizes `AURIFEX_ROOT` (default `cwd`); the CLI authorizes
+`--root` (default `cwd`).
 
 ## 6. Verification model
 
-`verifyBot` performs static checks only. It does not execute the generated project.
-Checks are pure functions over a bounded file snapshot:
+`verifyBot` matches static file-content markers in a bounded snapshot. It never executes
+project code, uses the network, or calls Telegram. Markers do not prove runtime
+behaviour. Checks are pure functions over that snapshot:
 
 ```ts
 interface Check {
@@ -202,30 +187,51 @@ interface Check {
 }
 ```
 
-`ok` is true only when no check is `fail`. Warnings remain visible.
+`ok` is true only when no check is `fail`. Warnings remain visible. The 29 ids are
+grouped in the README and enumerated in [TEST_PLAN.md](TEST_PLAN.md).
 
-Project execution is a separate, explicit step performed by the operator or the
-live E2E suite.
+Project execution is a separate, explicit step performed by the operator or by the
+project's own test suite.
 
-## 7. Host projections
+## 7. Knowledge model
+
+Each `skills/<name>/SKILL.md` is a procedure with three mandatory sections:
+
+- `## Procedure` — ordered steps, exact APIs, and what to read next.
+- `## Gotchas` — symptoms, causes, fixes.
+- `## Sources` — at least three absolute `https://` references.
+
+Heavy detail lives in `references/*.md`; the skill states when to read which file.
+`tools/check-skills.mjs` enforces the structure offline: frontmatter name matches the
+directory, description exists and is within 1024 characters, body is at most 500 lines,
+required headings are present, relative links resolve, and removed generator tool names
+do not appear.
+
+One topic has one owner. Security lives in `telegram-security`, limits in
+`telegram-bot-api`, delivery in `telegram-deploy`, Bot API 10.4 in
+`telegram-bot-api-104`, and failure modes in `telegram-bot-failures`. Other skills
+cross-reference instead of copying.
+
+## 8. Host projections
 
 ### OMP
 
 - `src/adapters/omp/index.ts` default-exports a factory.
-- Registers tools with `pi.registerTool`, schemas with `pi.zod`.
-- Registers `/aurifex-new`, `/aurifex-verify`, `/aurifex-deploy`.
-- `/aurifex-new` sends the discovery prompt and never scaffolds until the user confirms the BotSpec.
-- Authorizes paths from `ctx.cwd`.
-- Uses tool `approval`: `read` for resolve/inspect/verify, `write` for scaffold/add/deploy.
+- Registers three tools with `pi.registerTool`, schemas with `pi.zod`.
+- Registers `aurifex-new`, `aurifex-verify`, `aurifex-deploy` commands, matching
+  `commands/*.md`.
+- `aurifex-new` sends the discovery prompt and never writes code before the user confirms
+  the proposed `BotSpec`.
+- Authorizes paths from `ctx.cwd`. All three tools are `read` approval.
 
 ### DeepSeek Harness
 
 - Function plugin with `name`, `inject = ["tools", "systemPrompt"]`, `apply`.
 - No default export.
 - `Config` is a Schemastery schema.
-- Tools use `defineTool` with canonical JSON output and a renderer.
-- `cordis.patch.yml` inserts one row.
-- All registrations are fiber-owned.
+- The same three tools use `defineTool` with canonical JSON output and a renderer.
+- The system-prompt section imports `DISCOVERY_GUIDANCE` from `src/adapters/shared.ts`.
+- `cordis.patch.yml` inserts one row; registrations are fiber-owned.
 
 ### Claude Code
 
@@ -233,65 +239,75 @@ live E2E suite.
 - `.claude-plugin/marketplace.json` exposes the repo as a marketplace.
 - `.mcp.json` registers the same stdio server.
 - `skills/`, `agents/`, `commands/` are auto-discovered.
+- `rules/telegram-security.md` and `prompts/review-bot.md` ship as reference pointers.
+  Claude Code and DSH do not auto-load these directories.
 - `aurifex install --host claude` runs marketplace add + install.
 
 ### MCP
 
-- `McpServer` with `@modelcontextprotocol/server` 2.4.0.
-- Strict Zod v4 input schemas.
+- Zero-dependency stdio server in `dist/adapters/mcp/server.js`: JSON-RPC 2.0 over
+  stdin/stdout, no runtime `node_modules` needed. This is what makes a Claude
+  marketplace install runnable from its cache copy.
+- `PROTOCOL_VERSION = "2025-11-25"`; `initialize` always answers with that value.
+- Strict JSON Schema input validation for every tool; unknown fields are rejected.
 - Results are `structuredContent` plus serialized text, capped at 256 KiB.
 - Stdout is reserved for JSON-RPC; diagnostics go to stderr.
-- `serveStdio` owns transport lifecycle.
+- The server owns transport lifecycle (`initialize`, `tools/list`, `tools/call`, `ping`).
 
-## 8. Trust boundaries
+## 9. Trust boundaries
 
-| Boundary                   | Trust        | Control                                          |
-| -------------------------- | ------------ | ------------------------------------------------ |
-| Model arguments            | untrusted    | strict schema, name allowlists, path policy      |
-| Existing repository files  | untrusted    | bounded read, no execution, no symlink follow    |
-| Third-party reference code | untrusted    | read-only reference, license check, no vendoring |
-| Telegram updates           | untrusted    | secret-token check, update schema validation     |
-| Mini App `initData`        | untrusted    | HMAC/Ed25519, auth_date freshness                |
-| Bot token                  | secret       | env only, redaction, never written               |
-| Host extension process     | trusted code | reviewed source, no sandbox claim                |
+| Boundary                   | Trust        | Control                                       |
+| -------------------------- | ------------ | --------------------------------------------- |
+| Model arguments            | untrusted    | strict schema, stack enum, path policy        |
+| Existing repository files  | untrusted    | bounded read, no execution, no symlink follow |
+| Third-party reference code | untrusted    | read-only reference, no vendoring             |
+| Host extension process     | trusted code | reviewed source, no sandbox claim             |
+| Installer source           | publisher    | pinned ref, local build, redacted output      |
 
-## 9. Failure behavior
+## 10. Failure behavior
 
-- No operation leaves a partially written project without reporting it.
-- Scaffold writes into a fresh directory; on failure it removes only the files it
-  created in this call.
-- `overwrite` never deletes unrelated files.
 - Verification returns findings, not exceptions, for project content.
-- Adapter errors are converted to `DomainResult` errors; unexpected exceptions
-  become `internal_error` with no stack trace in the model-facing payload.
+- An unreadable project returns `project_unreadable` with the path, never a stack trace.
+- Adapter errors are converted to `DomainResult` errors; unexpected exceptions become
+  `internal_error` with no stack trace in the model-facing payload.
+- `inspect` degrades to `stack: "unknown"` with findings instead of failing when files
+  are absent.
+- The CLI maps usage errors to exit `2` and domain errors to exit `1`.
 
-## 10. Testing strategy
+## 11. Testing strategy
 
-- **Unit**: spec validation, target catalog, secret detection, path policy, template
-  file maps.
-- **Integration**: scaffold into a temp root, inspect, verify, add feature, deploy plan.
-- **Security**: symlink escape, token planting, webhook secret omissions, oversized
-  files, malicious names.
-- **Host**: OMP tool registration shape, DSH plugin shape, MCP initialize/list/call.
-- **E2E**: generated project typecheck/test in a temp directory; live Telegram only
-  when `AURIFEX_LIVE=1` and secrets are present.
-- **CI**: Ubuntu, macOS, Windows for core; Linux for generated Python via container.
+- **Unit**: spec validation, target catalog, Bot API 10.4 contract, secret detection,
+  path policy, layout parity, skill structure, bundled scripts.
+- **Security**: symlink escape, token planting, webhook omissions, oversized files,
+  malicious paths, fuzz over `BotSpec` and path inputs.
+- **Integration**: both reference projects verify clean; mutated copies fail with the
+  exact expected check ids.
+- **Host**: OMP tool registration shape, DSH plugin shape, MCP initialize/list/call,
+  installer behaviour in isolated profiles.
+- **CI**: Ubuntu, macOS, Windows for the package; the reference projects in their own
+  runtimes.
 
-## 11. Dependencies
+The full matrix is in [TEST_PLAN.md](TEST_PLAN.md).
 
-Runtime: `@modelcontextprotocol/server`, `zod`.
+## 12. Dependencies
+
+Runtime: none (Node.js built-ins only). The MCP server and CLI ship dependency-free so a
+host plugin cache copy works without `node_modules`.
 Peers (DSH only): `@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`,
 `@deepseek-ai/schemastery`.
-Dev: TypeScript, Node types, OMP types, Prettier, oxlint.
+Dev: TypeScript, Node types, OMP types, Prettier, oxlint, `@modelcontextprotocol/server`
+(type-checking only), `zod` (host tests), `fast-check`.
 
-No template engine, no ORM, no Telegram client in the plugin itself.
+Bundled Python helpers that ship inside individual skill directories use the standard
+library only.
 
-## 12. Extension points
+## 13. Extension points
 
-- Add a stack: new target record + template module + adapter schema enum.
-- Add a Bot API version: update `catalog.ts`, extend the typed raw adapter and its
-  tests, and add a migration note. Framework type lag is expected; support is not.
-- Add a feature: new generator in `add-feature.ts` + template fragment + test.
-- Add a verification check: pure function in `verify.ts` + fixture test.
-- Update Bot API: edit `catalog.ts`, extend the typed raw adapter, add tests and a
-  migration note.
+- Add a stack: extend the `BotStack` union, `catalog.ts`, `layout.ts`, and the adapter
+  schema enum; add framework and recipe knowledge.
+- Add a Bot API version: update `catalog.ts`, `api104-contract.ts` (rename on the next
+  major), and the `telegram-bot-api-104` skill; framework type lag is expected and
+  handled by a raw adapter.
+- Add a verification check: pure function in `verify.ts`, fixture in
+  `tests/integration/verify.test.ts`, and a line in the site truth constants.
+- Add a skill: `skills/<name>/SKILL.md` plus references; `check-skills.mjs` validates it.
