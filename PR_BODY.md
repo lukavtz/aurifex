@@ -81,14 +81,14 @@ runtime. Remove its `.aurifex/manifest.json`. See [docs/MIGRATION.md](docs/MIGRA
 ## Verification
 
 Commands from [docs/TEST_PLAN.md](docs/TEST_PLAN.md), run on branch `feat/knowledge-plugin`
-at commit `63f955a`.
+at commit `0644b88`.
 
 - [x] `pnpm install --frozen-lockfile` — lockfile regenerated for the 0.3 dependency set
 - [x] `npx tsc --noEmit` — no errors
 - [x] `node scripts/check-skills.mjs` → `check-skills: ok · 15 skills`
 - [x] `node scripts/check-site.mjs` → `check-site: ok · 3 locales · 135 keys · 7 local assets`
-- [x] `node --test --experimental-strip-types "tests/unit/**/*.test.ts"` → 178 pass, 0 fail
-- [x] `node --test --experimental-strip-types "tests/security/**/*.test.ts"` → 18 pass, 0 fail
+- [x] `node --test --experimental-strip-types "tests/unit/**/*.test.ts"` → 182 pass, 0 fail, 3 skipped (`install-windows` needs pwsh)
+- [x] `node --test --experimental-strip-types "tests/security/**/*.test.ts"` → 23 pass, 0 fail
 - [x] `node --test --experimental-strip-types "tests/integration/**/*.test.ts"` → 23 pass, 0 fail
 - [x] `node --test --experimental-strip-types "tests/host/**/*.test.ts"` → 11 pass, 0 fail
 - [x] `pnpm verify` → exit 0 (format, lint, typecheck, unit, security, fuzz, integration, host,
@@ -109,8 +109,8 @@ at commit `63f955a`.
 ```
 $ pnpm verify
 All matched files use Prettier code style!
-ℹ pass 178   ℹ fail 0        # unit
-ℹ pass 18    ℹ fail 0        # security
+ℹ pass 182   ℹ fail 0        # unit (3 skipped: pwsh-only)
+ℹ pass 23    ℹ fail 0        # security
 ℹ pass 7     ℹ fail 0        # fuzz
 ℹ pass 23    ℹ fail 0        # integration
 ℹ pass 11    ℹ fail 0        # host
@@ -118,6 +118,9 @@ check-skills: ok · 15 skills
 check-site: ok · 3 locales · 135 keys · 7 local assets
 check-no-secrets: clean
 Tarball Details  aurifex-0.3.0.tgz
+
+# GitHub Actions on this PR: verify (ubuntu, macos, windows), fuzz, audit, package smoke,
+# workflow lint, dependency review, CodeQL — all pass.
 
 $ node dist/cli.js verify examples/grammy_commands --json
 {"ok":true,"summary":{"pass":29,"warn":0,"fail":0}}
