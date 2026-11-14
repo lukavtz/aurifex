@@ -109,8 +109,7 @@ export async function listInstalledTools(
 
 async function writeArtifact(directory: string, name: string, body: string): Promise<void> {
   const target = join(directory, name);
-  const flags =
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const handle = await open(target, flags, 0o600);
