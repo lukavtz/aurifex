@@ -285,7 +285,7 @@ test("a readiness probe without dependency checks fails telemetry.readiness", as
   try {
     await rewriteAll(
       reference.root,
-      () => true,
+      (path) => path.startsWith("src/"),
       (text) => text.replaceAll("/readyz", "/alive"),
     );
     const value = await verify(reference.root);
@@ -301,12 +301,29 @@ test("a project without /metrics only warns telemetry.metrics", async () => {
   try {
     await rewriteAll(
       reference.root,
-      (path) => path.startsWith("src/") || path.startsWith("tests/") || path === "README.md",
+      (path) => path.startsWith("src/"),
       (text) => text.replaceAll("/metrics", "/measurements"),
     );
     const value = await verify(reference.root);
     assert.equal(statusOf(value, "telemetry.metrics"), "warn");
     assert.equal(value.summary.warn, 1);
+  } finally {
+    await reference.cleanup();
+  }
+});
+
+test("documentation alone cannot satisfy telemetry checks", async () => {
+  const reference = await copyReference("grammy");
+  try {
+    await rewriteAll(
+      reference.root,
+      (path) => !path.endsWith(".md"),
+      (text) => text.replaceAll("/metrics", "/measurements").replaceAll("/readyz", "/alive"),
+    );
+    await append(reference.root, "README.md", "\nGET /metrics\nGET /readyz\n");
+    const value = await verify(reference.root);
+    assert.equal(statusOf(value, "telemetry.metrics"), "warn");
+    assert.equal(statusOf(value, "telemetry.readiness"), "fail");
   } finally {
     await reference.cleanup();
   }

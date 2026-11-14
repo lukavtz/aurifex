@@ -34,6 +34,69 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
 
+  examples:
+    name: examples (${{ matrix.example }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [grammy_commands, aiogram_commands]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - uses: astral-sh/setup-uv@v6
+      - name: Reference suite
+        shell: bash
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: |
+          set -euo pipefail
+          case "$EXAMPLE" in
+            grammy_commands)
+              cd examples/grammy_commands
+              bun install --frozen-lockfile
+              bun run typecheck
+              bun test
+              ;;
+            aiogram_commands)
+              cd examples/aiogram_commands
+              uv sync --frozen
+              uv run pytest -q
+              ;;
+            *)
+              echo "::error title=unknown example::no suite defined for $EXAMPLE"
+              exit 1
+              ;;
+          esac
+      - name: Verify reference project
+        shell: bash
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: |
+          set -euo pipefail
+          node dist/cli.js verify "examples/$EXAMPLE" --json > "$RUNNER_TEMP/verify.json"
+          node -e '
+            const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const summary = result.value?.summary ?? { fail: -1 };
+            if (result.status !== "ok" || result.value.ok !== true || summary.fail !== 0) {
+              console.error("verify gate failed: " + JSON.stringify(summary));
+              process.exit(1);
+            }
+            console.log("verify ok: " + summary.fail + " fail");
+          ' "$RUNNER_TEMP/verify.json"
+
   fuzz:
     name: fuzz
     runs-on: ubuntu-latest

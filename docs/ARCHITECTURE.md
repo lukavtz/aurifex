@@ -131,11 +131,24 @@ for editors. Fields and coupling rules are in [BOT_SPEC.md](BOT_SPEC.md).
 
 ### layout.ts
 
-`src/core/layout.ts` is the only TypeScript location that names project-relative paths:
-queue, worker, payments, Mini App session, Bot API 10.4 adapter, migration, user sync,
-tests directory, and lockfile for each stack. `verify.ts` derives its path constants from
-`LAYOUT`; `skills/telegram-bot-recipes/references/project-layout.md` is the
-human-readable copy, and a unit test asserts the two agree.
+A _role_ names one file whose position is fixed for the stack. `src/core/layout.ts`
+declares 18 roles, identical for both stacks: `entry`, `bot`, `config`, `logger`,
+`httpServer`, `httpHealth`, `httpTelemetry`, `httpSecrets`, `api104`, `dedupe`, `store`,
+`queue`, `worker`, `payments`, `miniapp`, `migration`, `tests`, `lockfile`. Four of them —
+`queue`, `worker`, `payments`, `miniapp` — are optional: they exist only when the
+confirmed `BotSpec` enables that feature, and the verifier treats an absent file as a pass
+for a feature that is not configured.
+
+`LAYOUT` maps each role to its concrete path per stack (`src/…ts` for grammY, `app/…py`
+for aiogram); `layoutPaths()` returns the deduplicated, sorted set of all 35 paths.
+Callers ask for a role (`LAYOUT[stack].worker`) instead of spelling a path, so no module
+outside `layout.ts` names a layout path — `verify.ts` derives every candidate it checks
+from `LAYOUT`.
+
+`skills/telegram-bot-recipes/references/project-layout.md` owns the human-readable table,
+which is why it is not repeated here. The reference and `LAYOUT` change together:
+`tests/unit/layout.test.ts` fails when the path set in the reference diverges from
+`layoutPaths()`.
 
 ## 5. Path and read policy
 
@@ -285,7 +298,8 @@ Peers (DSH only): `@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`,
 Dev: TypeScript, Node types, OMP types, Prettier, oxlint, `@modelcontextprotocol/server`
 (type-checking only), `zod` (host tests), `fast-check`.
 
-Bundled Python helpers under `skills/*/scripts/` use the standard library only.
+Bundled Python helpers that ship inside individual skill directories use the standard
+library only.
 
 ## 13. Extension points
 

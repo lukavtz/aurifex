@@ -148,7 +148,15 @@ for (const project of PROJECTS) {
     const layout = LAYOUT[project.stack];
     const features = await declaredFeatures(project);
 
+    // Telemetry and secret-file loading are optional surfaces: a project that
+    // ships the role must place it at the contract path, otherwise it is
+    // reported and skipped.
+    const httpTelemetry = files.some((path) => /(^|\/)telemetry\.(?:ts|py)$/.test(path));
+    const httpSecrets = files.some((path) => /(^|\/)secrets\.(?:ts|py)$/.test(path));
+
     const conditional = [
+      ["httpTelemetry", layout.httpTelemetry, httpTelemetry],
+      ["httpSecrets", layout.httpSecrets, httpSecrets],
       ["queue", layout.queue, features.queue],
       ["worker", layout.worker, features.worker],
       ["payments", layout.payments, features.payments],
@@ -170,8 +178,6 @@ for (const project of PROJECTS) {
       ["logger", layout.logger],
       ["httpServer", layout.httpServer],
       ["httpHealth", layout.httpHealth],
-      ["httpTelemetry", layout.httpTelemetry],
-      ["httpSecrets", layout.httpSecrets],
       ["api104", layout.api104],
       ["dedupe", layout.dedupe],
       ["store", layout.store],

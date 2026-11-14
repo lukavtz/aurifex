@@ -92,6 +92,7 @@ test("ci keeps one verify gate, no retired jobs, four commands and three tools",
   const ci = await workflow("ci");
   assert.deepEqual(Object.keys(ci.jobs).toSorted(), [
     "audit",
+    "examples",
     "fuzz",
     "package",
     "verify",
@@ -123,6 +124,44 @@ test("ci keeps one verify gate, no retired jobs, four commands and three tools",
   const source = await workflowSource("ci");
   assert.doesNotMatch(source, RETIRED_TOOL_NAMES);
   assert.doesNotMatch(source, RETIRED_SCRIPTS);
+});
+
+test("ci runs both reference projects and gates them on verify", async () => {
+  const ci = await workflow("ci");
+  const examples = ci.jobs.examples;
+  assert.ok(examples, "ci must define the examples job");
+  assert.deepEqual(examples.strategy?.matrix?.example, ["grammy_commands", "aiogram_commands"]);
+
+  const bun = examples.steps.find((entry) => entry.uses?.startsWith("oven-sh/setup-bun@"));
+  assert.equal(bun?.uses, "oven-sh/setup-bun@v2");
+  assert.equal(bun?.with?.["bun-version"], "1.4.4");
+  assert.ok(
+    examples.steps.some((entry) => entry.uses?.startsWith("astral-sh/setup-uv@")),
+    "the aiogram example needs uv",
+  );
+  assert.ok(examples.steps.some((entry) => entry.run === "pnpm install --frozen-lockfile"));
+  assert.ok(examples.steps.some((entry) => entry.run === "pnpm build"));
+
+  const suite = namedStep(examples, "Reference suite");
+  assert.equal(suite.env?.EXAMPLE, "${{ matrix.example }}");
+  assert.ok(!suite.run?.includes("${{"), "the reference suite must read the matrix value from env");
+  for (const fragment of [
+    "bun install --frozen-lockfile",
+    "bun run typecheck",
+    "bun test",
+    "uv sync --frozen",
+    "uv run pytest -q",
+  ])
+    assert.ok(suite.run?.includes(fragment), `the reference suite must run ${fragment}`);
+
+  const gate = namedStep(examples, "Verify reference project");
+  assert.equal(gate.env?.EXAMPLE, "${{ matrix.example }}");
+  assert.ok(
+    gate.run?.includes('node dist/cli.js verify "examples/$EXAMPLE" --json'),
+    "the gate must verify the matrix project",
+  );
+  assert.match(gate.run ?? "", /summary\.fail/, "the gate must parse the fail count");
+  assert.match(gate.run ?? "", /process\.exit\(1\)/, "the gate must fail the job on a bad count");
 });
 
 test("dependency review stays advisory", async () => {
