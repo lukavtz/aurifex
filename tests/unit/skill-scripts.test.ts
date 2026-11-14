@@ -46,7 +46,15 @@ function run(
   const child = spawn(PYTHON, [script, ...args], {
     cwd: REPO,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, NO_COLOR: "1", ...extraEnv },
+    // Windows decodes stdin with the ANSI code page unless forced, which turns an
+    // emoji into four replacement characters and breaks the code-point assertion.
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      PYTHONUTF8: "1",
+      PYTHONIOENCODING: "utf-8",
+      ...extraEnv,
+    },
   });
   let stdout = "";
   let stderr = "";
