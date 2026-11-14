@@ -80,37 +80,65 @@ runtime. Remove its `.aurifex/manifest.json`. See [docs/MIGRATION.md](docs/MIGRA
 
 ## Verification
 
-Commands from [docs/TEST_PLAN.md](docs/TEST_PLAN.md). Paste actual output; do not claim a
-pass without it.
+Commands from [docs/TEST_PLAN.md](docs/TEST_PLAN.md), run on branch `feat/knowledge-plugin`
+at commit `63f955a`.
 
-- [ ] `pnpm install --frozen-lockfile`
-- [ ] `npx tsc --noEmit`
-- [ ] `node scripts/check-skills.mjs` → `check-skills: ok · 15 skills`
-- [ ] `node scripts/check-site.mjs`
-- [ ] `node --test --experimental-strip-types "tests/unit/**/*.test.ts"`
-- [ ] `node --test --experimental-strip-types "tests/security/**/*.test.ts"`
-- [ ] `node --test --experimental-strip-types "tests/integration/**/*.test.ts"`
-- [ ] `node --test --experimental-strip-types "tests/host/**/*.test.ts"`
-- [ ] `pnpm verify`
-- [ ] `(cd examples/grammy_commands && bun install --frozen-lockfile && bun run typecheck && bun test)`
-- [ ] `(cd examples/aiogram_commands && uv sync --frozen && uv run pytest -q)`
-- [ ] `node dist/cli.js verify examples/grammy_commands --json` → `"ok": true`, `fail: 0`
-- [ ] `node dist/cli.js verify examples/aiogram_commands --json` → `"ok": true`, `fail: 0`
-- [ ] `node dist/cli.js --help` → four commands
-- [ ] `node dist/adapters/mcp/server.js` → `initialize` answers `2025-11-25`;
-      `tools/list` returns three tools
-- [ ] New behavior has a failing-first test, or the reason it cannot is stated
+- [x] `pnpm install --frozen-lockfile` — lockfile regenerated for the 0.3 dependency set
+- [x] `npx tsc --noEmit` — no errors
+- [x] `node scripts/check-skills.mjs` → `check-skills: ok · 15 skills`
+- [x] `node scripts/check-site.mjs` → `check-site: ok · 3 locales · 135 keys · 7 local assets`
+- [x] `node --test --experimental-strip-types "tests/unit/**/*.test.ts"` → 178 pass, 0 fail
+- [x] `node --test --experimental-strip-types "tests/security/**/*.test.ts"` → 18 pass, 0 fail
+- [x] `node --test --experimental-strip-types "tests/integration/**/*.test.ts"` → 23 pass, 0 fail
+- [x] `node --test --experimental-strip-types "tests/host/**/*.test.ts"` → 11 pass, 0 fail
+- [x] `pnpm verify` → exit 0 (format, lint, typecheck, unit, security, fuzz, integration, host,
+      skills, site, secrets, pack dry-run)
+- [x] `(cd examples/grammy_commands && bun test)` → 34 pass, 2 skip, 0 fail; `bun run typecheck` clean
+- [x] `(cd examples/aiogram_commands && uv run pytest -q)` → 34 passed
+- [x] `node dist/cli.js verify examples/grammy_commands --json` → `{"ok":true,"pass":29,"warn":0,"fail":0}`
+- [x] `node dist/cli.js verify examples/aiogram_commands --json` → `{"ok":true,"pass":29,"warn":0,"fail":0}`
+- [x] `node dist/cli.js --help` → `target`, `inspect`, `verify`, `install`
+- [x] `node dist/adapters/mcp/server.js` → `initialize` with `1999-01-01` answers `2025-11-25`;
+      `tools/list` returns `telegram_bot_target_resolve`, `telegram_bot_inspect`, `telegram_bot_verify`
+- [x] Failing-first tests: each new contract test was written red before the behaviour existed —
+      `layout.test.ts` (recipes reference vs `layoutPaths()`), `check-skills.test.ts` (checker red on
+      every violation), `api104-contract.test.ts`, `reference-projects.test.ts`,
+      `skill-scripts.test.ts` (initially fetched the live docs page; now proven offline under a dead
+      proxy), `verify.test.ts` (23 mutations, each pinning one check id)
 
 ```
-# commands and output
+$ pnpm verify
+All matched files use Prettier code style!
+ℹ pass 178   ℹ fail 0        # unit
+ℹ pass 18    ℹ fail 0        # security
+ℹ pass 7     ℹ fail 0        # fuzz
+ℹ pass 23    ℹ fail 0        # integration
+ℹ pass 11    ℹ fail 0        # host
+check-skills: ok · 15 skills
+check-site: ok · 3 locales · 135 keys · 7 local assets
+check-no-secrets: clean
+Tarball Details  aurifex-0.3.0.tgz
+
+$ node dist/cli.js verify examples/grammy_commands --json
+{"ok":true,"summary":{"pass":29,"warn":0,"fail":0}}
+$ node dist/cli.js verify examples/aiogram_commands --json
+{"ok":true,"summary":{"pass":29,"warn":0,"fail":0}}
+
+$ printf 'initialize(1999-01-01) / tools/list' | node dist/adapters/mcp/server.js
+"2025-11-25"
+["telegram_bot_target_resolve","telegram_bot_inspect","telegram_bot_verify"]
 ```
 
 ## Security
 
-- [ ] No token, webhook secret, API key, or private chat id is added, logged, or committed
-- [ ] Every filesystem read still resolves through `PathPolicy`
-- [ ] Verification output never echoes a matched secret and never executes project code
-- [ ] New dependencies are pinned to exact versions and pass `pnpm audit --prod`
-- [ ] Bot API 10.4 gaps are handled by a typed raw adapter, not claimed as native
-      framework support
-- [ ] Removed tool names do not appear in skills, docs, or prompts
+- [x] No token, webhook secret, API key, or private chat id is added, logged, or committed
+      (`check-no-secrets: clean`, `check-skills` token regex, `token-plant` tests)
+- [x] Every filesystem read still resolves through `PathPolicy` (`path-traversal`, `verify.test.ts` symlink case)
+- [x] Verification output never echoes a matched secret and never executes project code
+      (redaction asserted in `token-plant` and `webhook-constants`)
+- [x] New dependencies are pinned to exact versions and pass `pnpm audit --prod`
+      (no dependency added; the MCP server stays zero-dependency)
+- [x] Bot API 10.4 gaps are handled by a typed raw adapter, not claimed as native
+      framework support (`api104-contract`, `botapi.104` checks on both references)
+- [x] Removed tool names do not appear in skills, docs, or prompts
+      (`check-skills` rejects them; docs grep is part of `docs/TEST_PLAN.md`)
