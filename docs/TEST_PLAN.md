@@ -17,19 +17,22 @@ checked, with which command, and what counts as a failure.
 
 ## Environments
 
-| Tool   | Version                         | Used by                                  |
-| ------ | ------------------------------- | ---------------------------------------- |
-| Node   | >= 24.9.0 (CI: 24)              | all suites; `--experimental-strip-types` |
-| pnpm   | 12.18                           | install, scripts, `verify`               |
-| Bun    | 1.4.2                           | `examples/grammy_commands`               |
-| uv     | 0.12.23                         | `examples/aiogram_commands`              |
-| Python | 3.14 (supported `>=3.11,<3.15`) | `examples/aiogram_commands`              |
-| Docker | current stable                  | optional, not in the default gate        |
+| Tool   | Version                                                                    | Used by                                  |
+| ------ | -------------------------------------------------------------------------- | ---------------------------------------- |
+| Node   | >= 24.9.0 (CI: 24)                                                         | all suites; `--experimental-strip-types` |
+| pnpm   | 12.18.0                                                                    | install, scripts, `verify`               |
+| Bun    | 1.4.4 (`oven-sh/setup-bun@v2`)                                             | `examples/grammy_commands`               |
+| uv     | `astral-sh/setup-uv@v6` (shim; the action installs its current uv, no pin) | `examples/aiogram_commands`              |
+| Python | 3.14 (supported `>=3.11,<3.15`)                                            | `examples/aiogram_commands`              |
+| Docker | current stable                                                             | optional, not in the default gate        |
 
 Unit, security, integration, host, skill, site, and secret suites require no network.
-The reference-project suites install dependencies and therefore need network.
+The reference-project suites install dependencies and therefore need network; CI runs
+them in the `examples` job, not in `pnpm verify`.
 
 ## Full command list
+
+This list is what a maintainer runs locally; CI splits it into jobs.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -41,12 +44,23 @@ node --test --experimental-strip-types "tests/security/**/*.test.ts"
 node --test --experimental-strip-types "tests/integration/**/*.test.ts"
 node --test --experimental-strip-types "tests/host/**/*.test.ts"
 pnpm verify
+```
 
+The reference projects are gated by the CI job `examples` (matrix over
+`grammy_commands` and `aiogram_commands`), which runs the same suites and then the
+`aurifex verify` gate:
+
+```sh
 (cd examples/grammy_commands && bun install --frozen-lockfile && bun run typecheck && bun test)
 (cd examples/aiogram_commands && uv sync --frozen && uv run pytest -q)
 
 node dist/cli.js verify examples/grammy_commands --json
 node dist/cli.js verify examples/aiogram_commands --json
+```
+
+The job fails on a non-zero `summary.fail`, not only on a non-zero exit code.
+
+```sh
 node dist/cli.js --help
 node dist/adapters/mcp/server.js   # stdio: initialize -> tools/list = 3
 ```
@@ -56,8 +70,8 @@ Expected observations:
 - `check-skills: ok · 15 skills`
 - `check-site: ok · 3 locales …`
 - unit, security, integration, and host suites finish without failures
-- both reference projects install offline-only from their frozen lockfiles, typecheck,
-  and pass their own tests
+- both reference projects install from their frozen lockfiles, typecheck, and pass
+  their own tests in the `examples` matrix
 - both `verify --json` runs produce `"ok": true` and `summary.fail == 0`
 - `tools/list` returns exactly `telegram_bot_target_resolve`,
   `telegram_bot_inspect`, `telegram_bot_verify`
@@ -65,19 +79,19 @@ Expected observations:
 
 ## Matrix
 
-| Suite             | Command                                                          | Scope                                 | Network | Skip behavior    |
-| ----------------- | ---------------------------------------------------------------- | ------------------------------------- | ------- | ---------------- |
-| Unit              | `pnpm test:unit`                                                 | `tests/unit/**/*.test.ts`             | no      | never skipped    |
-| Security          | `pnpm test:security`                                             | `tests/security/**/*.test.ts`         | no      | never skipped    |
-| Fuzz              | `pnpm test:fuzz`                                                 | `tests/security/fuzz.test.ts`         | no      | never skipped    |
-| Integration       | `pnpm test:integration`                                          | `tests/integration/**/*.test.ts`      | no      | never skipped    |
-| Host              | `pnpm test:host`                                                 | `tests/host/**/*.test.ts`             | no      | never skipped    |
-| Skills            | `pnpm check:skills`                                              | every `skills/*/SKILL.md`             | no      | never skipped    |
-| Site              | `pnpm check:site`                                                | trilingual key parity, assets, counts | no      | never skipped    |
-| Secrets           | `pnpm check:secrets`                                             | tracked text files                    | no      | never skipped    |
-| Package           | `pnpm pack:check`                                                | declared `files` in the tarball       | no      | never skipped    |
-| Reference grammY  | `bun install --frozen-lockfile && bun run typecheck && bun test` | `examples/grammy_commands`            | yes     | separate command |
-| Reference aiogram | `uv sync --frozen && uv run pytest -q`                           | `examples/aiogram_commands`           | yes     | separate command |
+| Suite             | Command                                                                                                   | Scope                                 | Network | Skip behavior                                         |
+| ----------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------- | ----------------------------------------------------- |
+| Unit              | `pnpm test:unit`                                                                                          | `tests/unit/**/*.test.ts`             | no      | never skipped                                         |
+| Security          | `pnpm test:security`                                                                                      | `tests/security/**/*.test.ts`         | no      | never skipped                                         |
+| Fuzz              | `pnpm test:fuzz`                                                                                          | `tests/security/fuzz.test.ts`         | no      | never skipped                                         |
+| Integration       | `pnpm test:integration`                                                                                   | `tests/integration/**/*.test.ts`      | no      | never skipped                                         |
+| Host              | `pnpm test:host`                                                                                          | `tests/host/**/*.test.ts`             | no      | never skipped                                         |
+| Skills            | `pnpm check:skills`                                                                                       | every `skills/*/SKILL.md`             | no      | never skipped                                         |
+| Site              | `pnpm check:site`                                                                                         | trilingual key parity, assets, counts | no      | never skipped                                         |
+| Secrets           | `pnpm check:secrets`                                                                                      | tracked text files                    | no      | never skipped                                         |
+| Package           | `pnpm pack:check`                                                                                         | declared `files` in the tarball       | no      | never skipped                                         |
+| Reference grammY  | `bun install --frozen-lockfile && bun run typecheck && bun test`, then `node dist/cli.js verify … --json` | `examples/grammy_commands`            | yes     | CI job `examples`, matrix entry, fails on `fail != 0` |
+| Reference aiogram | `uv sync --frozen && uv run pytest -q`, then `node dist/cli.js verify … --json`                           | `examples/aiogram_commands`           | yes     | CI job `examples`, matrix entry, fails on `fail != 0` |
 
 `pnpm verify` order is fixed:
 `format:check → lint → typecheck → test:unit → test:security → test:fuzz →
@@ -178,14 +192,16 @@ Each mutation asserts the exact check id, so a renamed or removed check is caugh
 - `uv sync --frozen`, `uv run pytest -q`;
 - the same surface, with `dp.feed_update(bot, update)` as the test entry point.
 
-Both are then passed to `aurifex verify` via the CLI, which is the end-to-end proof that
-knowledge, code, and gate agree.
+Both then go through `aurifex verify` via the CLI in the same `examples` job, which is
+the end-to-end proof that knowledge, code, and gate agree.
 
 ## What this plan does not cover
 
 - **Runtime behaviour.** No test starts a bot, receives a real update, or calls Telegram.
   Behavioural evidence comes from a project's own tests and a real deployment.
-- **Docker image builds.** Not in the default gate; optional and environment-dependent.
+- **Docker image builds.** Not in the CI gate. `release.yml` builds and pushes the two
+  reference images to GHCR in its `examples` job, which is `continue-on-error: true`;
+  a registry problem never fails a release and is reported as a skipped publish.
 - **Live Telegram API checks.** `tools/check-bot-api.mjs --check` and
   `tg_docs.py` require network and are not part of `pnpm verify`. The docs tool exits `3`
   when the network is unavailable; that is a reported state, not a test failure.

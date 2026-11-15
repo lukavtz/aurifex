@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "aurifex",
-  "description": "Production Telegram bot development for coding agents.",
+  "description": "Telegram bot knowledge and static verification for coding agents.",
   "owner": {
     "name": "lukavtz"
   },
   "plugins": [
     {
       "name": "aurifex",
-      "description": "Scaffold, secure, verify, test, and deploy grammY and aiogram bots. Bot API 10.4 widgets, rich messages, ephemeral replies, Stars, and Mini Apps.",
+      "description": "Telegram bot knowledge and static verification for Claude Code: skills that teach an agent to interview, build, and verify grammY and aiogram bots, with a machine-readable Bot API 10.4 contract.",
       "author": {
         "name": "lukavtz"
       },

@@ -51,13 +51,11 @@ Bot API 10.4.
 
 ## Установка
 
-```sh
-npx aurifex install
-```
+### Скрипт установки
 
-Или запустите скрипт установки: он держит постоянный checkout в `~/.aurifex/src`
+Скрипт установки держит постоянный checkout в `~/.aurifex/src`
 (`%LOCALAPPDATA%\Aurifex\src` в Windows), один раз собирает его и запускает установщик
-CLI:
+CLI.
 
 ```sh
 # macOS / Linux
@@ -69,10 +67,25 @@ curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | s
 powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"
 ```
 
-Из checkout можно вызвать CLI напрямую:
+### Из checkout
+
+Вызовите CLI напрямую. Он использует checkout, в котором лежит, и собирает артефакты
+только если их нет:
 
 ```sh
 node dist/cli.js install
+```
+
+### npm
+
+Пакет npm пока не опубликован, поэтому `npx aurifex install` сегодня не работает.
+До публикации устанавливайте из checkout, как показано выше, или распакуйте архив
+GitHub Release — в нём уже есть собранный `dist/`:
+
+```sh
+curl -fsSLO https://github.com/lukavtz/aurifex/releases/latest/download/aurifex-0.3.0.tgz
+tar -xzf aurifex-0.3.0.tgz
+node package/dist/cli.js install
 ```
 
 Установщик интерактивен: он спрашивает хосты и область установки, выполняет команды

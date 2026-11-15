@@ -50,12 +50,10 @@ TypeScript + grammY and Python + aiogram are first-class. Bot API 10.4 is the ta
 
 ## Install
 
-```sh
-npx aurifex install
-```
+### Installer script
 
-Or run the installer script, which keeps a persistent checkout at `~/.aurifex/src`
-(`%LOCALAPPDATA%\Aurifex\src` on Windows), builds it once, and runs the CLI installer:
+The installer script keeps a persistent checkout at `~/.aurifex/src`
+(`%LOCALAPPDATA%\Aurifex\src` on Windows), builds it once, and runs the CLI installer.
 
 ```sh
 # macOS / Linux
@@ -67,10 +65,25 @@ curl -fsSL https://raw.githubusercontent.com/lukavtz/aurifex/main/install.sh | s
 powershell -c "irm https://raw.githubusercontent.com/lukavtz/aurifex/main/install.ps1 | iex"
 ```
 
-From a checkout, call the CLI directly:
+### From a checkout
+
+Call the CLI directly. It uses the checkout it lives in and builds the artifacts only if
+they are missing:
 
 ```sh
 node dist/cli.js install
+```
+
+### npm
+
+The npm package is not published yet, so `npx aurifex install` does not work today. Until
+it is published, install from a checkout as shown above, or unpack the GitHub Release
+tarball, which already contains the built `dist/`:
+
+```sh
+curl -fsSLO https://github.com/lukavtz/aurifex/releases/latest/download/aurifex-0.3.0.tgz
+tar -xzf aurifex-0.3.0.tgz
+node package/dist/cli.js install
 ```
 
 The installer is interactive. It asks which hosts and which scope to install, then runs
