@@ -7,7 +7,7 @@ import { createCoreOperations, type CoreOperations } from "../../core/operations
 import { domainFailure, serializeDomainResult, type DomainResult } from "../../core/results.ts";
 
 const MAX_RESULT_BYTES = 262_144;
-const SERVER_VERSION = "0.3.0";
+const SERVER_VERSION = "0.3.1";
 const PROTOCOL_VERSION = "2025-11-25";
 
 /**

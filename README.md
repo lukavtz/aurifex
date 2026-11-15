@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-c9a227?style=flat-square" alt="MIT license">
-  <img src="https://img.shields.io/badge/version-0.3.0-c9a227?style=flat-square" alt="Aurifex 0.3.0">
+  <img src="https://img.shields.io/badge/version-0.3.1-c9a227?style=flat-square" alt="Aurifex 0.3.1">
   <img src="https://img.shields.io/badge/node-%E2%89%A524.9-c9a227?style=flat-square" alt="Node.js 24.9 or newer">
   <img src="https://img.shields.io/badge/Bot%20API-10.4-c9a227?style=flat-square" alt="Telegram Bot API 10.4">
   <img src="https://img.shields.io/badge/grammY-1.46.0-2f8f83?style=flat-square" alt="grammY 1.46.0">
@@ -81,8 +81,8 @@ it is published, install from a checkout as shown above, or unpack the GitHub Re
 tarball, which already contains the built `dist/`:
 
 ```sh
-curl -fsSLO https://github.com/lukavtz/aurifex/releases/latest/download/aurifex-0.3.0.tgz
-tar -xzf aurifex-0.3.0.tgz
+curl -fsSLO https://github.com/lukavtz/aurifex/releases/latest/download/aurifex-0.3.1.tgz
+tar -xzf aurifex-0.3.1.tgz
 node package/dist/cli.js install
 ```
 

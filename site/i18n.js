@@ -133,7 +133,7 @@ window.AURIFEX_I18N = {
 
     "install.title": "Install once, reach every host",
     "install.lede":
-      "v0.3.0 installs from the repository. The installer asks which harnesses and which scope, then exits on its own.",
+      "v0.3.1 installs from the repository. The installer asks which harnesses and which scope, then exits on its own.",
     "install.unix": "macOS and Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "Run the installer",
@@ -168,7 +168,7 @@ window.AURIFEX_I18N = {
     "faq.q5": "Does verify run my bot?",
     "faq.a5":
       "No. It reads file contents inside a bounded snapshot: 64 MiB total, 1 MiB per file. No network and no Telegram call; runtime behavior belongs to the testing skill.",
-    "faq.q6": "What is out of scope for v0.3.0?",
+    "faq.q6": "What is out of scope for v0.3.1?",
     "faq.a6":
       "MTProto and userbot automation. Aurifex targets the Bot API only, and it is not a sandbox: the host extension process is trusted code.",
     "faq.q7": "Can I install from a source checkout?",
@@ -319,7 +319,7 @@ window.AURIFEX_I18N = {
 
     "install.title": "Одна установка, все хосты",
     "install.lede":
-      "v0.3.0 ставится из репозитория. Установщик спрашивает хосты и область, а затем завершается сам.",
+      "v0.3.1 ставится из репозитория. Установщик спрашивает хосты и область, а затем завершается сам.",
     "install.unix": "macOS и Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "Запустите установщик",
@@ -354,7 +354,7 @@ window.AURIFEX_I18N = {
     "faq.q5": "verify запускает моего бота?",
     "faq.a5":
       "Нет. Он читает содержимое файлов в ограниченном снимке: 64 МиБ всего, 1 МиБ на файл. Без сети и без вызовов Telegram; поведение проверяет навык тестирования.",
-    "faq.q6": "Что не входит в v0.3.0?",
+    "faq.q6": "Что не входит в v0.3.1?",
     "faq.a6":
       "MTProto и автоматизация юзерботов. Aurifex работает только с Bot API и не является песочницей: процесс расширения хоста — доверенный код.",
     "faq.q7": "Можно установить из исходников?",
@@ -495,7 +495,7 @@ window.AURIFEX_I18N = {
     "cli.note": "退出码：0 表示成功，1 表示领域错误，2 表示用法错误。",
 
     "install.title": "安装一次，覆盖所有宿主",
-    "install.lede": "v0.3.0 从仓库安装。安装器会询问要装到哪些宿主、哪个范围，然后自行结束。",
+    "install.lede": "v0.3.1 从仓库安装。安装器会询问要装到哪些宿主、哪个范围，然后自行结束。",
     "install.unix": "macOS 与 Linux",
     "install.windows": "Windows PowerShell",
     "install.step1": "运行安装器",
@@ -526,7 +526,7 @@ window.AURIFEX_I18N = {
     "faq.q5": "verify 会运行我的机器人吗？",
     "faq.a5":
       "不会。它在受控快照内读取文件内容：总计 64 MiB，单文件 1 MiB。不联网，也不调用 Telegram；运行时行为属于测试技能的范围。",
-    "faq.q6": "v0.3.0 不覆盖什么？",
+    "faq.q6": "v0.3.1 不覆盖什么？",
     "faq.a6":
       "MTProto 与 userbot 自动化。Aurifex 只面向 Bot API，而且它不是沙箱：宿主扩展进程属于可信代码。",
     "faq.q7": "可以从源码检出安装吗？",

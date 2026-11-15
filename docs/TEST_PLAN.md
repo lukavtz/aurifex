@@ -1,6 +1,6 @@
 # Aurifex Test Plan
 
-This document is the authoritative test matrix for Aurifex `0.3.0`. It defines what is
+This document is the authoritative test matrix for Aurifex `0.3.1`. It defines what is
 checked, with which command, and what counts as a failure.
 
 ## Principles

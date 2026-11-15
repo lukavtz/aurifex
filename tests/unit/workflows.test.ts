@@ -201,9 +201,9 @@ test("release binds the tag to the package version, builds two examples", async 
 
   const root = await mkdtemp(join(tmpdir(), "aurifex-workflow-"));
   try {
-    await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.3.0" }));
+    await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.3.1" }));
     for (const [requested, expected] of [
-      ["v0.3.0", 0],
+      ["v0.3.1", 0],
       ["v0.2.0", 1],
     ] as const) {
       const result: SpawnSyncReturns<string> = spawnSync("bash", ["-e", "-c", tag.run], {

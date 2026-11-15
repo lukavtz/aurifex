@@ -1,6 +1,6 @@
 {
   "name": "aurifex",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Telegram bot knowledge and static verification for Claude Code: skills that teach an agent to interview, build, and verify grammY and aiogram bots, with a machine-readable Bot API 10.4 contract.",
   "author": {
     "name": "lukavtz"

@@ -87,3 +87,5 @@ node --test --experimental-strip-types "tests/integration/**/*.test.ts"
 ```
 
 Operational steps after migration are in [OPERATIONS.md](OPERATIONS.md).
+
+The current patch release is `0.3.1`; it contains documentation corrections only.

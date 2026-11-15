@@ -1,6 +1,6 @@
 # Aurifex — Product Specification
 
-Status: accepted for v0.3.0
+Status: accepted for v0.3.1
 Last verified: 2026-11-15
 
 ## 1. Problem
@@ -206,7 +206,7 @@ Details live in `skills/telegram-security` and [THREAT_MODEL.md](THREAT_MODEL.md
 
 ## 9. Acceptance criteria
 
-v0.3.0 is accepted when:
+v0.3.1 is accepted when:
 
 1. `pnpm verify` passes on Linux, macOS, and Windows CI.
 2. `node tools/check-skills.mjs` reports `ok · 15 skills`.
@@ -221,7 +221,7 @@ v0.3.0 is accepted when:
 8. `aurifex install --dry-run --host all --json` reports OMP, DSH, and Claude Code
    commands without executing them.
 9. No skill or document names a removed generator tool.
-10. Both READMEs agree on 3 tools, 4 commands, 15 skills, 29 checks, and version 0.3.0.
+10. Both READMEs agree on 3 tools, 4 commands, 15 skills, 29 checks, and version 0.3.1.
 
 ## 10. Version policy
 

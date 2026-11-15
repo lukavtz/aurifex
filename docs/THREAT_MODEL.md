@@ -50,7 +50,7 @@ The model supplies `projectRoot`.
   no symlink escape ([`src/core/security/path-policy.ts`](../src/core/security/path-policy.ts)).
 - Reads are capped at 1 MiB per file and 64 MiB per snapshot; an oversized file fails
   `scan.bounded` instead of being silently skipped.
-- No operation in `0.3.0` writes to a project.
+- No operation in `0.3.1` writes to a project.
 - Directories such as `node_modules`, `.git`, and build output are excluded from the scan.
 
 Residual risk: a project with many small files can still cost the 64 MiB bound. The

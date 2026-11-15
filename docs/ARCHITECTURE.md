@@ -1,6 +1,6 @@
 # Aurifex — Architecture
 
-Status: v0.3.0
+Status: v0.3.1
 Last verified: 2026-11-15
 
 ## 1. Shape

@@ -27,7 +27,7 @@ surface.
 
 ## Release checklist
 
-1. Update `version` in `package.json` (current target: `0.3.0`).
+1. Update `version` in `package.json` (current target: `0.3.1`).
 2. Run the matrix from [TEST_PLAN.md](TEST_PLAN.md). CI covers it on the pushed commit:
    `verify` runs `pnpm verify`, the `examples` job runs both reference suites followed by
    both `verify --json` gates, and `package smoke` runs `--help` and the MCP stdio smoke.
@@ -36,8 +36,8 @@ surface.
    checks 29 / tools 3 / commands 4.
 4. Commit, then tag:
    ```sh
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.3.1
+   git push origin v0.3.1
    ```
 5. `.github/workflows/release.yml` checks that the requested tag matches `package.json`,
    verifies, packs, writes `SHA256SUMS`, and generates a CycloneDX SBOM. It attempts
@@ -80,8 +80,8 @@ UNSIGNED line to the job summary, and the GitHub Release proceeds without signat
 assets. Verify a downloaded artifact with:
 
 ```sh
-cosign verify-blob aurifex-0.3.0.tgz \
-  --bundle aurifex-0.3.0.tgz.sigstore.json \
+cosign verify-blob aurifex-0.3.1.tgz \
+  --bundle aurifex-0.3.1.tgz.sigstore.json \
   --certificate-identity-regexp '^https://github.com/lukavtz/aurifex/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -145,7 +145,7 @@ registry lookup is the only proof.
 | ----------- | ----------------------------------------- | -------- |
 | `NPM_TOKEN` | `release.yml` npm publish with provenance | optional |
 
-There is no live Telegram suite in `0.3.0`, so no Telegram token or chat id is a release
+There is no live Telegram suite in `0.3.1`, so no Telegram token or chat id is a release
 secret. Any test token used manually stays in a local environment and is never committed.
 
 ## Pages
