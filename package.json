@@ -71,7 +71,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
     "@deepseek-ai/schemastery": "3.19.0"
   },
   "peerDependenciesMeta": {
@@ -87,17 +87,17 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
     "@deepseek-ai/schemastery": "3.19.0",
     "@modelcontextprotocol/server": "2.4.0",
-    "@oh-my-pi/pi-coding-agent": "18.18.3",
+    "@oh-my-pi/pi-coding-agent": "19.0.1",
     "zod": "^4.6.7",
     "@types/node": "^24.10.0",
     "ajv": "8.20.0",
     "autocannon": "9.0.0",
-    "fast-check": "4.10.2",
-    "oxlint": "^1.93.0",
-    "prettier": "^3.9.10",
+    "fast-check": "4.10.3",
+    "oxlint": "^1.94.0",
+    "prettier": "^3.10.1",
     "typescript": "5.9.3"
   },
   "packageManager": "pnpm@12.18.0",
